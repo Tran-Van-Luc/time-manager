@@ -1,11 +1,11 @@
-// components/MainLayout.tsx
+// app/_layout.tsx
 import React from "react";
-import { View, StatusBar } from "react-native";
 import { Slot, useRouter, useSegments } from "expo-router";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { View, StatusBar } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import Header from "./../components/Header";
-import Footer from "./../components/Footer";
+import Header from "../components/Header";
+import Footer from "../components/Footer";
 
 const tabs = [
   { key: "home", route: "/" },
@@ -22,30 +22,23 @@ export default function MainLayout() {
 
   return (
     <SafeAreaProvider>
-      {/* Header */}
-      <LinearGradient
-        colors={['#2563EB', '#4F46E5']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-      >
-        <SafeAreaView edges={['top']} style={{ backgroundColor: 'transparent' }}>
-          <StatusBar barStyle="light-content" backgroundColor="#2563EB" />
-          <Header />
-        </SafeAreaView>
-      </LinearGradient>
+      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
 
-      {/* Nội dung chính */}
+      {/* HEADER */}
+      <Header />
+
+      {/* CONTENT */}
       <View style={{ flex: 1, backgroundColor: "white" }}>
-        <Slot /> {/* Hiển thị màn hình hiện tại */}
+        <Slot />
       </View>
 
-      {/* Footer cố định */}
+      {/* FOOTER */}
       <SafeAreaView edges={['bottom']} style={{ backgroundColor: 'white' }}>
         <Footer
-          activeTab={tabs.find(tab => tab.route === currentRoute)?.key || "home"}
+          activeTab={tabs.find(t => t.route === currentRoute)?.key || "home"}
           onTabPress={(key) => {
             const tab = tabs.find(t => t.key === key);
-            if (tab) router.push(tab.route); // dùng push để có hiệu ứng trượt
+            if (tab) router.push(tab.route);
           }}
         />
       </SafeAreaView>

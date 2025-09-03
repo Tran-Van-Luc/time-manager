@@ -1,14 +1,17 @@
+// components/Header.tsx
 import React, { useState } from "react";
-import { View, Text, TouchableOpacity, Image } from "react-native";
+import { View, Text, TouchableOpacity, Image, StyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function Header() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [notifications, setNotifications] = useState(3);
+  const insets = useSafeAreaInsets();
 
   const toggleTheme = () => {
     setTheme(theme === "light" ? "dark" : "light");
-    // thêm logic đổi theme app nếu muốn
+    // bổ sung logic đổi theme toàn app nếu cần
   };
 
   const showNotifications = () => {
@@ -17,51 +20,96 @@ export default function Header() {
 
   return (
     <LinearGradient
-      colors={["#2563EB", "#7C3AED"]}
-      className="h-16 w-full justify-center px-4"
+      colors={["#2563EB", "#4F46E5"]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 0 }}
+      style={[
+        styles.container,
+        {
+          paddingTop: insets.top,
+          height: insets.top + 64, // 64: chiều cao header (h-16 ~ 64px)
+        },
+      ]}
     >
-      <View className="flex-row justify-between items-center">
-        <Image
-          source={require("../assets/images/logo.png")}
-          style={{ width: 40, height: 40, resizeMode: "contain" }}
-        />
+      <Image
+        source={require("../assets/images/logo.png")}
+        style={styles.logo}
+      />
 
-        <View className="flex-row items-center">
-          {/* Theme */}
-          <TouchableOpacity
-            onPress={toggleTheme}
-            className="bg-white/20 rounded-full justify-center items-center"
-            style={{ width: 40, height: 40, marginRight: 12 }}
-          >
-            <Text className="text-white text-lg">
-              {theme === "light" ? "🌙" : "☀️"}
-            </Text>
-          </TouchableOpacity>
+      <View style={styles.rightGroup}>
+        {/* Theme Toggle */}
+        <TouchableOpacity onPress={toggleTheme} style={styles.iconButton}>
+          <Text style={styles.iconText}>
+            {theme === "light" ? "🌙" : "☀️"}
+          </Text>
+        </TouchableOpacity>
 
-          {/* Notifications */}
-          <TouchableOpacity
-            onPress={showNotifications}
-            className="bg-white/20 rounded-full justify-center items-center relative"
-            style={{ width: 40, height: 40, marginRight: 12 }}
-          >
-            <Text>🔔</Text>
-            {notifications > 0 && (
-              <View className="absolute -top-1 -right-1 bg-red-500 w-5 h-5 rounded-full justify-center items-center">
-                <Text className="text-white text-xs">{notifications}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
+        {/* Notifications */}
+        <TouchableOpacity onPress={showNotifications} style={styles.iconButton}>
+          <Text style={styles.iconText}>🔔</Text>
+          {notifications > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{notifications}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
 
-          {/* Settings */}
-          <TouchableOpacity
-            onPress={() => alert("Cài đặt!")}
-            className="bg-white/20 rounded-full justify-center items-center"
-            style={{ width: 40, height: 40 }}
-          >
-            <Text className="text-white text-lg">⚙️</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Settings */}
+        <TouchableOpacity
+          onPress={() => alert("Cài đặt!")}
+          style={styles.iconButton}
+        >
+          <Text style={styles.iconText}>⚙️</Text>
+        </TouchableOpacity>
       </View>
     </LinearGradient>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+  },
+  logo: {
+    width: 40,
+    height: 40,
+    resizeMode: "contain",
+  },
+  rightGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  iconButton: {
+    width: 40,
+    height: 40,
+    marginLeft: 12,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+  },
+  iconText: {
+    color: "white",
+    fontSize: 18,
+  },
+  badge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "red",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  badgeText: {
+    color: "white",
+    fontSize: 10,
+  },
+});
