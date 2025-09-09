@@ -1,0 +1,101 @@
+import { openDatabaseSync } from "expo-sqlite";
+import { drizzle } from "drizzle-orm/expo-sqlite";
+
+// Khởi tạo SQLite và Drizzle một lần
+const sqlite = openDatabaseSync("time_manager.db");
+export const db = drizzle(sqlite);
+
+// ------------------ BẢNG USERS ------------------
+db.$client.execSync(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    avatar_url TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+// ------------------ BẢNG TASKS ------------------
+db.$client.execSync(`
+  CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    title TEXT NOT NULL,
+    description TEXT,
+    start_at DATETIME,
+    end_at DATETIME,
+    priority TEXT,
+    status TEXT,
+    recurrence_id INTEGER,
+    is_deleted INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+`);
+
+// ------------------ BẢNG COURSES ------------------
+db.$client.execSync(`
+  CREATE TABLE IF NOT EXISTS courses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    instructor_name TEXT,
+    location TEXT,
+    color_tag TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+// ------------------ BẢNG SCHEDULE_ENTRIES ------------------
+db.$client.execSync(`
+  CREATE TABLE IF NOT EXISTS schedule_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id INTEGER,
+    user_id INTEGER,
+    type TEXT,
+    start_at DATETIME NOT NULL,
+    end_at DATETIME NOT NULL,
+    recurrence_id INTEGER,
+    status TEXT DEFAULT 'active',
+    cancel_reason TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (course_id) REFERENCES courses(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+`);
+
+// ------------------ BẢNG CALENDAR_EVENTS ------------------
+db.$client.execSync(`
+  CREATE TABLE IF NOT EXISTS calendar_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    start_at DATETIME NOT NULL,
+    end_at DATETIME NOT NULL,
+    source_type TEXT NOT NULL, -- 'task' hoặc 'schedule_entry'
+    source_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+// ------------------ BẢNG CANCELLED_EVENTS ------------------
+db.$client.execSync(`
+  CREATE TABLE IF NOT EXISTS cancelled_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    calendar_event_id INTEGER NOT NULL,
+    canceled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    cancel_reason TEXT,
+    source_type TEXT CHECK(source_type IN ('task','schedule_entry')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(id)
+  );
+`);
+
+console.log("✅ Database initialized with all tables!");
+
+// Hàm initDatabase trả về DB đã khởi tạo
+export function initDatabase() {
+  return db;
+}
