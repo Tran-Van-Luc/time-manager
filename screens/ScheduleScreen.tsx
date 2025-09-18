@@ -99,6 +99,31 @@ export default function ScheduleScreen() {
   useEffect(() => {
     loadSchedules();
   }, []);
+  
+  function handleDetailEdit(id: number) {
+    const itm = schedules.find(s => s.id === id);
+    if (!itm) return;
+    setEditingItem(itm);
+    setShowEditModal(true);
+  }
+
+  function handleDetailDelete(id: number) {
+    Alert.alert(
+      "Xác nhận xóa",
+      "Bạn có chắc muốn xóa buổi này không?",
+      [
+        { text: "Hủy", style: "cancel" },
+        {
+          text: "Xóa",
+          style: "destructive",
+          onPress: () => {
+            deleteSchedule(id);
+            setSelectedItem(null);
+          },
+        },
+      ]
+    );
+  }
 
   async function handleImportExcel() {
   if (importing) return;
@@ -422,6 +447,8 @@ export default function ScheduleScreen() {
         item={selectedItem}
         typeStyle={TYPE_STYLE}
         onClose={() => setSelectedItem(null)}
+        onEdit={handleDetailEdit}
+        onDelete={handleDetailDelete}
       />
 
       <TouchableOpacity
