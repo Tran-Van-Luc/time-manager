@@ -72,3 +72,27 @@ export const cancelled_events = sqliteTable("cancelled_events", {
   source_type: text("source_type"),
   created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
 });
+
+// Bảng reminders
+export const reminders = sqliteTable("reminders", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  task_id: integer("task_id"),               // FK -> tasks.id
+  calendar_event_id: integer("calendar_event_id"), // FK -> calendar_events.id
+  remind_before: integer("remind_before"),   // số phút nhắc trước
+  method: text("method").default("notification"), // phương thức (noti/email/…)
+  repeat_count: integer("repeat_count"),     // số lần lặp lại nhắc
+  is_active: integer("is_active").default(1), // 0 = off, 1 = on
+  created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
+});
+
+// Bảng recurrences
+export const recurrences = sqliteTable("recurrences", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  type: text("type"),        // daily, weekly, monthly, yearly
+  interval: integer("interval").default(1), // khoảng cách, ví dụ mỗi 2 ngày
+  days_of_week: text("days_of_week"),       // JSON string: ["Mon","Wed"]
+  day_of_month: text("day_of_month"),
+  start_date: integer("start_date", { mode: "timestamp" }),
+  end_date: integer("end_date", { mode: "timestamp" }),
+  created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
+});
