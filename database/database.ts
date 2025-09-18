@@ -51,19 +51,48 @@ db.$client.execSync(`
 // ------------------ BẢNG SCHEDULE_ENTRIES ------------------
 db.$client.execSync(`
   CREATE TABLE IF NOT EXISTS schedule_entries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    course_id INTEGER,
-    user_id INTEGER,
-    type TEXT,
-    start_at DATETIME NOT NULL,
-    end_at DATETIME NOT NULL,
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id     INTEGER NOT NULL,
+    user_id       INTEGER NOT NULL,
+    type          TEXT    NOT NULL
+                  CHECK(type IN (
+                    'Lịch học thường xuyên',
+                    'Lịch thi',
+                    'Lịch học bù',
+                    'Lịch tạm ngưng'
+                  )),
+    start_at      DATETIME NOT NULL,
+    end_at        DATETIME NOT NULL,
     recurrence_id INTEGER,
-    status TEXT DEFAULT 'active',
+    status        TEXT    DEFAULT 'active',
     cancel_reason TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (course_id) REFERENCES courses(id),
-    FOREIGN KEY (user_id) REFERENCES users(id)
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(course_id) REFERENCES courses(id),
+    FOREIGN KEY(user_id)   REFERENCES users(id),
+    CHECK(start_at < end_at),
+    UNIQUE(user_id, course_id, start_at, end_at)
   );
+`);
+
+// Trigger ngăn chặn overlap cùng user, cùng ngày
+db.$client.execSync(`
+  CREATE TRIGGER IF NOT EXISTS no_overlap_schedule
+  BEFORE INSERT ON schedule_entries
+  BEGIN
+    SELECT
+      CASE
+        WHEN EXISTS (
+          SELECT 1 FROM schedule_entries
+          WHERE user_id = NEW.user_id
+            AND date(start_at) = date(NEW.start_at)
+            AND NOT (
+              end_at <= NEW.start_at OR
+              start_at >= NEW.end_at
+            )
+        )
+        THEN RAISE(ABORT, 'OVERLAP')
+      END;
+  END;
 `);
 
 // ------------------ BẢNG CALENDAR_EVENTS ------------------
