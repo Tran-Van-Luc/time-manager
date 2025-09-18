@@ -13,6 +13,7 @@ import { useTasks } from "../hooks/useTasks";
 import type { Task } from "../types/Task";
 import { useReminders } from "../hooks/useReminders";
 import { useRecurrences } from "../hooks/useRecurrences";
+import { useSchedules } from "../hooks/useSchedules";
 import FilterPicker from "../components/SelectBox";
 import TaskModal from "../components/TaskModal";
 import TaskItem from "../components/TaskItem";
@@ -64,6 +65,7 @@ export default function TasksScreen() {
     removeRecurrence,
     loadRecurrences,
   } = useRecurrences();
+  const { schedules, loadSchedules } = useSchedules();
 
   const [search, setSearch] = useState("");
   const [priority, setPriority] = useState("");
@@ -151,6 +153,7 @@ export default function TasksScreen() {
     loadTasks();
     loadReminders();
     loadRecurrences();
+    loadSchedules();
   }, []);
 
   // Lọc task theo search, priority, status
@@ -217,19 +220,26 @@ export default function TasksScreen() {
         // Kiểm tra giao nhau
         return startAt! < tEnd && endAt! > tStart;
       });
-      if (overlaps.length > 0) {
+      const schedOverlaps = schedules.filter((s) => {
+        const sStart = s.startAt.getTime();
+        const sEnd = s.endAt.getTime();
+        return startAt! < sEnd && endAt! > sStart;
+      });
+      if (overlaps.length > 0 || schedOverlaps.length > 0) {
         let shouldContinue = false;
         await new Promise((resolve) => {
           const f = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")} ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
-          const msg = overlaps.map((o, idx) => {
+          const tasksMsg = overlaps.map((o) => {
             const oTitle = o.title || "(Không tiêu đề)";
             const oStart = o.start_at ? new Date(o.start_at) : null;
             const oEnd = o.end_at ? new Date(o.end_at) : null;
             return `• ${oTitle}\n${oStart ? `  Bắt đầu: ${f(oStart)}\n` : ""}${oEnd ? `  Kết thúc: ${f(oEnd)}\n` : ""}`;
           }).join("\n");
+          const schedMsg = schedOverlaps.map((s) => `• [Lịch học] ${s.subject || "(Không tên)"}\n  Bắt đầu: ${f(s.startAt)}\n  Kết thúc: ${f(s.endAt)}`).join("\n");
+          const combined = [tasksMsg, schedMsg].filter(Boolean).join("\n\n");
           Alert.alert(
-            "Trùng thời gian với công việc khác ⛔",
-            `${msg}\nBạn có muốn tiếp tục lưu không?`,
+            "Trùng thời gian ⛔",
+            `${combined}\nBạn có muốn tiếp tục lưu không?`,
             [
               {
                 text: "Hủy",
@@ -368,19 +378,26 @@ export default function TasksScreen() {
         if (!tStart || !tEnd) return false;
         return startAt! < tEnd && endAt! > tStart;
       });
-      if (overlaps.length > 0) {
+      const schedOverlaps = schedules.filter((s) => {
+        const sStart = s.startAt.getTime();
+        const sEnd = s.endAt.getTime();
+        return startAt! < sEnd && endAt! > sStart;
+      });
+      if (overlaps.length > 0 || schedOverlaps.length > 0) {
         let shouldContinue = false;
         await new Promise((resolve) => {
           const f = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")} ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
-          const msg = overlaps.map((o, idx) => {
+          const tasksMsg = overlaps.map((o) => {
             const oTitle = o.title || "(Không tiêu đề)";
             const oStart = o.start_at ? new Date(o.start_at) : null;
             const oEnd = o.end_at ? new Date(o.end_at) : null;
             return `• ${oTitle}\n${oStart ? `  Bắt đầu: ${f(oStart)}\n` : ""}${oEnd ? `  Kết thúc: ${f(oEnd)}\n` : ""}`;
           }).join("\n");
+          const schedMsg = schedOverlaps.map((s) => `• [Lịch học] ${s.subject || "(Không tên)"}\n  Bắt đầu: ${f(s.startAt)}\n  Kết thúc: ${f(s.endAt)}`).join("\n");
+          const combined = [tasksMsg, schedMsg].filter(Boolean).join("\n\n");
           Alert.alert(
-            "Trùng thời gian với công việc khác ⛔",
-            `${msg}\nBạn có muốn tiếp tục lưu không?`,
+            "Trùng thời gian ⛔",
+            `${combined}\nBạn có muốn tiếp tục lưu không?`,
             [
               {
                 text: "Hủy",
