@@ -64,43 +64,45 @@ export default function TaskModal({
       <View className="flex-1 bg-black/40 justify-center items-center">
         <View className="bg-white w-11/12 p-4 rounded-lg">
           <ScrollView>
-            {/* Nút chuyển đổi chế độ nhập */}
-            <View className="flex-row justify-center mb-3">
-              <TouchableOpacity
-                className={`px-4 py-2 rounded-l-lg border ${
-                  inputMode === "manual"
-                    ? "bg-blue-600 border-blue-600"
-                    : "bg-gray-200 border-gray-400"
-                }`}
-                onPress={() => setInputMode("manual")}
-                disabled={inputMode === "manual"}
-              >
-                <Text
-                  className={`${
-                    inputMode === "manual" ? "text-white" : "text-black"
+            {/* Nút chuyển đổi chế độ nhập - chỉ hiện khi thêm mới (editId === null) */}
+            {editId === null && (
+              <View className="flex-row justify-center mb-3">
+                <TouchableOpacity
+                  className={`px-4 py-2 rounded-l-lg border ${
+                    inputMode === "manual"
+                      ? "bg-blue-600 border-blue-600"
+                      : "bg-gray-200 border-gray-400"
                   }`}
+                  onPress={() => setInputMode("manual")}
+                  disabled={inputMode === "manual"}
                 >
-                  Thêm thủ công
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                className={`px-4 py-2 rounded-r-lg border ${
-                  inputMode === "file"
-                    ? "bg-blue-600 border-blue-600"
-                    : "bg-gray-200 border-gray-400"
-                }`}
-                onPress={() => setInputMode("file")}
-                disabled={inputMode === "file"}
-              >
-                <Text
-                  className={`${
-                    inputMode === "file" ? "text-white" : "text-black"
+                  <Text
+                    className={`$${
+                      inputMode === "manual" ? "text-white" : "text-black"
+                    }`}
+                  >
+                    Thêm thủ công
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  className={`px-4 py-2 rounded-r-lg border ${
+                    inputMode === "file"
+                      ? "bg-blue-600 border-blue-600"
+                      : "bg-gray-200 border-gray-400"
                   }`}
+                  onPress={() => setInputMode("file")}
+                  disabled={inputMode === "file"}
                 >
-                  Nhập từ file
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  <Text
+                    className={`$${
+                      inputMode === "file" ? "text-white" : "text-black"
+                    }`}
+                  >
+                    Nhập từ file
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             {/* Nếu nhập file */}
             {inputMode === "file" ? (
