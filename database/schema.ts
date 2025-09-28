@@ -96,3 +96,28 @@ export const recurrences = sqliteTable("recurrences", {
   end_date: integer("end_date", { mode: "timestamp" }),
   created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
 });
+
+// pomodoro_settings
+export const pomodoro_settings = sqliteTable("pomodoro_settings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  user_id: integer("user_id"),
+  work_minutes: integer("work_minutes").default(25),
+  short_break_minutes: integer("short_break_minutes").default(5),
+  long_break_minutes: integer("long_break_minutes").default(15),
+  sessions_before_long_break: integer("sessions_before_long_break").default(4),
+  mute_notifications: integer("mute_notifications").default(1),
+  created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
+  updated_at: integer("updated_at", { mode: "timestamp" }).default(new Date()),
+});
+
+// pomodoro_sessions
+export const pomodoro_sessions = sqliteTable("pomodoro_sessions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  user_id: integer("user_id"),
+  type: text("type"), // 'work'|'short_break'|'long_break'
+  started_at: integer("started_at", { mode: "timestamp" }).notNull(),
+  ended_at: integer("ended_at", { mode: "timestamp" }),
+  completed: integer("completed").default(0),
+  created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
+});
+
