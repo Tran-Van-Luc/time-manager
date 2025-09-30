@@ -73,6 +73,30 @@ export function useSchedules() {
     [loadSchedules]
   );
 
+  const deleteAllByCourse = useCallback(
+    async (subject: string) => {
+      setLoading(true);
+      try {
+        // tìm course_id tương ứng
+        const found = await db
+          .select({ id: courses.id })
+          .from(courses)
+          .where(eq(courses.name, subject))
+          .get();
+        if (found) {
+          await db
+            .delete(schedule_entries)
+            .where(eq(schedule_entries.course_id, found.id))
+            .run();
+          await loadSchedules();
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loadSchedules]
+  );
+
   const updateSchedule = useCallback(
     async (id: number, params: CreateScheduleParams) => {
       setLoading(true);
@@ -149,6 +173,7 @@ export function useSchedules() {
     loadSchedules,
     addSchedule,
     deleteSchedule,
+    deleteAllByCourse,
     updateSchedule,
   };
 }

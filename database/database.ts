@@ -122,6 +122,65 @@ db.$client.execSync(`
   );
 `);
 
+// ------------------ BẢNG REMINDERS ------------------
+db.$client.execSync(`
+  CREATE TABLE IF NOT EXISTS reminders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER,
+    calendar_event_id INTEGER,
+    remind_before INTEGER, -- phút nhắc trước
+    method TEXT DEFAULT 'notification',
+    repeat_count INTEGER,
+    is_active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (task_id) REFERENCES tasks(id),
+    FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(id)
+  );
+`);
+
+// ------------------ BẢNG RECURRENCES ------------------
+db.$client.execSync(`
+  CREATE TABLE IF NOT EXISTS recurrences (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT,              -- daily, weekly, monthly
+    interval INTEGER DEFAULT 1,
+    days_of_week TEXT,      -- JSON string: ["Mon","Wed"]
+    day_of_month TEXT,
+    start_date DATETIME,
+    end_date DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+// ------------------ BẢNG POMODORO ------------------
+db.$client.execSync(`
+  CREATE TABLE IF NOT EXISTS pomodoro_settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    work_minutes INTEGER NOT NULL DEFAULT 25,
+    short_break_minutes INTEGER NOT NULL DEFAULT 5,
+    long_break_minutes INTEGER NOT NULL DEFAULT 15,
+    sessions_before_long_break INTEGER NOT NULL DEFAULT 4,
+    mute_notifications INTEGER NOT NULL DEFAULT 1, -- 1 = khi bật Pomodoro ứng dụng tắt noti
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id),
+    UNIQUE(user_id)
+  );
+`);
+
+db.$client.execSync(`
+  CREATE TABLE IF NOT EXISTS pomodoro_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    type TEXT NOT NULL CHECK(type IN ('work','short_break','long_break')),
+    started_at DATETIME NOT NULL,
+    ended_at DATETIME,
+    completed INTEGER DEFAULT 0, -- 0 = không hoàn thành, 1 = hoàn thành
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  );
+`);
 console.log("✅ Database initialized with all tables!");
 
 // Hàm initDatabase trả về DB đã khởi tạo

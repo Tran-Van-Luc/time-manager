@@ -10,9 +10,13 @@ import {
   StyleSheet,
   Platform,
 } from "react-native";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import DateTimePickerModal from "react-native-modal-datetime-picker";
 import { Picker } from "@react-native-picker/picker";
-import { createSchedule, CreateScheduleParams, ScheduleType } from "../database/schedule";
+import {
+  createSchedule,
+  CreateScheduleParams,
+  ScheduleType,
+} from "../database/schedule";
 import { useSchedules } from "../hooks/useSchedules";
 
 // 3 loại khi thêm mới
@@ -29,6 +33,7 @@ function parseLocalDate(s: string): Date {
   const [y, m, d] = s.split("-").map(Number);
   return new Date(y, m - 1, d);
 }
+
 // format Date → "YYYY-MM-DD"
 function formatLocalDate(d: Date): string {
   return [
@@ -37,6 +42,15 @@ function formatLocalDate(d: Date): string {
     String(d.getDate()).padStart(2, "0"),
   ].join("-");
 }
+
+// parse "HH:mm" → local Date (tránh lệch múi giờ)
+function parseLocalTime(timeStr: string): Date {
+  const [h, m] = timeStr.split(":").map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d;
+}
+
 // format Date → "HH:mm"
 function formatLocalTime(d: Date): string {
   return [
@@ -62,15 +76,22 @@ export default function AddScheduleForm({
   const types = onSave ? EDIT_TYPES : ADD_TYPES;
 
   // form fields
-  const [courseName, setCourseName] = useState(initialValues?.courseName ?? "");
-  const [instructor, setInstructor] = useState(initialValues?.instructorName ?? "");
-  const [location, setLocation]     = useState(initialValues?.location ?? "");
-  const [type, setType]             = useState<ScheduleType>(initialValues?.type ?? types[0]);
+  const [courseName, setCourseName] = useState(
+    initialValues?.courseName ?? ""
+  );
+  const [instructor, setInstructor] = useState(
+    initialValues?.instructorName ?? ""
+  );
+  const [location, setLocation] = useState(initialValues?.location ?? "");
+  const [type, setType] = useState<ScheduleType>(
+    initialValues?.type ?? types[0]
+  );
 
   // dates
   const [startDate, setStartDate] = useState<Date>(() => {
     if (initialValues?.startDate) return parseLocalDate(initialValues.startDate);
-    if (initialValues?.singleDate) return parseLocalDate(initialValues.singleDate);
+    if (initialValues?.singleDate)
+      return parseLocalDate(initialValues.singleDate);
     return new Date();
   });
   const [endDate, setEndDate] = useState<Date>(() => {
@@ -86,21 +107,14 @@ export default function AddScheduleForm({
   // times
   const [startTime, setStartTime] = useState<Date>(() =>
     initialValues?.startTime
-      ? new Date(`1970-01-01T${initialValues.startTime}:00`)
+      ? parseLocalTime(initialValues.startTime)
       : new Date()
   );
   const [endTime, setEndTime] = useState<Date>(() =>
     initialValues?.endTime
-      ? new Date(`1970-01-01T${initialValues.endTime}:00`)
+      ? parseLocalTime(initialValues.endTime)
       : new Date(startTime)
   );
-
-  // picker flags
-  const [showSD, setShowSD]       = useState(false);
-  const [showED, setShowED]       = useState(false);
-  const [showSingle, setShowSingle] = useState(false);
-  const [showST, setShowST]       = useState(false);
-  const [showET, setShowET]       = useState(false);
 
   useEffect(() => {
     loadSchedules();
@@ -115,7 +129,7 @@ export default function AddScheduleForm({
     const ne = new Date(
       `${formatLocalDate(singleDate)}T${formatLocalTime(endTime)}:00`
     );
-    return schedules.find(evt => {
+    return schedules.find((evt) => {
       if (evt.id === initialValues?.id) return false;
       const sameDay =
         evt.startAt.getFullYear() === ns.getFullYear() &&
@@ -131,6 +145,57 @@ export default function AddScheduleForm({
     (type !== "Lịch học thường xuyên" || startDate <= endDate) &&
     !conflictDetail;
 
+  // Modal DateTimePicker state
+  type PickerTarget =
+    | "startDate"
+    | "endDate"
+    | "singleDate"
+    | "startTime"
+    | "endTime";
+
+  const [isPickerVisible, setPickerVisible] = useState(false);
+  const [pickerMode, setPickerMode] = useState<"date" | "time">("date");
+  const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
+
+  const openPicker = (target: PickerTarget, mode: "date" | "time") => {
+    setPickerTarget(target);
+    setPickerMode(mode);
+    setPickerVisible(true);
+  };
+
+  const handleConfirm = (date: Date) => {
+    if (pickerTarget === "startDate") {
+      setStartDate(date);
+      if (date > endDate) setEndDate(date);
+    } else if (pickerTarget === "endDate") {
+      setEndDate(date);
+    } else if (pickerTarget === "singleDate") {
+      setSingleDate(date);
+    } else if (pickerTarget === "startTime") {
+      setStartTime(date);
+      if (date > endTime) setEndTime(date);
+    } else if (pickerTarget === "endTime") {
+      setEndTime(date);
+    }
+    setPickerVisible(false);
+  };
+
+  const handleCancel = () => {
+    setPickerVisible(false);
+  };
+
+  // current date for modal
+  const currentPickerDate =
+    pickerTarget === "startDate"
+      ? startDate
+      : pickerTarget === "endDate"
+      ? endDate
+      : pickerTarget === "singleDate"
+      ? singleDate
+      : pickerTarget === "startTime"
+      ? startTime
+      : endTime;
+
   // save or update
   async function handleSave() {
     if (!isValid) {
@@ -144,12 +209,12 @@ export default function AddScheduleForm({
     }
 
     const base: Partial<CreateScheduleParams> = {
-      courseName:     courseName.trim(),
+      courseName: courseName.trim(),
       instructorName: instructor.trim() || undefined,
-      location:       location.trim()   || undefined,
+      location: location.trim() || undefined,
       type,
-      startTime:      formatLocalTime(startTime),
-      endTime:        formatLocalTime(endTime),
+      startTime: formatLocalTime(startTime),
+      endTime: formatLocalTime(endTime),
     };
 
     const params: CreateScheduleParams =
@@ -157,7 +222,7 @@ export default function AddScheduleForm({
         ? {
             ...(base as CreateScheduleParams),
             startDate: formatLocalDate(startDate),
-            endDate:   formatLocalDate(endDate),
+            endDate: formatLocalDate(endDate),
           }
         : {
             ...(base as CreateScheduleParams),
@@ -166,14 +231,15 @@ export default function AddScheduleForm({
 
     try {
       if (onSave) {
-        // EDIT mode: onSave returns the number of sessions updated
         const count = await onSave(params);
         Alert.alert("Cập nhật thành công", `Đã cập nhật ${count} buổi`);
       } else {
-        // ADD mode: call createSchedule directly to get sessionsCreated
         const { sessionsCreated } = await createSchedule(params);
         await loadSchedules();
-        Alert.alert("Thành công", `Tạo ${sessionsCreated} buổi cho "${courseName}"`);
+        Alert.alert(
+          "Thành công",
+          `Tạo ${sessionsCreated} buổi cho "${courseName}"`
+        );
       }
       onClose();
     } catch {
@@ -211,9 +277,9 @@ export default function AddScheduleForm({
           <View style={s.picker}>
             <Picker
               selectedValue={type}
-              onValueChange={v => setType(v as ScheduleType)}
+              onValueChange={(v) => setType(v as ScheduleType)}
             >
-              {types.map(t => (
+              {types.map((t) => (
                 <Picker.Item key={t} label={t} value={t} />
               ))}
             </Picker>
@@ -242,10 +308,16 @@ export default function AddScheduleForm({
             <>
               <Text style={s.label}>Ngày bắt đầu – kết thúc</Text>
               <View style={s.row}>
-                <TouchableOpacity style={s.btn} onPress={() => setShowSD(true)}>
+                <TouchableOpacity
+                  style={s.btn}
+                  onPress={() => openPicker("startDate", "date")}
+                >
                   <Text>{formatLocalDate(startDate)}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={s.btn} onPress={() => setShowED(true)}>
+                <TouchableOpacity
+                  style={s.btn}
+                  onPress={() => openPicker("endDate", "date")}
+                >
                   <Text>{formatLocalDate(endDate)}</Text>
                 </TouchableOpacity>
               </View>
@@ -253,7 +325,10 @@ export default function AddScheduleForm({
           ) : (
             <>
               <Text style={s.label}>Ngày</Text>
-              <TouchableOpacity style={s.btn} onPress={() => setShowSingle(true)}>
+              <TouchableOpacity
+                style={s.btn}
+                onPress={() => openPicker("singleDate", "date")}
+              >
                 <Text>{formatLocalDate(singleDate)}</Text>
               </TouchableOpacity>
             </>
@@ -262,10 +337,16 @@ export default function AddScheduleForm({
           {/* Times */}
           <Text style={s.label}>Giờ bắt đầu – kết thúc</Text>
           <View style={s.row}>
-            <TouchableOpacity style={s.btn} onPress={() => setShowST(true)}>
+            <TouchableOpacity
+              style={s.btn}
+              onPress={() => openPicker("startTime", "time")}
+            >
               <Text>{formatLocalTime(startTime)}</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={s.btn} onPress={() => setShowET(true)}>
+            <TouchableOpacity
+              style={s.btn}
+              onPress={() => openPicker("endTime", "time")}
+            >
               <Text>{formatLocalTime(endTime)}</Text>
             </TouchableOpacity>
           </View>
@@ -276,65 +357,16 @@ export default function AddScheduleForm({
             </Text>
           )}
 
-          {/* Pickers */}
-          {showSD && (
-            <DateTimePicker
-              mode="date"
-              value={startDate}
-              onChange={(_, d) => {
-                if (d) {
-                  setStartDate(d);
-                  if (d > endDate) setEndDate(d);
-                }
-                if (Platform.OS !== "ios") setShowSD(false);
-              }}
-            />
-          )}
-          {showED && (
-            <DateTimePicker
-              mode="date"
-              value={endDate}
-              minimumDate={startDate}
-              onChange={(_, d) => {
-                if (d) setEndDate(d);
-                if (Platform.OS !== "ios") setShowED(false);
-              }}
-            />
-          )}
-          {showSingle && (
-            <DateTimePicker
-              mode="date"
-              value={singleDate}
-              onChange={(_, d) => {
-                if (d) setSingleDate(d);
-                if (Platform.OS !== "ios") setShowSingle(false);
-              }}
-            />
-          )}
-          {showST && (
-            <DateTimePicker
-              mode="time"
-              value={startTime}
-              onChange={(_, d) => {
-                if (d) {
-                  setStartTime(d);
-                  if (d > endTime) setEndTime(d);
-                }
-                if (Platform.OS !== "ios") setShowST(false);
-              }}
-            />
-          )}
-          {showET && (
-            <DateTimePicker
-              mode="time"
-              value={endTime}
-              minimumDate={startTime}
-              onChange={(_, d) => {
-                if (d) setEndTime(d);
-                if (Platform.OS !== "ios") setShowET(false);
-              }}
-            />
-          )}
+          {/* Modal DateTime Picker */}
+          <DateTimePickerModal
+            isVisible={isPickerVisible}
+            mode={pickerMode}
+            date={currentPickerDate}
+            minimumDate={pickerTarget === "endDate" ? startDate : undefined}
+            display={Platform.OS === "ios" ? "inline" : "default"}
+            onConfirm={handleConfirm}
+            onCancel={handleCancel}
+          />
 
           {/* Save */}
           <TouchableOpacity
