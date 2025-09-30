@@ -152,6 +152,35 @@ db.$client.execSync(`
   );
 `);
 
+// ------------------ BẢNG POMODORO ------------------
+db.$client.execSync(`
+  CREATE TABLE IF NOT EXISTS pomodoro_settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    work_minutes INTEGER NOT NULL DEFAULT 25,
+    short_break_minutes INTEGER NOT NULL DEFAULT 5,
+    long_break_minutes INTEGER NOT NULL DEFAULT 15,
+    sessions_before_long_break INTEGER NOT NULL DEFAULT 4,
+    mute_notifications INTEGER NOT NULL DEFAULT 1, -- 1 = khi bật Pomodoro ứng dụng tắt noti
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id),
+    UNIQUE(user_id)
+  );
+`);
+
+db.$client.execSync(`
+  CREATE TABLE IF NOT EXISTS pomodoro_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    type TEXT NOT NULL CHECK(type IN ('work','short_break','long_break')),
+    started_at DATETIME NOT NULL,
+    ended_at DATETIME,
+    completed INTEGER DEFAULT 0, -- 0 = không hoàn thành, 1 = hoàn thành
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  );
+`);
 console.log("✅ Database initialized with all tables!");
 
 // Hàm initDatabase trả về DB đã khởi tạo
