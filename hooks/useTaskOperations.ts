@@ -241,41 +241,11 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
 
   const [processing, setProcessing] = useState(false);
 
-  // Helper: validate reminder lead time vs start time. Returns adjusted value or null if user cancels.
-  const ensureValidReminderLead = async (startAt: number, reminderMinutes: number) => {
-    const now = Date.now();
-    const diffMs = startAt - now;
-    const diffMinutes = Math.floor(diffMs / 60000);
-    if (diffMinutes <= 0) {
-      const proceed = await new Promise<boolean>((resolve) => {
-        if (options?.onConfirm) {
-          options.onConfirm({
-            tone: 'warning',
-            title: 'Nhắc nhở không hợp lệ',
-            message: 'Thời gian bắt đầu đã đến hoặc đã qua. Bỏ thiết lập nhắc nhở?',
-            buttons: [
-              { text: 'Hủy lưu', style: 'cancel', onPress: () => resolve(false) },
-              { text: 'Bỏ nhắc', style: 'destructive', onPress: () => resolve(true) },
-            ],
-          });
-        } else {
-          Alert.alert(
-            'Nhắc nhở không hợp lệ',
-            'Thời gian bắt đầu đã đến hoặc đã qua. Bỏ thiết lập nhắc nhở?',
-            [
-              { text: 'Hủy lưu', style: 'cancel', onPress: () => resolve(false) },
-              { text: 'Bỏ nhắc', style: 'destructive', onPress: () => resolve(true) },
-            ]
-          );
-        }
-      });
-      return proceed ? 0 : null; // 0 means skip reminder
-    }
-    if (reminderMinutes > diffMinutes) {
-      // Tự động điều chỉnh không cần hỏi người dùng (bỏ Alert 'Giới hạn nhắc trước')
-      const adjusted = Math.max(1, diffMinutes);
-      return adjusted;
-    }
+  // Helper: chỉ áp dụng DUY NHẤT giới hạn tối đa 7 ngày (10080 phút), không kiểm tra gì khác.
+  // Không quan tâm startAt đã qua hay chưa, không so diff hiện tại.
+  const ensureValidReminderLead = async (_startAt: number, reminderMinutes: number) => {
+    const MAX_LEAD = 7 * 24 * 60; // 10080 phút
+    if (reminderMinutes > MAX_LEAD) return MAX_LEAD;
     return reminderMinutes;
   };
 
@@ -407,13 +377,6 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
       // Add reminder with lead-time validation
       if (reminderConfig?.enabled && taskId) {
         const validated = await ensureValidReminderLead(startAt!, reminderConfig.time);
-        if (validated === null) {
-          // User cancelled save due to reminder constraint
-          // Rollback: remove task just created to keep integrity
-          await removeTask(taskId);
-          setProcessing(false);
-          return false;
-        }
         if (validated > 0) {
           await addReminder({
             task_id: taskId,
@@ -604,11 +567,6 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
       const taskReminder = reminders?.find((r) => r.task_id === taskId);
       if (reminderConfig?.enabled) {
         const validated = await ensureValidReminderLead(startAt!, reminderConfig.time);
-        if (validated === null) {
-          // User cancels edit
-          setProcessing(false);
-          return false;
-        }
         if (validated > 0) {
           if (taskReminder?.id) {
             await editReminder(taskReminder.id, {

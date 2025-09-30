@@ -118,29 +118,16 @@ export default function TaskModal({
     }
   }, [customReminderValue, customReminderUnit, customReminderMode]);
 
-  // Effect: validate non-custom reminderTime vs time until start
+  // Effect: hiện chỉ còn giới hạn tối đa 7 ngày, không hiển thị cảnh báo động
   useEffect(() => {
     if (!reminder) { setReminderWarning(""); return; }
     const startMs = newTask.start_at;
-    if (!startMs) { setReminderWarning("Chọn thời gian bắt đầu để tính giới hạn nhắc trước"); return; }
-    const now = Date.now();
-    if (startMs <= now) {
-      setReminderWarning("Thời gian bắt đầu đã đến/qua – không thể nhắc trước.");
-      return;
-    }
-    const diffMinutes = Math.floor((startMs - now) / 60000);
-    const effectiveMax = Math.min(diffMinutes, MAX_CUSTOM_MINUTES);
+    if (!startMs) { setReminderWarning(""); return; }
     if (reminderTime > MAX_CUSTOM_MINUTES) {
-      // still enforce absolute 7-day cap
       setReminderTime(MAX_CUSTOM_MINUTES);
-      return;
     }
-    if (reminderTime > diffMinutes) {
-      // Hiển thị cảnh báo trong modal (theo yêu cầu giữ lại ở modal)
-      setReminderWarning(`Vượt quá thời gian còn lại (${formatLead(diffMinutes)}). Khi lưu sẽ tự giảm xuống mức tối đa này.`);
-    } else {
-      setReminderWarning(`Tối đa hiện tại: ${formatLead(effectiveMax)}`);
-    }
+    // Không set warning nào nữa
+    setReminderWarning("");
   }, [reminderTime, reminder, newTask.start_at, customReminderMode]);
 
   const formatDate = (d: Date) =>
