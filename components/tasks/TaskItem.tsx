@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, TouchableOpacity } from "react-native";
-import type { Task } from "../types/Task";
-import type { Recurrence } from "../types/Recurrence";
+import type { Task } from "../../types/Task";
+import type { Recurrence } from "../../types/Recurrence";
 
 type RepeatOption = { label: string; value: string };
 
@@ -33,6 +33,18 @@ export default function TaskItem({
       (rec as any).type
     : "";
 
+  const formatReminder = (mins?: number | null) => {
+    if (!mins || mins <= 0) return '';
+    const d = Math.floor(mins / 1440);
+    const h = Math.floor((mins % 1440) / 60);
+    const m = mins % 60;
+    const parts: string[] = [];
+    if (d) parts.push(`${d} ngày`);
+    if (h) parts.push(`${h} giờ`);
+    if (m) parts.push(`${m} phút`);
+    return parts.join(' ');
+  };
+
   return (
     <View className="flex-row mb-3 bg-gray-50 rounded-xl">
       {/* Border-left màu theo priority */}
@@ -57,27 +69,77 @@ export default function TaskItem({
         )}
 
         {/* Thời gian */}
-        <View className="flex-row items-center mb-1">
-          <Text className="text-gray-600 text-base">📅</Text>
-          <Text className="text-gray-600 text-base ml-1">
-            {item.start_at
-              ? `${new Date(item.start_at).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })} ${new Date(item.start_at).getDate()}-${
-                  new Date(item.start_at).getMonth() + 1
-                }-${new Date(item.start_at).getFullYear()}`
-              : ""}
-            {item.end_at
-              ? ` - ${new Date(item.end_at).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })} ${new Date(item.end_at).getDate()}-${
-                  new Date(item.end_at).getMonth() + 1
-                }-${new Date(item.end_at).getFullYear()}`
-              : ""}
-          </Text>
-        </View>
+        {(() => {
+          const toDate = (v: any) => (v ? new Date(v) : null);
+          const s = toDate(item.start_at);
+          const e = toDate(item.end_at);
+          const pad = (n: number) => String(n).padStart(2, "0");
+          const fmtTime = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+            const fmtDate = (d: Date) => `${d.getDate()}-${d.getMonth() + 1}-${d.getFullYear()}`;
+          const segments: Array<{ type: string; text: string }> = [];
+          if (s && e) {
+            const sameDay = s.getFullYear() === e.getFullYear() && s.getMonth() === e.getMonth() && s.getDate() === e.getDate();
+            if (sameDay) {
+              // HH:MM - HH:MM  (time range)  then date
+              segments.push({ type: 'time', text: fmtTime(s) });
+              segments.push({ type: 'sep', text: ' - ' });
+              segments.push({ type: 'time', text: fmtTime(e) });
+              segments.push({ type: 'space', text: ' ' });
+              segments.push({ type: 'date', text: fmtDate(s) });
+            } else {
+              // Start full
+              segments.push({ type: 'time', text: fmtTime(s) });
+              segments.push({ type: 'space', text: ' ' });
+              segments.push({ type: 'date', text: fmtDate(s) });
+              segments.push({ type: 'sep', text: ' — ' });
+              segments.push({ type: 'time', text: fmtTime(e) });
+              segments.push({ type: 'space', text: ' ' });
+              segments.push({ type: 'date', text: fmtDate(e) });
+            }
+          } else if (s) {
+            segments.push({ type: 'time', text: fmtTime(s) });
+            segments.push({ type: 'space', text: ' ' });
+            segments.push({ type: 'date', text: fmtDate(s) });
+          }
+          // Recurrence end date
+          if (rec?.end_date) {
+            const endRecDate = new Date(rec.end_date);
+            if (segments.length) segments.push({ type: 'rec-sep', text: ' — ' });
+            segments.push({ type: 'recurrenceEnd', text: fmtDate(endRecDate) });
+          }
+
+          if (!segments.length) return null;
+
+          const renderSeg = (seg: { type: string; text: string }, idx: number) => {
+            let cls = 'text-base';
+            switch (seg.type) {
+              case 'time':
+                cls += ' text-blue-600 font-medium';
+                break;
+              case 'date':
+                cls += ' text-gray-700';
+                break;
+              case 'sep':
+              case 'space':
+              case 'rec-sep':
+                cls += ' text-gray-500';
+                break;
+              case 'recurrenceEnd':
+                cls += ' text-purple-700 font-medium';
+                break;
+              default:
+                cls += ' text-gray-600';
+            }
+            return <Text key={idx} className={cls}>{seg.text}</Text>;
+          };
+
+          return (
+            <View className="flex-row items-center mb-1 flex-wrap">
+              <Text className="text-gray-600 text-base mr-1">📅</Text>
+              <Text className="flex-row flex-wrap">{segments.map(renderSeg)}</Text>
+            </View>
+          );
+        })()}
 
         {/* Badge mức độ, trạng thái, nhắc nhở, lặp lại */}
         <View className="flex-row flex-wrap items-center gap-1 mb-1">
@@ -117,7 +179,7 @@ export default function TaskItem({
             <View className="flex-row items-center bg-blue-100 rounded-full px-2 py-0.5 border border-blue-600">
               <Text className="text-blue-600 text-base">🔔</Text>
               <Text className="text-blue-600 text-base ml-0.5">
-                {reminder?.remind_before}p
+                {formatReminder(reminder?.remind_before) || `${reminder?.remind_before} phút`}
               </Text>
             </View>
           )}
