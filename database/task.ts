@@ -14,6 +14,9 @@ export async function createTask(data: {
   priority?: string;
   status?: string;
   recurrence_id?: number;
+  completed_at?: Date;
+  completion_diff_minutes?: number;
+  completion_status?: string;
 }) {
   const result = await db
     .insert(tasks)
@@ -21,6 +24,9 @@ export async function createTask(data: {
       ...data,
       start_at: data.start_at ? new Date(data.start_at) : undefined,
       end_at: data.end_at ? new Date(data.end_at) : undefined,
+      completed_at: data.completed_at ? new Date(data.completed_at) : undefined,
+      completion_diff_minutes: data.completion_diff_minutes,
+      completion_status: data.completion_status,
       is_deleted: 0,
       created_at: new Date(),
       updated_at: new Date(),
@@ -57,12 +63,16 @@ export async function updateTask(id: number, data: {
   status?: string;
   recurrence_id?: number;
   is_deleted?: number;
+  completed_at?: Date;
+  completion_diff_minutes?: number;
+  completion_status?: string;
 }) {
   return db.update(tasks)
     .set({
       ...data,
       start_at: data.start_at ? new Date(data.start_at) : undefined,
       end_at: data.end_at ? new Date(data.end_at) : undefined,
+      completed_at: data.completed_at ? new Date(data.completed_at) : undefined,
       updated_at: new Date(),
     })
     .where(eq(tasks.id, id))

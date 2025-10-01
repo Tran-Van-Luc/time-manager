@@ -21,6 +21,10 @@ export const tasks = sqliteTable("tasks", {
   priority: text("priority"),
   status: text("status"),
   recurrence_id: integer("recurrence_id"),
+  // Tracking completion timing
+  completed_at: integer("completed_at", { mode: "timestamp" }), // thời điểm user đánh hoàn thành
+  completion_diff_minutes: integer("completion_diff_minutes"), // chênh lệch (phút) so với hạn (âm = sớm, dương = trễ)
+  completion_status: text("completion_status"), // 'early' | 'on_time' | 'late'
   is_deleted: integer("is_deleted").default(0),
   created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
   updated_at: integer("updated_at", { mode: "timestamp" }).default(new Date()),

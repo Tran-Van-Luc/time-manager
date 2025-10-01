@@ -13,6 +13,8 @@ import {
 } from "react-native";
 import { useSchedules } from "../hooks/useSchedules";
 import { useTasks } from "../hooks/useTasks";
+import { useRecurrences } from "../hooks/useRecurrences";
+import { generateOccurrences } from "../utils/taskValidation";
 import { AnimatedToggle } from "../components/AnimatedToggle";
 
 type DayScheduleItem = {
@@ -101,13 +103,14 @@ function labelStatusVn(s?: string) {
 export default function HomeScreen() {
   const { schedules, loadSchedules } = useSchedules();
   const { tasks, loadTasks } = useTasks();
+  const { recurrences, loadRecurrences } = useRecurrences();
 
   const [viewMode, setViewMode] = useState<"month" | "week" | "day">("month");
   const [current, setCurrent] = useState(() => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1); });
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showModal, setShowModal] = useState(false);
 
-  useEffect(() => { loadSchedules(); loadTasks(); }, [loadSchedules, loadTasks]);
+  useEffect(() => { loadSchedules(); loadTasks(); loadRecurrences(); }, [loadSchedules, loadTasks, loadRecurrences]);
 
   const monthDays = useMemo(() => {
     const firstDay = new Date(current.getFullYear(), current.getMonth(), 1);
@@ -140,42 +143,60 @@ export default function HomeScreen() {
       map.set(key, arr);
     }
 
+    // Map recurrence id -> recurrence object for quick lookup
+    const recMap = new Map<number, any>();
+    recurrences.forEach(r => { if (r.id != null) recMap.set(r.id, r); });
+
     for (const t of tasks) {
-      const start = t.start_at ? new Date(t.start_at) : null;
-      const end = t.end_at ? new Date(t.end_at) : null;
-      if (start && end) {
-        for (let d = new Date(startOfDay(start)); d <= endOfDay(end); d.setDate(d.getDate() + 1)) {
+      const baseStart = t.start_at ? new Date(t.start_at).getTime() : null;
+      const baseEnd = t.end_at ? new Date(t.end_at).getTime() : null;
+      if (!baseStart) continue; // nếu không có start bỏ qua
+      let effectiveEnd = baseEnd;
+      if (!effectiveEnd) {
+        // nếu không có end, set end cuối ngày start
+        const tmp = new Date(baseStart); tmp.setHours(23,59,59,999); effectiveEnd = tmp.getTime();
+      }
+      if (!effectiveEnd) continue;
+
+      let occurrences: Array<{ startAt: number; endAt: number }> = [];
+      if (t.recurrence_id && recMap.has(t.recurrence_id)) {
+        const r = recMap.get(t.recurrence_id);
+        try {
+          occurrences = generateOccurrences(baseStart, effectiveEnd, {
+            enabled: true,
+            frequency: r.type,
+            interval: r.interval,
+            daysOfWeek: r.days_of_week ? JSON.parse(r.days_of_week) : undefined,
+            daysOfMonth: r.day_of_month ? JSON.parse(r.day_of_month) : undefined,
+            endDate: r.end_date,
+          });
+        } catch {
+          occurrences = [{ startAt: baseStart, endAt: effectiveEnd }];
+        }
+      } else {
+        occurrences = [{ startAt: baseStart, endAt: effectiveEnd }];
+      }
+
+      for (const occ of occurrences) {
+        const s = new Date(occ.startAt);
+        const e = new Date(occ.endAt);
+        // add each day spanned by this occurrence (in case multi-day)
+        for (let d = new Date(startOfDay(s)); d <= endOfDay(e); d.setDate(d.getDate() + 1)) {
           const key = ymd(startOfDay(d));
           const arr = map.get(key) ?? [];
-          arr.push({
-            kind: "task",
-            id: t.id,
-            title: t.title ?? "Công việc",
-            start,
-            end,
-            color: getTaskColor(t.priority),
-            notes: (t as any).notes ?? null,
-            priority: t.priority ?? null,
-            status: (t as any).status ?? null,
-          } as DayTaskItem);
+            arr.push({
+              kind: 'task',
+              id: t.id,
+              title: t.title ?? 'Công việc',
+              start: s,
+              end: e,
+              color: getTaskColor(t.priority),
+              notes: (t as any).notes ?? null,
+              priority: t.priority ?? null,
+              status: (t as any).status ?? null,
+            } as DayTaskItem);
           map.set(key, arr);
         }
-      } else if (start || end) {
-        const d = start || end!;
-        const key = ymd(startOfDay(d));
-        const arr = map.get(key) ?? [];
-        arr.push({
-          kind: "task",
-          id: t.id,
-          title: t.title ?? "Công việc",
-          start: start ?? undefined,
-          end: end ?? undefined,
-          color: getTaskColor(t.priority),
-          notes: (t as any).notes ?? null,
-          priority: t.priority ?? null,
-          status: (t as any).status ?? null,
-        } as DayTaskItem);
-        map.set(key, arr);
       }
     }
 

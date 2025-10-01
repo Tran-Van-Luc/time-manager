@@ -28,6 +28,9 @@ export function useTasks() {
           updated_at: task.updated_at
             ? new Date(task.updated_at).toISOString()
             : "",
+          completed_at: task.completed_at ? new Date(task.completed_at).toISOString() : undefined,
+          completion_diff_minutes: task.completion_diff_minutes ?? undefined,
+          completion_status: task.completion_status ?? undefined,
         }))
       );
     } finally {
@@ -53,6 +56,9 @@ export function useTasks() {
       ...data,
       start_at: data.start_at ? new Date(data.start_at) : undefined,
       end_at: data.end_at ? new Date(data.end_at) : undefined,
+      completed_at: data.completed_at ? new Date(data.completed_at) : undefined,
+      completion_diff_minutes: data.completion_diff_minutes,
+      completion_status: data.completion_status,
     });
     await loadTasks();
     return id; 
@@ -66,6 +72,9 @@ export function useTasks() {
       ...data,
       start_at: data.start_at ? new Date(data.start_at) : undefined,
       end_at: data.end_at ? new Date(data.end_at) : undefined,
+      completed_at: data.completed_at ? new Date(data.completed_at) : undefined,
+      completion_diff_minutes: data.completion_diff_minutes,
+      completion_status: data.completion_status,
     });
     await loadTasks();
   };

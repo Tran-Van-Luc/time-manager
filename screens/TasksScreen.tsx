@@ -47,14 +47,17 @@ export default function TasksScreen() {
     loadRecurrences,
   } = useRecurrences();
   const { schedules, loadSchedules } = useSchedules();
-  const [conflictModal, setConflictModal] = useState<{ visible: boolean; raw: string; blocks: any[]; resolver?: (v:boolean)=>void }>({ visible:false, raw:'', blocks:[] });
+  const [conflictModal, setConflictModal] = useState<{ visible: boolean; raw: string; blocks: any[] }>({ visible:false, raw:'', blocks:[] });
   const [alertState, setAlertState] = useState<{ visible:boolean; tone:'error'|'warning'|'success'|'info'; title:string; message:string; buttons:{ text:string; onPress:()=>void; tone?:any }[] }>({ visible:false, tone:'info', title:'', message:'', buttons:[] });
   const { handleAddTask, handleEditTask, handleDeleteTask } = useTaskOperations(
     tasks,
     schedules,
     {
       onConflict: ({ raw, blocks, resolve }) => {
-        setConflictModal({ visible:true, raw, blocks, resolver: resolve });
+        // Hiển thị modal chỉ có nút đóng. Không cho phép tiếp tục => resolve(false)
+        setConflictModal({ visible:true, raw, blocks });
+        // Tự động báo với logic gọi rằng không được tiếp tục lưu
+        resolve(false);
       },
       onNotify: ({ tone, title, message }) => {
         setAlertState({ visible:true, tone, title, message, buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel'}] });
@@ -372,8 +375,7 @@ export default function TasksScreen() {
         visible={conflictModal.visible}
         raw={conflictModal.raw}
         blocks={conflictModal.blocks}
-        onCancel={() => { conflictModal.resolver?.(false); setConflictModal(c=>({...c, visible:false})); }}
-        onContinue={() => { conflictModal.resolver?.(true); setConflictModal(c=>({...c, visible:false})); }}
+        onClose={() => setConflictModal(c=>({...c, visible:false}))}
       />
       <TaskAlertModal
         visible={alertState.visible}

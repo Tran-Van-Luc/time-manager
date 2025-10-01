@@ -169,11 +169,28 @@ export default function TaskItem({
               Đang thực hiện
             </Text>
           )}
-          {item.status === "completed" && (
-            <Text className="bg-green-100 text-green-600 rounded-full px-2 py-0.5 text-base border border-green-600">
-              Hoàn thành
-            </Text>
-          )}
+          {item.status === 'completed' && (()=>{
+            // Gọn hoá: dùng đơn vị viết tắt n (ngày), g (giờ), p (phút)
+            let label = 'Hoàn thành';
+            const st = item.completion_status;
+            if (st) {
+              const abs = Math.abs(item.completion_diff_minutes ?? 0);
+              if (st === 'on_time') {
+                label = 'Hoàn thành đúng hạn';
+              } else {
+                const d = Math.floor(abs / 1440);
+                const h = Math.floor((abs % 1440) / 60);
+                const m = abs % 60;
+                let short = '';
+                if (d) short += `${d}n`;
+                if (h) short += `${h}g`;
+                if (m || (!d && !h && m===0)) short += `${m}p`; // nếu chỉ có 0 phút (rất sát) vẫn hiện 0p
+                if (st === 'early') label = `Hoàn thành sớm ${short}`;
+                else if (st === 'late') label = `Hoàn thành trễ ${short}`;
+              }
+            }
+            return <Text className="bg-green-100 text-green-600 rounded-full px-2 py-0.5 text-base border border-green-600">{label}</Text>;
+          })()}
 
           {!!reminder && (
             <View className="flex-row items-center bg-blue-100 rounded-full px-2 py-0.5 border border-blue-600">
@@ -201,7 +218,32 @@ export default function TaskItem({
             if (item.status === "pending") nextStatus = "in-progress";
             else if (item.status === "in-progress") nextStatus = "completed";
             else if (item.status === "completed") nextStatus = "pending";
-            await editTask(item.id!, { status: nextStatus });
+            if (nextStatus === 'completed') {
+              // Determine due time: recurrence end date (end of recurrence) else task end_at
+              const now = Date.now();
+              let dueMs: number | undefined;
+              if (rec?.end_date) {
+                dueMs = new Date(rec.end_date).getTime();
+              } else if (item.end_at) {
+                dueMs = new Date(item.end_at).getTime();
+              }
+              let diffMinutes: number | undefined;
+              let completionStatus: 'early' | 'on_time' | 'late' | undefined;
+              if (dueMs) {
+                diffMinutes = Math.round((now - dueMs) / 60000); // >0 = late
+                if (diffMinutes < -1) completionStatus = 'early';
+                else if (diffMinutes > 1) completionStatus = 'late';
+                else completionStatus = 'on_time';
+              }
+              await editTask(item.id!, {
+                status: nextStatus,
+                completed_at: new Date(now).toISOString(),
+                completion_diff_minutes: diffMinutes,
+                completion_status: completionStatus,
+              });
+            } else {
+              await editTask(item.id!, { status: nextStatus });
+            }
           }}
         >
           {item.status === "completed" ? (

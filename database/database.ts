@@ -28,12 +28,21 @@ db.$client.execSync(`
     priority TEXT,
     status TEXT,
     recurrence_id INTEGER,
+    -- Các cột mới (có thể chưa tồn tại trong DB cũ, sẽ thêm bằng ALTER bên dưới)
+    completed_at DATETIME,
+    completion_diff_minutes INTEGER,
+    completion_status TEXT,
     is_deleted INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
 `);
+
+// Bổ sung cột mới nếu nâng cấp từ DB cũ (không có IF NOT EXISTS nên dùng try/catch)
+try { db.$client.execSync(`ALTER TABLE tasks ADD COLUMN completed_at DATETIME`); } catch(e) {}
+try { db.$client.execSync(`ALTER TABLE tasks ADD COLUMN completion_diff_minutes INTEGER`); } catch(e) {}
+try { db.$client.execSync(`ALTER TABLE tasks ADD COLUMN completion_status TEXT`); } catch(e) {}
 
 // ------------------ BẢNG COURSES ------------------
 db.$client.execSync(`
