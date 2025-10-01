@@ -7,7 +7,7 @@ import {
   TouchableWithoutFeedback,
   StyleSheet,
 } from "react-native";
-import { ScheduleItem } from "../hooks/useSchedules";
+import { ScheduleItem } from "../../hooks/useSchedules";
 
 interface Props {
   visible: boolean;

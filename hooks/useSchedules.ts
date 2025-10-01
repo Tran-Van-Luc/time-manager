@@ -47,9 +47,10 @@ export function useSchedules() {
     async (params: CreateScheduleParams) => {
       setLoading(true);
       try {
-        const count = await createSchedule(params);
+        // createSchedule đã trả về { courseId, sessionsCreated }
+        const { sessionsCreated } = await createSchedule(params);
         await loadSchedules();
-        return count;
+        return sessionsCreated;
       } finally {
         setLoading(false);
       }
@@ -101,64 +102,74 @@ export function useSchedules() {
     async (id: number, params: CreateScheduleParams) => {
       setLoading(true);
       try {
-        // 1) find or create course row
-        let courseId: number;
-        const trimmedName = params.courseName.trim();
-        const found = await db
-          .select({ id: courses.id })
-          .from(courses)
-          .where(eq(courses.name, trimmedName))
-          .get();
-
-        if (found) {
-          courseId = found.id;
+        // Nếu chuyển sang "Lịch tạm ngưng" thì dùng createSchedule để đảm bảo logic +1 buổi bù
+        if (params.type === "Lịch tạm ngưng") {
+          // Xóa lịch cũ
           await db
-            .update(courses)
-            .set({
-              instructor_name: params.instructorName ?? null,
-              location:        params.location       ?? null,
-            })
-            .where(eq(courses.id, courseId))
+            .delete(schedule_entries)
+            .where(eq(schedule_entries.id, id))
             .run();
+          // Thêm mới theo logic tạm ngưng (sẽ tự động +1 buổi bù)
+          await createSchedule(params);
         } else {
-          const code = trimmedName
-            .split(/\s+/)
-            .map(w => w[0].toUpperCase())
-            .join("")
-            .slice(0, 6)
-            || `UNK${Date.now().toString().slice(-4)}`;
-
-          const ins = await db
-            .insert(courses)
-            .values({
-              code,
-              name:            trimmedName,
-              instructor_name: params.instructorName ?? null,
-              location:        params.location       ?? null,
-              color_tag:       null,
-            })
-            .returning({ id: courses.id })
+          // 1) find or create course row
+          let courseId: number;
+          const trimmedName = params.courseName.trim();
+          const found = await db
+            .select({ id: courses.id })
+            .from(courses)
+            .where(eq(courses.name, trimmedName))
             .get();
-          courseId = ins.id;
+
+          if (found) {
+            courseId = found.id;
+            await db
+              .update(courses)
+              .set({
+                instructor_name: params.instructorName ?? null,
+                location:        params.location       ?? null,
+              })
+              .where(eq(courses.id, courseId))
+              .run();
+          } else {
+            const code = trimmedName
+              .split(/\s+/)
+              .map(w => w[0].toUpperCase())
+              .join("")
+              .slice(0, 6)
+              || `UNK${Date.now().toString().slice(-4)}`;
+
+            const ins = await db
+              .insert(courses)
+              .values({
+                code,
+                name:            trimmedName,
+                instructor_name: params.instructorName ?? null,
+                location:        params.location       ?? null,
+                color_tag:       null,
+              })
+              .returning({ id: courses.id })
+              .get();
+            courseId = ins.id;
+          }
+
+          // 2) compute new start/end
+          const baseDate = params.singleDate ?? params.startDate!;
+          const s = new Date(`${baseDate}T${params.startTime}:00`);
+          const e = new Date(`${baseDate}T${params.endTime}:00`);
+
+          // 3) update entry
+          await db
+            .update(schedule_entries)
+            .set({
+              course_id: courseId,
+              type:      params.type,
+              start_at:  s,
+              end_at:    e,
+            })
+            .where(eq(schedule_entries.id, id))
+            .run();
         }
-
-        // 2) compute new start/end
-        const baseDate = params.singleDate ?? params.startDate!;
-        const s = new Date(`${baseDate}T${params.startTime}:00`);
-        const e = new Date(`${baseDate}T${params.endTime}:00`);
-
-        // 3) update entry
-        await db
-          .update(schedule_entries)
-          .set({
-            course_id: courseId,
-            type:      params.type,
-            start_at:  s,
-            end_at:    e,
-          })
-          .where(eq(schedule_entries.id, id))
-          .run();
-
         await loadSchedules();
       } finally {
         setLoading(false);

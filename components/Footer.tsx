@@ -5,7 +5,7 @@ const tabs = [
   { key: 'home', icon: '🏠', label: 'Trang chủ' },
   { key: 'tasks', icon: '📋', label: 'Công việc' },
   { key: 'schedule', icon: '📅', label: 'Lịch học' },
-  { key: 'pomodoro', icon: '⏰', label: 'Chế độ Tập Trung' },
+  { key: 'pomodoro', icon: '⏰', label: 'Tập Trung' },
   { key: 'stats', icon: '📊', label: 'Thống kê' },
 ];
 

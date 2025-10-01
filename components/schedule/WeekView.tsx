@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   Dimensions,
 } from "react-native";
-import { ScheduleItem } from "../hooks/useSchedules";
+import { ScheduleItem } from "../../hooks/useSchedules";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 // Chiều rộng cột “Phiên”
