@@ -161,6 +161,26 @@ db.$client.execSync(`
   );
 `);
 
+// ------------------ BẢNG SCHEDULED_NOTIFICATIONS ------------------
+db.$client.execSync(`
+  CREATE TABLE IF NOT EXISTS scheduled_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER,
+    reminder_id INTEGER,
+    recurrence_id INTEGER,
+    occurrence_start_at DATETIME,
+    occurrence_end_at DATETIME,
+    schedule_time DATETIME, -- thời điểm sẽ kích hoạt (trigger)
+    notification_id TEXT,   -- id do Expo trả về khi schedule
+    lead_minutes INTEGER,
+    status TEXT,            -- scheduled | fired | cancelled
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(task_id) REFERENCES tasks(id),
+    FOREIGN KEY(reminder_id) REFERENCES reminders(id),
+    FOREIGN KEY(recurrence_id) REFERENCES recurrences(id)
+  );
+`);
+
 // ------------------ BẢNG POMODORO ------------------
 db.$client.execSync(`
   CREATE TABLE IF NOT EXISTS pomodoro_settings (

@@ -54,9 +54,7 @@ export default function TasksScreen() {
     schedules,
     {
       onConflict: ({ raw, blocks, resolve }) => {
-        // Hiển thị modal chỉ có nút đóng. Không cho phép tiếp tục => resolve(false)
         setConflictModal({ visible:true, raw, blocks });
-        // Tự động báo với logic gọi rằng không được tiếp tục lưu
         resolve(false);
       },
       onNotify: ({ tone, title, message }) => {
@@ -71,7 +69,8 @@ export default function TasksScreen() {
           buttons: buttons.map(b=>({ text:b.text, onPress:b.onPress, tone:b.style==='destructive'?'destructive': b.style==='cancel'?'cancel':'info' }))
         });
       }
-    }
+    },
+    { reminders, addReminder, editReminder, removeReminder, loadReminders }
   );
   
   // Wrap task-operation handlers to pass current UI state and handle UI resets

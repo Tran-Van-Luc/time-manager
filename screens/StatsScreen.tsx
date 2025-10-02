@@ -14,6 +14,8 @@ import {
 import { PieChart, BarChart } from "react-native-chart-kit";
 import { useTasks } from "../hooks/useTasks";
 import { useSchedules } from "../hooks/useSchedules";
+import { useRecurrences } from "../hooks/useRecurrences";
+import { generateOccurrences } from "../utils/taskValidation";
 import {
   startOfWeek,
   addDays,
@@ -28,6 +30,7 @@ const WEEK_PICKER_COUNT = 12;
 export default function StatsScreen() {
   const { tasks, loadTasks } = useTasks();
   const { schedules, loadSchedules } = useSchedules();
+  const { recurrences, loadRecurrences } = useRecurrences();
 
   // week selection used only by Tasks view
   const [selectedWeekStart, setSelectedWeekStart] = useState(() =>
@@ -41,7 +44,8 @@ export default function StatsScreen() {
   useEffect(() => {
     loadTasks();
     loadSchedules();
-  }, [loadTasks, loadSchedules]);
+    loadRecurrences();
+  }, [loadTasks, loadSchedules, loadRecurrences]);
 
   // week options for picker (mon-based)
   const weekOptions = useMemo(() => {
@@ -52,6 +56,12 @@ export default function StatsScreen() {
   }, []);
 
   // ------------------ TASKS (week-based) ------------------
+  const recurrenceMap = useMemo(() => {
+    const m: Record<number, any> = {};
+    (recurrences || []).forEach((r: any) => { if (r.id != null) m[r.id] = r; });
+    return m;
+  }, [recurrences]);
+
   const mappedTasks = useMemo(() => {
     return (tasks || []).map((t: any) => {
       const start = t.start_at ? new Date(t.start_at) : null;
@@ -64,46 +74,77 @@ export default function StatsScreen() {
         rawStatus === "complete" ||
         t.completed === 1 ||
         t.completed === true;
-      return { ...t, start, end, rawStatus, completedFlag };
+      const rec = t.recurrence_id ? recurrenceMap[t.recurrence_id] : undefined;
+      return { ...t, start, end, rawStatus, completedFlag, recurrence: rec };
     });
-  }, [tasks]);
+  }, [tasks, recurrenceMap]);
 
   const weekStart = selectedWeekStart;
-  const weekEnd = addDays(selectedWeekStart, 6);
+  // weekEnd trước đây là 00:00 ngày Chủ nhật khiến các task trong ngày CN bị loại.
+  // Chuyển sang end-of-day Chủ nhật để so sánh bao phủ đủ cả tuần.
+  const rawWeekEnd = addDays(selectedWeekStart, 6);
+  const weekEnd = new Date(rawWeekEnd.getFullYear(), rawWeekEnd.getMonth(), rawWeekEnd.getDate(), 23, 59, 59, 999);
 
-  const weekTasks = useMemo(
-    () =>
-      mappedTasks.filter((t) => {
-        if (!t.start && !t.end) return false;
+  // Tạo occurrences cho tuần hiện tại (bao gồm task lặp)
+  const weekData = useMemo(() => {
+    const occsForBar: { taskId: number; start: Date; end: Date; baseTask: any }[] = [];
+    const tasksInWeek: any[] = [];
+    const weekStartMs = weekStart.getTime();
+  const weekEndMs = weekEnd.getTime();
+    mappedTasks.forEach(t => {
+      // Xử lý recurrence
+      if (t.recurrence && t.start) {
+        const baseStartMs = t.start.getTime();
+        const baseEndMs = t.end ? t.end.getTime() : (() => { const tmp = new Date(baseStartMs); tmp.setHours(23,59,59,999); return tmp.getTime(); })();
+        const recEnd = t.recurrence.end_date ? new Date(t.recurrence.end_date).getTime() : undefined;
+        const recConfig = {
+          enabled: true,
+          frequency: t.recurrence.type || 'daily',
+          interval: t.recurrence.interval || 1,
+          daysOfWeek: t.recurrence.days_of_week ? JSON.parse(t.recurrence.days_of_week) : [],
+          daysOfMonth: t.recurrence.day_of_month ? JSON.parse(t.recurrence.day_of_month) : [],
+          endDate: recEnd,
+        } as any;
+        let occs: { startAt: number; endAt: number }[] = [];
+        try { occs = generateOccurrences(baseStartMs, baseEndMs, recConfig); } catch { occs = [{ startAt: baseStartMs, endAt: baseEndMs }]; }
+  // Bao gồm occurrence nếu (o.endAt >= weekStart && o.startAt <= weekEndInclusive)
+  const occsInWeek = occs.filter(o => !(o.endAt < weekStartMs || o.startAt > weekEndMs));
+        if (occsInWeek.length) {
+          tasksInWeek.push(t); // task có ít nhất 1 occurrence trong tuần
+          occsInWeek.forEach(o => occsForBar.push({ taskId: t.id, start: new Date(o.startAt), end: new Date(o.endAt), baseTask: t }));
+        }
+      } else {
+        // Non recurring
         const s = t.start ?? t.end;
         const e = t.end ?? t.start ?? s;
-        return !(e < weekStart || s > weekEnd);
-      }),
-    [mappedTasks, weekStart, weekEnd]
-  );
+  if (s && e && !(e.getTime() < weekStart.getTime() || s.getTime() > weekEnd.getTime())) {
+          tasksInWeek.push(t);
+          occsForBar.push({ taskId: t.id, start: s, end: e, baseTask: t });
+        }
+      }
+    });
+    return { tasksInWeek, occsForBar };
+  }, [mappedTasks, weekStart, weekEnd]);
+
+  const weekTasks = weekData.tasksInWeek;
+
+  // Phân loại theo NGỮ CẢNH TUẦN (không phụ thuộc "hiện tại" đang chạy),
+  // "Đang thực hiện" = xuất hiện trong tuần, chưa hoàn thành, chưa quá hạn (recurrence end hoặc end_at).
+  const now = Date.now();
+  // Phân loại mới: CHỈ tính "trễ hạn" khi người dùng đã bấm hoàn thành và trạng thái hoàn thành là 'late'.
+  // Các công việc chưa hoàn thành (kể cả đã quá thời gian) vẫn nằm trong nhóm "đang thực hiện".
+  const classifications = weekTasks.map((t) => {
+    if (t.completedFlag) {
+      if (t.completion_status === 'late') return 'overdue';
+      return 'done';
+    }
+    return 'doing';
+  });
 
   const totalTasks = weekTasks.length;
-  const doneTasks = weekTasks.filter((t) => t.completedFlag).length;
-  const overdueTasks = weekTasks.filter((t) => {
-    if (t.completedFlag) return false;
-    if (!t.end) return false;
-    return t.end.getTime() < Date.now();
-  }).length;
-  const doingTasks = weekTasks.filter((t) => {
-    if (t.completedFlag) return false;
-    if (
-      t.rawStatus === "doing" ||
-      t.rawStatus === "in progress" ||
-      t.rawStatus === "in-progress"
-    )
-      return true;
-    if (t.start && t.end) {
-      const now = Date.now();
-      return t.start.getTime() <= now && now <= t.end.getTime();
-    }
-    if (t.start && !t.end) return t.start.getTime() <= Date.now();
-    return false;
-  }).length;
+  const doneTasks = classifications.filter(c => c === 'done').length;
+  const overdueTasks = classifications.filter(c => c === 'overdue').length;
+  const doingTasks = classifications.filter(c => c === 'doing').length;
 
   const tasksPieData = [
     {
@@ -134,32 +175,14 @@ export default function StatsScreen() {
     [weekStart]
   );
   const weekLabels = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
-  const weekCounts = weekDays.map((d) =>
-    weekTasks.filter((t) => t.start && isSameDay(t.start, d)).length
-  );
-
-  const doingList = weekTasks.filter((t) => {
-    if (t.completedFlag) return false;
-    if (
-      t.rawStatus === "doing" ||
-      t.rawStatus === "in progress" ||
-      t.rawStatus === "in-progress"
-    )
-      return true;
-    if (t.start && t.end) {
-      const now = Date.now();
-      return t.start.getTime() <= now && now <= t.end.getTime();
-    }
-    if (t.start && !t.end) return t.start.getTime() <= Date.now();
-    return false;
+  // Đếm số lần xuất hiện (occurrence) trong ngày
+  const weekCounts = weekDays.map((d) => {
+    return weekData.occsForBar.filter(o => isSameDay(o.start, d)).length;
   });
 
-  const doneList = weekTasks.filter((t) => t.completedFlag);
-  const overdueList = weekTasks.filter((t) => {
-    if (t.completedFlag) return false;
-    if (!t.end) return false;
-    return t.end.getTime() < Date.now();
-  });
+  const doingList = weekTasks.filter((t, i) => classifications[i] === 'doing');
+  const doneList = weekTasks.filter((t, i) => classifications[i] === 'done');
+  const overdueList = weekTasks.filter((t, i) => classifications[i] === 'overdue');
 
   const renderTaskItem = ({ item }: { item: any }) => {
     const time = item.start ? `${item.start.toLocaleString()}` : "Không có giờ";

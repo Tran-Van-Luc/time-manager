@@ -13,6 +13,8 @@ import {
 } from "react-native";
 import { useSchedules } from "../hooks/useSchedules";
 import { useTasks } from "../hooks/useTasks";
+import { useRecurrences } from "../hooks/useRecurrences";
+import { generateOccurrences } from "../utils/taskValidation";
 import { AnimatedToggle } from "../components/schedule/AnimatedToggle";
 
 type DayScheduleItem = {
@@ -101,13 +103,14 @@ function labelStatusVn(s?: string) {
 export default function HomeScreen() {
   const { schedules, loadSchedules } = useSchedules();
   const { tasks, loadTasks } = useTasks();
+  const { recurrences, loadRecurrences } = useRecurrences();
 
   const [viewMode, setViewMode] = useState<"month" | "week" | "day">("month");
   const [current, setCurrent] = useState(() => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1); });
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showModal, setShowModal] = useState(false);
 
-  useEffect(() => { loadSchedules(); loadTasks(); }, [loadSchedules, loadTasks]);
+  useEffect(() => { loadSchedules(); loadTasks(); loadRecurrences(); }, [loadSchedules, loadTasks, loadRecurrences]);
 
   const monthDays = useMemo(() => {
     const firstDay = new Date(current.getFullYear(), current.getMonth(), 1);
@@ -140,9 +143,62 @@ export default function HomeScreen() {
       map.set(key, arr);
     }
 
+    // Xác định khoảng hiển thị chính (dựa vào tháng hiện tại) để hạn chế số occurrence vô hạn
+    const monthStart = startOfDay(new Date(current.getFullYear(), current.getMonth(), 1));
+    const monthEnd = endOfDay(new Date(current.getFullYear(), current.getMonth() + 1, 0));
+
     for (const t of tasks) {
-      const start = t.start_at ? new Date(t.start_at) : null;
-      const end = t.end_at ? new Date(t.end_at) : null;
+      const baseStart = t.start_at ? new Date(t.start_at).getTime() : undefined;
+      const baseEnd = t.end_at ? new Date(t.end_at).getTime() : undefined;
+
+      // Nếu là task có lặp lại
+      if (t.recurrence_id && recurrences && recurrences.length) {
+        const rec = recurrences.find(r => r.id === t.recurrence_id);
+        if (rec && baseStart) {
+          const endMs = baseEnd ?? (() => { const tmp = new Date(baseStart); tmp.setHours(23,59,59,999); return tmp.getTime(); })();
+          const recConfig = {
+            enabled: true,
+            frequency: rec.type || 'daily',
+            interval: rec.interval || 1,
+            daysOfWeek: rec.days_of_week ? JSON.parse(rec.days_of_week) : [],
+            daysOfMonth: rec.day_of_month ? JSON.parse(rec.day_of_month) : [],
+            endDate: rec.end_date ? new Date(rec.end_date).getTime() : undefined,
+          } as any;
+
+            // Sinh các occurrence
+            let occs: { startAt: number; endAt: number }[] = [];
+            try { occs = generateOccurrences(baseStart, endMs, recConfig); } catch { occs = [{ startAt: baseStart, endAt: endMs }]; }
+
+            for (const occ of occs) {
+              // Bỏ qua occurrence nằm ngoài tháng đang xem để tránh map quá lớn (có thể mở rộng sau)
+              if (occ.endAt < monthStart.getTime() || occ.startAt > monthEnd.getTime()) continue;
+              const occStart = new Date(occ.startAt);
+              const occEnd = new Date(occ.endAt);
+              // Trải dài qua các ngày mà occurrence bao phủ
+              for (let d = new Date(startOfDay(occStart)); d <= endOfDay(occEnd); d.setDate(d.getDate() + 1)) {
+                const key = ymd(startOfDay(d));
+                const arr = map.get(key) ?? [];
+                arr.push({
+                  kind: 'task',
+                  id: t.id, // vẫn giữ id gốc để dẫn tới task
+                  title: t.title ?? 'Công việc',
+                  start: occStart,
+                  end: occEnd,
+                  color: getTaskColor(t.priority),
+                  notes: (t as any).notes ?? null,
+                  priority: t.priority ?? null,
+                  status: (t as any).status ?? null,
+                } as DayTaskItem);
+                map.set(key, arr);
+              }
+            }
+            continue; // sang task tiếp theo, không xử lý logic đơn lẻ bên dưới
+        }
+      }
+
+      // Task không lặp (logic cũ)
+      const start = baseStart ? new Date(baseStart) : null;
+      const end = baseEnd ? new Date(baseEnd) : null;
       if (start && end) {
         for (let d = new Date(startOfDay(start)); d <= endOfDay(end); d.setDate(d.getDate() + 1)) {
           const key = ymd(startOfDay(d));
@@ -180,7 +236,7 @@ export default function HomeScreen() {
     }
 
     return map;
-  }, [schedules, tasks]);
+  }, [schedules, tasks, recurrences, current]);
 
   // helper: reset to today (normalized)
   function resetToToday() {

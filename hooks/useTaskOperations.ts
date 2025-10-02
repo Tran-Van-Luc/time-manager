@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { refreshNotifications } from '../utils/notificationScheduler';
 import { Alert } from "react-native";
 import { useTasks } from "./useTasks";
 import { useReminders } from "./useReminders";
@@ -69,20 +70,38 @@ const parseConflictMessage = (msg: string): ConflictBlock[] => {
   return blocks;
 };
 
-export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], options?: UseTaskOpsOptions) => {
+// Allow injecting existing reminders context to avoid duplicate state (fixes issue when adding reminder while editing)
+interface RemindersContext {
+  reminders: any[];
+  addReminder: (...args: any[]) => Promise<any>;
+  editReminder: (...args: any[]) => Promise<any>;
+  removeReminder: (...args: any[]) => Promise<any>;
+  loadReminders: () => Promise<any>;
+}
+
+export const useTaskOperations = (
+  tasks: Task[],
+  schedules: ScheduleLike[],
+  options?: UseTaskOpsOptions,
+  injectedReminders?: RemindersContext
+) => {
   const { addTask, editTask: updateTask, removeTask } = useTasks();
-  const {
-    reminders,
-    addReminder,
-    editReminder,
-    removeReminder,
-    loadReminders,
-  } = useReminders();
+
+  // If parent supplies reminders context, reuse it; else create internal (backward compatible)
+  const internalReminders = useReminders();
+  const remindersCtx = injectedReminders || internalReminders;
+  const { reminders, addReminder, editReminder, removeReminder, loadReminders } = remindersCtx as RemindersContext & { reminders: any[] };
+
   const { addRecurrence, editRecurrence, removeRecurrence, recurrences, loadRecurrences } = useRecurrences();
 
-  // Load recurrences once so we can compare with existing recurring tasks
+  // Load recurrences (and reminders if using internal) once
   useEffect(() => {
     if (loadRecurrences) loadRecurrences();
+    if (!injectedReminders && loadReminders) {
+      // Only auto-load reminders if we're using the internal context
+      loadReminders();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const parseJsonArray = (val?: string): string[] => {
@@ -310,13 +329,21 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
         return false;
       }
 
-      // Check conflicts (single / recurring) với cách trình bày gom block
+      // Check conflicts (single / recurring) với cách trình bày gom block. Với task KHÔNG lặp cũng phải kiểm tra giao với các task lặp khác.
       if (startAt && endAt) {
         let conflictRes: { hasConflict: boolean; conflictMessage: string };
         if (recurrenceConfig?.enabled) {
           conflictRes = buildRecurringConflictMessage(startAt, endAt, recurrenceConfig);
         } else {
           conflictRes = checkTimeConflicts(startAt, endAt, tasks, (schedules as unknown as any));
+          // Bổ sung kiểm tra giao với các lần lặp của task khác (recurring) – trước đây chỉ làm khi chính task là recurring
+          const recurringConflicts = checkConflictsWithExistingRecurring([{ start: startAt, end: endAt }]);
+          if (recurringConflicts.length) {
+            const extraMsg = recurringConflicts.join('\n');
+            conflictRes = conflictRes.hasConflict
+              ? { hasConflict: true, conflictMessage: `${conflictRes.conflictMessage}\n\n${extraMsg}` }
+              : { hasConflict: true, conflictMessage: extraMsg };
+          }
         }
         if (conflictRes.hasConflict) {
           const formatted = compressSameDayRanges(conflictRes.conflictMessage);
@@ -389,7 +416,9 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
         }
       }
 
-      if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã thêm công việc!' }); else Alert.alert("Thành công", "Đã thêm công việc!");
+  // Lập lịch lại thông báo sau khi thêm
+  try { await refreshNotifications(); } catch {}
+  if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã thêm công việc!' }); else Alert.alert("Thành công", "Đã thêm công việc!");
       return true;
     } catch (error) {
       if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Không thể thêm công việc' }); else Alert.alert("Lỗi", "Không thể thêm công việc");
@@ -487,19 +516,20 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
         return false;
       }
 
-      // Conflicts (exclude itself) — dùng builder gom block như lúc thêm
+      // Conflicts (exclude itself) — dùng builder gom block như lúc thêm. Với task không lặp vẫn phải xét các occurrence của task lặp khác.
       if (startAt && endAt) {
         let conflictRes: { hasConflict: boolean; conflictMessage: string };
         if (recurrenceConfig?.enabled) {
           conflictRes = buildRecurringConflictMessage(startAt, endAt, recurrenceConfig, taskId);
         } else {
-          conflictRes = checkTimeConflicts(
-            startAt,
-            endAt,
-            tasks,
-            (schedules as unknown as any),
-            taskId
-          );
+          conflictRes = checkTimeConflicts(startAt, endAt, tasks, (schedules as unknown as any), taskId);
+          const recurringConflicts = checkConflictsWithExistingRecurring([{ start: startAt, end: endAt }], taskId);
+          if (recurringConflicts.length) {
+            const extraMsg = recurringConflicts.join('\n');
+            conflictRes = conflictRes.hasConflict
+              ? { hasConflict: true, conflictMessage: `${conflictRes.conflictMessage}\n\n${extraMsg}` }
+              : { hasConflict: true, conflictMessage: extraMsg };
+          }
         }
         if (conflictRes.hasConflict) {
           const formatted = compressSameDayRanges(conflictRes.conflictMessage);
@@ -595,7 +625,9 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
         await loadReminders();
       }
 
-      if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã cập nhật công việc!' }); else Alert.alert("Thành công", "Đã cập nhật công việc!");
+  // Lập lịch lại thông báo sau khi sửa
+  try { await refreshNotifications(); } catch {}
+  if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã cập nhật công việc!' }); else Alert.alert("Thành công", "Đã cập nhật công việc!");
       return true;
     } catch (error) {
       if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Không thể cập nhật công việc' }); else Alert.alert("Lỗi", "Không thể cập nhật công việc");
@@ -619,6 +651,7 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
             }
           await loadReminders();
           await removeTask(taskId);
+          try { await refreshNotifications(); } catch {}
           if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã xóa công việc!' }); else Alert.alert("Thành công", "Đã xóa công việc!");
           resolve(true);
         } catch (error) {

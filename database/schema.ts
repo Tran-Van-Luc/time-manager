@@ -101,6 +101,21 @@ export const recurrences = sqliteTable("recurrences", {
   created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
 });
 
+// Bảng scheduled_notifications: lưu tất cả notification đã lập lịch (task reminders)
+export const scheduled_notifications = sqliteTable("scheduled_notifications", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  task_id: integer("task_id"),              // FK -> tasks.id
+  reminder_id: integer("reminder_id"),      // FK -> reminders.id
+  recurrence_id: integer("recurrence_id"),  // FK -> recurrences.id (nếu có)
+  occurrence_start_at: integer("occurrence_start_at", { mode: "timestamp" }),
+  occurrence_end_at: integer("occurrence_end_at", { mode: "timestamp" }),
+  schedule_time: integer("schedule_time", { mode: "timestamp" }), // khi sẽ bắn
+  notification_id: text("notification_id"), // id trả về từ Expo
+  lead_minutes: integer("lead_minutes"),    // phút nhắc trước
+  status: text("status"),                   // scheduled | fired | cancelled
+  created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
+});
+
 // pomodoro_settings
 export const pomodoro_settings = sqliteTable("pomodoro_settings", {
   id: integer("id").primaryKey({ autoIncrement: true }),
