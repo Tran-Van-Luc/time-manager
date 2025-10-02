@@ -179,6 +179,8 @@ export default function StatsScreen() {
   const weekCounts = weekDays.map((d) => {
     return weekData.occsForBar.filter(o => isSameDay(o.start, d)).length;
   });
+// thêm: max cho biểu đồ công việc
+  const maxWeekCount = useMemo(() => Math.max(0, ...weekCounts), [weekCounts]);
 
   const doingList = weekTasks.filter((t, i) => classifications[i] === 'doing');
   const doneList = weekTasks.filter((t, i) => classifications[i] === 'done');
@@ -207,6 +209,9 @@ export default function StatsScreen() {
         ? "#16a34a"
         : "#94a3b8";
 
+    // Ưu tiên hiển thị màu theo mức độ quan trọng; nếu không có priority sẽ fallback sang màu trạng thái cũ
+    const indicatorColor = item.priority ? priorityColor : statusColor;
+
     let priorityLabel = "";
     if (item.priority === "high") priorityLabel = "Cao";
     else if (item.priority === "medium") priorityLabel = "Trung bình";
@@ -219,7 +224,7 @@ export default function StatsScreen() {
 
     return (
       <View style={styles.itemWrap}>
-        <View style={[styles.statusIndicator, { backgroundColor: statusColor }]} />
+        <View style={[styles.statusIndicator, { backgroundColor: indicatorColor }]} />
         <View style={styles.itemContent}>
           <Text style={styles.rowTitle}>{item.title}</Text>
           {item.description ? <Text style={styles.rowSubtitle}>{item.description}</Text> : null}
@@ -329,6 +334,8 @@ export default function StatsScreen() {
     });
     return counts;
   }, [mappedSchedules]);
+// thêm: max cho biểu đồ lịch học
+  const maxSchedCount = useMemo(() => Math.max(0, ...weekCountsSched), [weekCountsSched]);
 
   const renderScheduleItem = ({ item }: { item: any }) => {
     const time =
@@ -504,6 +511,7 @@ export default function StatsScreen() {
             height={220}
             fromZero
             showValuesOnTopOfBars
+            segments={maxWeekCount || 1}              // thêm
             yAxisLabel=""
             yAxisSuffix=""
             chartConfig={{
@@ -583,6 +591,7 @@ export default function StatsScreen() {
             height={200}
             fromZero
             showValuesOnTopOfBars
+            segments={maxSchedCount || 1}             // thêm
             yAxisLabel={""}
             yAxisSuffix={""}
             chartConfig={{
