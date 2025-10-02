@@ -114,34 +114,49 @@ export default function TaskListView({
 
   const todayItems: Task[] = [];
   const otherItems: Task[] = [];
+  // Lưu start time thực tế của occurrence hôm nay (không ghi đè vào task)
+  const todayOccurrenceStartMap = new Map<number, number>();
 
   for (const t of filteredTasks) {
     const occ = getTodayOccurrence(t);
     if (occ) {
-      todayItems.push({
-        ...t,
-        start_at: new Date(occ.start).toISOString(),
-        end_at: occ.end !== undefined ? new Date(occ.end).toISOString() : undefined,
-      } as Task);
+      // Trước đây ghi đè start_at/end_at bằng occurrence hôm nay -> làm mất ngày gốc.
+      // Yêu cầu mới: vẫn phân loại vào "Hôm nay" nếu có occurrence nhưng GIỮ NGUYÊN start_at ban đầu.
+      // Nếu cần về sau có thể thêm field phụ (vd: occurrence_start_at) nhưng hiện chưa dùng trong UI.
+      todayItems.push(t);
+      if (t.id != null) todayOccurrenceStartMap.set(t.id, occ.start);
     } else {
       otherItems.push(t);
     }
   }
 
   // Sort each section by start time
-  const byStart = (a: Task, b: Task) => {
-    const aStart = a.start_at
+  const byStartGeneral = (a: Task, b: Task) => {
+    const aStartRaw = a.start_at
       ? (typeof a.start_at === "string" ? new Date(a.start_at).getTime() : a.start_at)
       : Number.POSITIVE_INFINITY;
-    const bStart = b.start_at
+    const bStartRaw = b.start_at
       ? (typeof b.start_at === "string" ? new Date(b.start_at).getTime() : b.start_at)
       : Number.POSITIVE_INFINITY;
-    if (aStart !== bStart) return aStart - bStart;
-    // Tie-breaker by title for stable ordering
+    if (aStartRaw !== bStartRaw) return aStartRaw - bStartRaw;
     return (a.title || "").localeCompare(b.title || "");
   };
-  todayItems.sort(byStart);
-  otherItems.sort(byStart);
+
+  // Hôm nay: ưu tiên thời điểm occurrence hôm nay (theo giờ trong ngày) để sắp xếp
+  todayItems.sort((a, b) => {
+    const aOcc = a.id != null ? todayOccurrenceStartMap.get(a.id) : undefined;
+    const bOcc = b.id != null ? todayOccurrenceStartMap.get(b.id) : undefined;
+    if (aOcc != null && bOcc != null) {
+      if (aOcc !== bOcc) return aOcc - bOcc;
+      return (a.title || "").localeCompare(b.title || "");
+    }
+    if (aOcc != null) return -1; // các task có occurrence hôm nay lên trước
+    if (bOcc != null) return 1;
+    return byStartGeneral(a, b);
+  });
+
+  // Các công việc khác: sắp xếp theo start_at gốc như cũ
+  otherItems.sort(byStartGeneral);
 
   const sections = [
     { title: "Hôm nay", data: todayItems },
