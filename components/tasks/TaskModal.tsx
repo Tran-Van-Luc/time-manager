@@ -578,7 +578,7 @@ export default function TaskModal({
                         color="blue"
                         options={[
                           { label: 'Thông báo', value: 'notification' },
-                          { label: 'Email', value: 'email' }
+                          { label: 'Chuông báo', value: 'alarm' }
                         ]}
                       />
                     </View>

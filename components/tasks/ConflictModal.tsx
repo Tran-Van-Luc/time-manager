@@ -8,11 +8,10 @@ interface Props {
   visible: boolean;
   blocks: ConflictBlock[];
   raw: string;
-  onCancel: () => void;
-  onContinue: () => void;
+  onClose: () => void; // chỉ đóng, không cho tiếp tục
 }
 
-const ConflictModal: React.FC<Props> = ({ visible, blocks, onCancel, onContinue }) => {
+const ConflictModal: React.FC<Props> = ({ visible, blocks, onClose }) => {
   return (
     <Modal visible={visible} transparent animationType="fade">
       <View style={styles.backdrop}>
@@ -35,9 +34,10 @@ const ConflictModal: React.FC<Props> = ({ visible, blocks, onCancel, onContinue 
               </View>
             ))}
           </ScrollView>
-          <View style={styles.actions}>
-            <TouchableOpacity style={[styles.btn, styles.cancel]} onPress={onCancel}><Text style={styles.btnText}>HỦY</Text></TouchableOpacity>
-            <TouchableOpacity style={[styles.btn, styles.continue]} onPress={onContinue}><Text style={styles.btnText}>TIẾP TỤC</Text></TouchableOpacity>
+          <View style={styles.actionsSingle}>
+            <TouchableOpacity style={[styles.btn, styles.close]} onPress={onClose}>
+              <Text style={styles.btnText}>ĐÓNG</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </View>
@@ -56,10 +56,9 @@ const styles = StyleSheet.create({
   taskTitle: { color:'#8a2be2' },
   time: { marginLeft:10, color:'#e67e22' },
   other: { marginLeft:10, color:'#444' },
-  actions: { flexDirection:'row', justifyContent:'flex-end', marginTop:12, gap:12 },
+  actionsSingle: { flexDirection:'row', justifyContent:'flex-end', marginTop:12 },
   btn: { paddingVertical:10, paddingHorizontal:18, borderRadius:6 },
-  cancel: { backgroundColor:'#999' },
-  continue: { backgroundColor:'#d9534f' },
+  close: { backgroundColor:'#d9534f' },
   btnText: { color:'#fff', fontWeight:'600' }
 });
 
