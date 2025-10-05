@@ -13,6 +13,7 @@ interface Props {
   editTask: (id: number, data: any) => Promise<void> | void;
   openEditModal: (task: Task) => void;
   handleDeleteTask: (id: number) => void;
+  hideDate?: boolean; // when true, show only time (used for Today mode)
 }
 
 export default function TaskItem({
@@ -23,6 +24,7 @@ export default function TaskItem({
   editTask,
   openEditModal,
   handleDeleteTask,
+  hideDate = false,
 }: Props) {
   const reminder = reminders.find((r) => r.task_id === item.id);
   const rec = item.recurrence_id
@@ -79,15 +81,20 @@ export default function TaskItem({
           const segments: Array<{ type: string; text: string }> = [];
           if (s && e) {
             const sameDay = s.getFullYear() === e.getFullYear() && s.getMonth() === e.getMonth() && s.getDate() === e.getDate();
-            if (sameDay) {
-              // HH:MM - HH:MM  (time range)  then date
+            if (hideDate) {
+              // Only times
+              segments.push({ type: 'time', text: fmtTime(s) });
+              segments.push({ type: 'sep', text: ' - ' });
+              segments.push({ type: 'time', text: fmtTime(e) });
+            } else if (sameDay) {
+              // HH:MM - HH:MM  then date
               segments.push({ type: 'time', text: fmtTime(s) });
               segments.push({ type: 'sep', text: ' - ' });
               segments.push({ type: 'time', text: fmtTime(e) });
               segments.push({ type: 'space', text: ' ' });
               segments.push({ type: 'date', text: fmtDate(s) });
             } else {
-              // Start full
+              // Start full and end full with dates
               segments.push({ type: 'time', text: fmtTime(s) });
               segments.push({ type: 'space', text: ' ' });
               segments.push({ type: 'date', text: fmtDate(s) });
@@ -97,12 +104,16 @@ export default function TaskItem({
               segments.push({ type: 'date', text: fmtDate(e) });
             }
           } else if (s) {
-            segments.push({ type: 'time', text: fmtTime(s) });
-            segments.push({ type: 'space', text: ' ' });
-            segments.push({ type: 'date', text: fmtDate(s) });
+            if (hideDate) {
+              segments.push({ type: 'time', text: fmtTime(s) });
+            } else {
+              segments.push({ type: 'time', text: fmtTime(s) });
+              segments.push({ type: 'space', text: ' ' });
+              segments.push({ type: 'date', text: fmtDate(s) });
+            }
           }
-          // Recurrence end date
-          if (rec?.end_date) {
+          // Recurrence end date (skip showing date in Today compact mode)
+          if (!hideDate && rec?.end_date) {
             const endRecDate = new Date(rec.end_date);
             if (segments.length) segments.push({ type: 'rec-sep', text: ' — ' });
             segments.push({ type: 'recurrenceEnd', text: fmtDate(endRecDate) });
@@ -141,24 +152,8 @@ export default function TaskItem({
           );
         })()}
 
-        {/* Badge mức độ, trạng thái, nhắc nhở, lặp lại */}
+        {/* Badge trạng thái, nhắc nhở (icon-only), lặp lại; bỏ Badge mức độ vì thẻ đã có màu */}
         <View className="flex-row flex-wrap items-center gap-1 mb-1">
-          {item.priority === "high" && (
-            <Text className="bg-red-100 text-red-600 rounded-full px-2 py-0.5 text-base border border-red-600">
-              Cao
-            </Text>
-          )}
-          {item.priority === "medium" && (
-            <Text className="bg-yellow-100 text-yellow-600 rounded-full px-2 py-0.5 text-base border border-yellow-600">
-              Trung bình
-            </Text>
-          )}
-          {item.priority === "low" && (
-            <Text className="bg-green-100 text-green-600 rounded-full px-2 py-0.5 text-base border border-green-600">
-              Thấp
-            </Text>
-          )}
-
           {item.status === "pending" && (
             <Text className="bg-gray-200 text-gray-600 rounded-full px-2 py-0.5 text-base border border-gray-600">
               Chờ thực hiện
@@ -169,25 +164,38 @@ export default function TaskItem({
               Đang thực hiện
             </Text>
           )}
-          {item.status === "completed" && (
-            <Text className="bg-green-100 text-green-600 rounded-full px-2 py-0.5 text-base border border-green-600">
-              Hoàn thành
-            </Text>
-          )}
+          {item.status === 'completed' && (()=>{
+            // Gọn hoá: dùng đơn vị viết tắt n (ngày), g (giờ), p (phút)
+            let label = 'Hoàn thành';
+            const st = item.completion_status;
+            if (st) {
+              const abs = Math.abs(item.completion_diff_minutes ?? 0);
+              if (st === 'on_time') {
+                label = 'Hoàn thành đúng hạn';
+              } else {
+                const d = Math.floor(abs / 1440);
+                const h = Math.floor((abs % 1440) / 60);
+                const m = abs % 60;
+                let short = '';
+                if (d) short += `${d}n`;
+                if (h) short += `${h}g`;
+                if (m || (!d && !h && m===0)) short += `${m}p`; // nếu chỉ có 0 phút (rất sát) vẫn hiện 0p
+                if (st === 'early') label = `Hoàn thành sớm ${short}`;
+                else if (st === 'late') label = `Hoàn thành trễ ${short}`;
+              }
+            }
+            return <Text className="bg-green-100 text-green-600 rounded-full px-2 py-0.5 text-base border border-green-600">{label}</Text>;
+          })()}
 
           {!!reminder && (
             <View className="flex-row items-center bg-blue-100 rounded-full px-2 py-0.5 border border-blue-600">
               <Text className="text-blue-600 text-base">🔔</Text>
-              <Text className="text-blue-600 text-base ml-0.5">
-                {formatReminder(reminder?.remind_before) || `${reminder?.remind_before} phút`}
-              </Text>
             </View>
           )}
 
           {!!item.recurrence_id && !!rec && (
             <View className="flex-row items-center bg-purple-100 rounded-full px-2 py-0.5 border border-purple-700">
-              <Text className="text-base">🔄</Text>
-              <Text className="text-purple-700 text-base ml-1">{repeatLabel}</Text>
+              <Text className="text-purple-700 text-base">🔄</Text>
             </View>
           )}
         </View>
@@ -196,12 +204,37 @@ export default function TaskItem({
       {/* Cột icon thao tác */}
       <View className="flex-col items-center justify-center gap-2 ml-2 min-w-[36px]">
         <TouchableOpacity
-          onPress={async () => {
+          onPress={async () => { 
             let nextStatus: Task["status"] = "pending";
             if (item.status === "pending") nextStatus = "in-progress";
             else if (item.status === "in-progress") nextStatus = "completed";
             else if (item.status === "completed") nextStatus = "pending";
-            await editTask(item.id!, { status: nextStatus });
+            if (nextStatus === 'completed') {
+              // Determine due time: recurrence end date (end of recurrence) else task end_at
+              const now = Date.now();
+              let dueMs: number | undefined;
+              if (rec?.end_date) {
+                dueMs = new Date(rec.end_date).getTime();
+              } else if (item.end_at) {
+                dueMs = new Date(item.end_at).getTime();
+              }
+              let diffMinutes: number | undefined;
+              let completionStatus: 'early' | 'on_time' | 'late' | undefined;
+              if (dueMs) {
+                diffMinutes = Math.round((now - dueMs) / 60000); // >0 = late
+                if (diffMinutes < -1) completionStatus = 'early';
+                else if (diffMinutes > 1) completionStatus = 'late';
+                else completionStatus = 'on_time';
+              }
+              await editTask(item.id!, {
+                status: nextStatus,
+                completed_at: new Date(now).toISOString(),
+                completion_diff_minutes: diffMinutes,
+                completion_status: completionStatus,
+              });
+            } else {
+              await editTask(item.id!, { status: nextStatus });
+            }
           }}
         >
           {item.status === "completed" ? (

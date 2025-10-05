@@ -13,11 +13,11 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { AntDesign } from "@expo/vector-icons";
-import AddScheduleForm from "./AddScheduleForm";
+import AddScheduleForm from "../components/schedule/AddScheduleForm";
 import { useSchedules, ScheduleItem } from "../hooks/useSchedules";
-import DayView from "../components/DayView";
-import WeekView from "../components/WeekView";
-import ScheduleDetailModal from "../components/ScheduleDetailModal";
+import DayView from "../components/schedule/DayView";
+import WeekView from "../components/schedule/WeekView";
+import ScheduleDetailModal from "../components/schedule/ScheduleDetailModal";
 
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -117,7 +117,7 @@ export default function ScheduleScreen() {
   function handleDetailDelete(item: ScheduleItem) {
     Alert.alert(
       "Xác nhận xóa",
-      "Bạn có chắc muốn xóa toàn bộ lịch của môn này?",
+      "Bạn có chắc muốn xóa của môn này?",
       [
         { text: "Hủy", style: "cancel" },
         {

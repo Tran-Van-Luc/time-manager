@@ -1,4 +1,4 @@
-// HomeScreen.tsx
+// app/HomeScreen.tsx
 import React, { useMemo, useState, useEffect } from "react";
 import {
   View,
@@ -13,7 +13,9 @@ import {
 } from "react-native";
 import { useSchedules } from "../hooks/useSchedules";
 import { useTasks } from "../hooks/useTasks";
-import { AnimatedToggle } from "../components/AnimatedToggle";
+import { useRecurrences } from "../hooks/useRecurrences";
+import { generateOccurrences } from "../utils/taskValidation";
+import { AnimatedToggle } from "../components/schedule/AnimatedToggle";
 
 type DayScheduleItem = {
   kind: "schedule";
@@ -101,13 +103,14 @@ function labelStatusVn(s?: string) {
 export default function HomeScreen() {
   const { schedules, loadSchedules } = useSchedules();
   const { tasks, loadTasks } = useTasks();
+  const { recurrences, loadRecurrences } = useRecurrences();
 
   const [viewMode, setViewMode] = useState<"month" | "week" | "day">("month");
   const [current, setCurrent] = useState(() => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1); });
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showModal, setShowModal] = useState(false);
 
-  useEffect(() => { loadSchedules(); loadTasks(); }, [loadSchedules, loadTasks]);
+  useEffect(() => { loadSchedules(); loadTasks(); loadRecurrences(); }, [loadSchedules, loadTasks, loadRecurrences]);
 
   const monthDays = useMemo(() => {
     const firstDay = new Date(current.getFullYear(), current.getMonth(), 1);
@@ -140,9 +143,62 @@ export default function HomeScreen() {
       map.set(key, arr);
     }
 
+    // Xác định khoảng hiển thị chính (dựa vào tháng hiện tại) để hạn chế số occurrence vô hạn
+    const monthStart = startOfDay(new Date(current.getFullYear(), current.getMonth(), 1));
+    const monthEnd = endOfDay(new Date(current.getFullYear(), current.getMonth() + 1, 0));
+
     for (const t of tasks) {
-      const start = t.start_at ? new Date(t.start_at) : null;
-      const end = t.end_at ? new Date(t.end_at) : null;
+      const baseStart = t.start_at ? new Date(t.start_at).getTime() : undefined;
+      const baseEnd = t.end_at ? new Date(t.end_at).getTime() : undefined;
+
+      // Nếu là task có lặp lại
+      if (t.recurrence_id && recurrences && recurrences.length) {
+        const rec = recurrences.find(r => r.id === t.recurrence_id);
+        if (rec && baseStart) {
+          const endMs = baseEnd ?? (() => { const tmp = new Date(baseStart); tmp.setHours(23,59,59,999); return tmp.getTime(); })();
+          const recConfig = {
+            enabled: true,
+            frequency: rec.type || 'daily',
+            interval: rec.interval || 1,
+            daysOfWeek: rec.days_of_week ? JSON.parse(rec.days_of_week) : [],
+            daysOfMonth: rec.day_of_month ? JSON.parse(rec.day_of_month) : [],
+            endDate: rec.end_date ? new Date(rec.end_date).getTime() : undefined,
+          } as any;
+
+            // Sinh các occurrence
+            let occs: { startAt: number; endAt: number }[] = [];
+            try { occs = generateOccurrences(baseStart, endMs, recConfig); } catch { occs = [{ startAt: baseStart, endAt: endMs }]; }
+
+            for (const occ of occs) {
+              // Bỏ qua occurrence nằm ngoài tháng đang xem để tránh map quá lớn (có thể mở rộng sau)
+              if (occ.endAt < monthStart.getTime() || occ.startAt > monthEnd.getTime()) continue;
+              const occStart = new Date(occ.startAt);
+              const occEnd = new Date(occ.endAt);
+              // Trải dài qua các ngày mà occurrence bao phủ
+              for (let d = new Date(startOfDay(occStart)); d <= endOfDay(occEnd); d.setDate(d.getDate() + 1)) {
+                const key = ymd(startOfDay(d));
+                const arr = map.get(key) ?? [];
+                arr.push({
+                  kind: 'task',
+                  id: t.id, // vẫn giữ id gốc để dẫn tới task
+                  title: t.title ?? 'Công việc',
+                  start: occStart,
+                  end: occEnd,
+                  color: getTaskColor(t.priority),
+                  notes: (t as any).notes ?? null,
+                  priority: t.priority ?? null,
+                  status: (t as any).status ?? null,
+                } as DayTaskItem);
+                map.set(key, arr);
+              }
+            }
+            continue; // sang task tiếp theo, không xử lý logic đơn lẻ bên dưới
+        }
+      }
+
+      // Task không lặp (logic cũ)
+      const start = baseStart ? new Date(baseStart) : null;
+      const end = baseEnd ? new Date(baseEnd) : null;
       if (start && end) {
         for (let d = new Date(startOfDay(start)); d <= endOfDay(end); d.setDate(d.getDate() + 1)) {
           const key = ymd(startOfDay(d));
@@ -180,7 +236,7 @@ export default function HomeScreen() {
     }
 
     return map;
-  }, [schedules, tasks]);
+  }, [schedules, tasks, recurrences, current]);
 
   // helper: reset to today (normalized)
   function resetToToday() {
@@ -189,7 +245,6 @@ export default function HomeScreen() {
     setCurrent(new Date()); // current used for week/month grid center; set to now
   }
 
-  // When user switches tabs via AnimatedToggle we'll call resetToToday (see onChange below)
   const handlePressDay = (d: Date) => {
     const day = startOfDay(d);
     setSelectedDate(day);
@@ -230,7 +285,6 @@ export default function HomeScreen() {
     return current;
   }, [viewMode, current, selectedDate]);
 
-  // weekDays: keep based on current so user can still navigate weeks.
   const weekDays = useMemo(() => {
     const focus = startOfDay(current);
     const dayOfWeek = (focus.getDay() + 6) % 7;
@@ -263,7 +317,6 @@ export default function HomeScreen() {
   const schedulesForDay = selectedItems.filter(i => i.kind === "schedule") as DayScheduleItem[];
   const tasksForDay = selectedItems.filter(i => i.kind === "task") as DayTaskItem[];
 
-  // openDetailsFor: select normalized day and either show modal (month/day) or details below (week)
   const openDetailsFor = (d: Date) => {
     const day = startOfDay(d);
     setSelectedDate(day);
@@ -284,6 +337,27 @@ export default function HomeScreen() {
     if (!selectedDate) return [];
     return (dayMap.get(ymd(startOfDay(selectedDate))) ?? []).filter(it => it.kind === "task") as DayTaskItem[];
   }, [selectedDate, dayMap]);
+
+  // Schedule item component with type pill
+  const ScheduleItemView = ({ s }: { s: DayScheduleItem }) => {
+    const st = DEFAULT_TYPE_STYLE[s.type] || { color: s.color || "#6B7280", emoji: "📋", pillBg: "#fff" };
+    return (
+      <View style={[styles.scheduleCard, { borderLeftColor: st.color, backgroundColor: st.pillBg }]}>
+        <View style={styles.rowTop}>
+          <Text style={styles.subjectText}>{st.emoji} {s.subject}</Text>
+          <View style={[styles.typePill, { backgroundColor: st.pillBg, borderColor: st.color }]}>
+            <Text style={[styles.typePillText, { color: st.color }]} numberOfLines={1}>
+              {s.type}
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.timeText}>⏰ {fmtTime(s.start)} – {fmtTime(s.end)}</Text>
+        <Text style={styles.detailText}>👨‍🏫 {s.instructorName ?? "Chưa có giảng viên"}</Text>
+        <Text style={styles.detailText}>📍 {s.location ?? "Chưa có phòng"}</Text>
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -317,9 +391,7 @@ export default function HomeScreen() {
         <AnimatedToggle
           value={viewMode === "day" ? "day" : viewMode === "week" ? "week" : "month"}
           onChange={(v) => {
-            // Always reset to today when switching tabs
             resetToToday();
-
             if (v === "day") {
               setViewMode("day");
             } else if (v === "week") {
@@ -450,19 +522,9 @@ export default function HomeScreen() {
               <Text style={styles.sectionTitle}>Lịch học</Text>
               {schedulesForSelectedDay.length === 0 ? (
                 <View style={styles.emptyRow}><Text style={styles.emptyRowText}>Không có lịch học</Text></View>
-              ) : schedulesForSelectedDay.map((s, i) => {
-                const st = DEFAULT_TYPE_STYLE[s.type] || { color: s.color || "#6B7280", emoji: "📋", pillBg: "#fff" };
-                return (
-                  <View key={i} style={[styles.scheduleCard, { borderLeftColor: st.color, backgroundColor: st.pillBg }]}>
-                    <View style={styles.rowTop}>
-                      <Text style={styles.subjectText}>{st.emoji} {s.subject}</Text>
-                    </View>
-                    <Text style={styles.timeText}>⏰ {fmtTime(s.start)} – {fmtTime(s.end)}</Text>
-                    <Text style={styles.detailText}>👨‍🏫 {s.instructorName ?? "Chưa có giảng viên"}</Text>
-                    <Text style={styles.detailText}>📍 {s.location ?? "Chưa có phòng"}</Text>
-                  </View>
-                );
-              })}
+              ) : schedulesForSelectedDay.map((s, i) => (
+                <ScheduleItemView key={s.id ?? i} s={s} />
+              ))}
 
               <Text style={[styles.sectionTitle, { marginTop: 10 }]}>Công việc</Text>
               {tasksForSelectedDay.length === 0 ? (
@@ -521,19 +583,7 @@ export default function HomeScreen() {
             const items = dayMap.get(key) ?? [];
             const scheds = items.filter(it => it.kind === "schedule") as DayScheduleItem[];
             if (scheds.length === 0) return <View style={styles.emptyRow}><Text style={styles.emptyRowText}>Không có lịch học</Text></View>;
-            return scheds.map((s, i) => {
-              const st = DEFAULT_TYPE_STYLE[s.type] || { color: s.color || "#6B7280", emoji: "📋", pillBg: "#fff" };
-              return (
-                <View key={i} style={[styles.scheduleCard, { borderLeftColor: st.color, backgroundColor: st.pillBg }]}>
-                  <View style={styles.rowTop}>
-                    <Text style={styles.subjectText}>{st.emoji} {s.subject}</Text>
-                  </View>
-                  <Text style={styles.timeText}>⏰ {fmtTime(s.start)} – {fmtTime(s.end)}</Text>
-                  <Text style={styles.detailText}>👨‍🏫 {s.instructorName ?? "Chưa có giảng viên"}</Text>
-                  <Text style={styles.detailText}>📍 {s.location ?? "Chưa có phòng"}</Text>
-                </View>
-              );
-            });
+            return scheds.map((s, i) => <ScheduleItemView key={s.id ?? i} s={s} />);
           })()}
 
           <Text style={[styles.sectionTitle, { marginTop: 10 }]}>Công việc</Text>
@@ -600,19 +650,7 @@ export default function HomeScreen() {
                     <Text style={styles.sectionTitle}>Lịch học</Text>
                     {schedulesForDay.length === 0 ? (
                       <View style={styles.emptyRow}><Text style={styles.emptyRowText}>Không có lịch học</Text></View>
-                    ) : schedulesForDay.map((s, i) => {
-                      const st = DEFAULT_TYPE_STYLE[s.type] || { color: s.color || "#6B7280", emoji: "📋", pillBg: "#fff" };
-                      return (
-                        <View key={i} style={[styles.scheduleCard, { borderLeftColor: st.color, backgroundColor: st.pillBg }]}>
-                          <View style={styles.rowTop}>
-                            <Text style={styles.subjectText}>{st.emoji} {s.subject}</Text>
-                          </View>
-                          <Text style={styles.timeText}>⏰ {fmtTime(s.start)} – {fmtTime(s.end)}</Text>
-                          <Text style={styles.detailText}>👨‍🏫 {s.instructorName ?? "Chưa có giảng viên"}</Text>
-                          <Text style={styles.detailText}>📍 {s.location ?? "Chưa có phòng"}</Text>
-                        </View>
-                      );
-                    })}
+                    ) : schedulesForDay.map((s, i) => <ScheduleItemView key={s.id ?? i} s={s} />)}
 
                     <Text style={[styles.sectionTitle, { marginTop: 10 }]}>Công việc</Text>
                     {tasksForDay.length === 0 ? (
@@ -754,4 +792,20 @@ const styles = StyleSheet.create({
   rowPills: { flexDirection: "row", gap: 8, marginTop: 6 },
   pill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, alignItems: "center", justifyContent: "center", marginRight: 8 },
   pillText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+
+  // new styles for type pill
+  typePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginLeft: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    maxWidth: 140,
+  },
+  typePillText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
 });

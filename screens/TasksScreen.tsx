@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -15,7 +15,7 @@ import { useSchedules } from "../hooks/useSchedules";
 import { useTaskOperations } from "../hooks/useTaskOperations";
 import ConflictModal from "../components/tasks/ConflictModal";
 import TaskAlertModal from "../components/tasks/TaskAlertModal";
-import FilterPicker from "../components/tasks/SelectBox";
+import CompactSelect from "../components/tasks/CompactSelect";
 import TaskModal from "../components/tasks/TaskModal";
 import TaskDetailModal from "../components/tasks/TaskDetailModal";
 import TaskListView from "../components/tasks/TaskListView";
@@ -47,14 +47,15 @@ export default function TasksScreen() {
     loadRecurrences,
   } = useRecurrences();
   const { schedules, loadSchedules } = useSchedules();
-  const [conflictModal, setConflictModal] = useState<{ visible: boolean; raw: string; blocks: any[]; resolver?: (v:boolean)=>void }>({ visible:false, raw:'', blocks:[] });
+  const [conflictModal, setConflictModal] = useState<{ visible: boolean; raw: string; blocks: any[] }>({ visible:false, raw:'', blocks:[] });
   const [alertState, setAlertState] = useState<{ visible:boolean; tone:'error'|'warning'|'success'|'info'; title:string; message:string; buttons:{ text:string; onPress:()=>void; tone?:any }[] }>({ visible:false, tone:'info', title:'', message:'', buttons:[] });
   const { handleAddTask, handleEditTask, handleDeleteTask } = useTaskOperations(
     tasks,
     schedules,
     {
       onConflict: ({ raw, blocks, resolve }) => {
-        setConflictModal({ visible:true, raw, blocks, resolver: resolve });
+        setConflictModal({ visible:true, raw, blocks });
+        resolve(false);
       },
       onNotify: ({ tone, title, message }) => {
         setAlertState({ visible:true, tone, title, message, buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel'}] });
@@ -68,7 +69,8 @@ export default function TasksScreen() {
           buttons: buttons.map(b=>({ text:b.text, onPress:b.onPress, tone:b.style==='destructive'?'destructive': b.style==='cancel'?'cancel':'info' }))
         });
       }
-    }
+    },
+    { reminders, addReminder, editReminder, removeReminder, loadReminders }
   );
   
   // Wrap task-operation handlers to pass current UI state and handle UI resets
@@ -153,6 +155,10 @@ export default function TasksScreen() {
   const [search, setSearch] = useState("");
   const [priority, setPriority] = useState("");
   const [status, setStatus] = useState("");
+  const [filtersWidth, setFiltersWidth] = useState<number | undefined>(undefined);
+  // Options for filters with an explicit "All" entry so users can clear selection
+  const PRIORITY_OPTIONS_FILTER = useMemo(() => ([{ label: "Tất cả mức độ", value: "" }, ...PRIORITY_OPTIONS]), []);
+  const STATUS_OPTIONS_FILTER = useMemo(() => ([{ label: "Tất cả trạng thái", value: "" }, ...STATUS_OPTIONS]), []);
   const [showModal, setShowModal] = useState(false);
   // Lưu thời điểm bắt đầu nhập task
   const [addTaskStartTime, setAddTaskStartTime] = useState<number | null>(null);
@@ -372,8 +378,7 @@ export default function TasksScreen() {
         visible={conflictModal.visible}
         raw={conflictModal.raw}
         blocks={conflictModal.blocks}
-        onCancel={() => { conflictModal.resolver?.(false); setConflictModal(c=>({...c, visible:false})); }}
-        onContinue={() => { conflictModal.resolver?.(true); setConflictModal(c=>({...c, visible:false})); }}
+        onClose={() => setConflictModal(c=>({...c, visible:false}))}
       />
       <TaskAlertModal
         visible={alertState.visible}
@@ -397,24 +402,34 @@ export default function TasksScreen() {
       {/* Ô tìm kiếm + lọc */}
       <View className="mb-4">
         <TextInput
-          placeholder="Tìm kiếm công việc..."
+          placeholder="Tìm kiếm công việc theo tiêu đề hoặc mô tả..."
           value={search}
           onChangeText={setSearch}
           className="border p-2 rounded mb-2"
         />
-        <View className="flex-row gap-2">
-          <FilterPicker
-            value={priority}
-            onChange={setPriority}
-            options={PRIORITY_OPTIONS}
-            placeholder="Tất cả mức độ"
-          />
-          <FilterPicker
-            value={status}
-            onChange={setStatus}
-            options={STATUS_OPTIONS}
-            placeholder="Tất cả trạng thái"
-          />
+        <View style={{ flexDirection: 'row', width: '100%' }} onLayout={(e)=> setFiltersWidth(e.nativeEvent.layout.width)}>
+          <View style={{ width: filtersWidth ? (filtersWidth - 8) / 2 : undefined, marginRight: 8 }}>
+            <CompactSelect
+              value={priority}
+              onChange={setPriority}
+              options={PRIORITY_OPTIONS_FILTER}
+              placeholder="Tất cả mức độ"
+              fontSizeClassName="text-sm"
+              buttonStyle={{ width: '100%' }}
+              menuWidth={filtersWidth ? (filtersWidth - 8) / 2 : undefined}
+            />
+          </View>
+          <View style={{ width: filtersWidth ? (filtersWidth - 8) / 2 : undefined }}>
+            <CompactSelect
+              value={status}
+              onChange={setStatus}
+              options={STATUS_OPTIONS_FILTER}
+              placeholder="Tất cả trạng thái"
+              fontSizeClassName="text-sm"
+              buttonStyle={{ width: '100%' }}
+              menuWidth={filtersWidth ? (filtersWidth - 8) / 2 : undefined}
+            />
+          </View>
         </View>
       </View>
 

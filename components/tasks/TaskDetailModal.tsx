@@ -95,28 +95,78 @@ export default function TaskDetailModal({
                   </Text>
                 )}
 
-                {/* Time */}
-                <View className="flex-row items-center mb-1">
-                  <Text className="text-gray-600 text-base">📅</Text>
-                  <Text className="text-gray-600 text-base ml-1">
-                    {task.start_at
-                      ? `${new Date(task.start_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })} ${new Date(task.start_at).getDate()}-${
-                          new Date(task.start_at).getMonth() + 1
-                        }-${new Date(task.start_at).getFullYear()}`
-                      : ""}
-                    {task.end_at
-                      ? ` - ${new Date(task.end_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })} ${new Date(task.end_at).getDate()}-${
-                          new Date(task.end_at).getMonth() + 1
-                        }-${new Date(task.end_at).getFullYear()}`
-                      : ""}
-                  </Text>
-                </View>
+                {/* Time - align with TaskItem formatting */}
+                {(() => {
+                  const toDate = (v: any) => (v ? new Date(v) : null);
+                  const s = toDate(task.start_at);
+                  const e = toDate(task.end_at);
+                  const pad = (n: number) => String(n).padStart(2, "0");
+                  const fmtTime = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                  const fmtDate = (d: Date) => `${d.getDate()}-${d.getMonth() + 1}-${d.getFullYear()}`;
+                  const segments: Array<{ type: string; text: string }> = [];
+                  if (s && e) {
+                    const sameDay = s.getFullYear() === e.getFullYear() && s.getMonth() === e.getMonth() && s.getDate() === e.getDate();
+                    if (sameDay) {
+                      // HH:MM - HH:MM  then date
+                      segments.push({ type: 'time', text: fmtTime(s) });
+                      segments.push({ type: 'sep', text: ' - ' });
+                      segments.push({ type: 'time', text: fmtTime(e) });
+                      segments.push({ type: 'space', text: ' ' });
+                      segments.push({ type: 'date', text: fmtDate(s) });
+                    } else {
+                      // Start full and end full with dates
+                      segments.push({ type: 'time', text: fmtTime(s) });
+                      segments.push({ type: 'space', text: ' ' });
+                      segments.push({ type: 'date', text: fmtDate(s) });
+                      segments.push({ type: 'sep', text: ' — ' });
+                      segments.push({ type: 'time', text: fmtTime(e) });
+                      segments.push({ type: 'space', text: ' ' });
+                      segments.push({ type: 'date', text: fmtDate(e) });
+                    }
+                  } else if (s) {
+                    segments.push({ type: 'time', text: fmtTime(s) });
+                    segments.push({ type: 'space', text: ' ' });
+                    segments.push({ type: 'date', text: fmtDate(s) });
+                  }
+                  // Recurrence end date
+                  if (rec?.end_date) {
+                    const endRecDate = new Date(rec.end_date);
+                    if (segments.length) segments.push({ type: 'rec-sep', text: ' — ' });
+                    segments.push({ type: 'recurrenceEnd', text: fmtDate(endRecDate) });
+                  }
+
+                  if (!segments.length) return null;
+
+                  const renderSeg = (seg: { type: string; text: string }, idx: number) => {
+                    let cls = 'text-base';
+                    switch (seg.type) {
+                      case 'time':
+                        cls += ' text-blue-600 font-medium';
+                        break;
+                      case 'date':
+                        cls += ' text-gray-700';
+                        break;
+                      case 'sep':
+                      case 'space':
+                      case 'rec-sep':
+                        cls += ' text-gray-500';
+                        break;
+                      case 'recurrenceEnd':
+                        cls += ' text-purple-700 font-medium';
+                        break;
+                      default:
+                        cls += ' text-gray-600';
+                    }
+                    return <Text key={idx} className={cls}>{seg.text}</Text>;
+                  };
+
+                  return (
+                    <View className="flex-row items-center mb-1 flex-wrap">
+                      <Text className="text-gray-600 text-base mr-1">📅</Text>
+                      <Text className="flex-row flex-wrap">{segments.map(renderSeg)}</Text>
+                    </View>
+                  );
+                })()}
 
                 {/* Badges: priority, status, reminder, recurrence */}
                 <View className="flex-row flex-wrap items-center gap-1 mb-1">

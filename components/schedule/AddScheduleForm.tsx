@@ -16,8 +16,8 @@ import {
   createSchedule,
   CreateScheduleParams,
   ScheduleType,
-} from "../database/schedule";
-import { useSchedules } from "../hooks/useSchedules";
+} from "../../database/schedule";
+import { useSchedules } from "../../hooks/useSchedules";
 
 // 3 loại khi thêm mới
 const ADD_TYPES: ScheduleType[] = [
