@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 
 interface Option {
   label: string;
@@ -12,10 +12,13 @@ interface Props {
   placeholder?: string;
   maxHeight?: number; // limit list height
   fontSizeClassName?: string; // allow override font size (tailwind class)
+  iconOnly?: boolean; // show only the arrow icon on the button
+  buttonStyle?: any; // allow custom styling for the trigger button (merge with defaults)
+  menuWidth?: number; // custom dropdown width (e.g., width of the parent button)
 }
 
 // A simple inline dropdown that expands below the selector instead of full screen
-export default function CompactSelect({ value, onChange, options, placeholder = 'Chọn', maxHeight = 180, fontSizeClassName = 'text-sm' }: Props) {
+export default function CompactSelect({ value, onChange, options, placeholder = 'Chọn', maxHeight = 180, fontSizeClassName = 'text-sm', iconOnly = false, buttonStyle, menuWidth }: Props) {
   const [open, setOpen] = useState(false);
 
   const currentLabel = useMemo(() => {
@@ -29,18 +32,26 @@ export default function CompactSelect({ value, onChange, options, placeholder = 
   };
 
   return (
-    <View className="min-w-[90px]" style={{ position: 'relative' }}>
+    <View className={iconOnly ? '' : 'min-w-[90px]'} style={{ position: 'relative' }}>
       <TouchableOpacity
         activeOpacity={0.7}
         onPress={() => setOpen(o => !o)}
         className="border rounded px-3 py-2 bg-white flex-row justify-between items-center"
+        style={buttonStyle}
       >
-        <Text className={`${fontSizeClassName} font-medium`} numberOfLines={1}>{currentLabel}</Text>
-        <Text className={`ml-1 ${fontSizeClassName}`}>▾</Text>
+        {!iconOnly && (
+          <Text className={`${fontSizeClassName} font-medium`} numberOfLines={1}>{currentLabel}</Text>
+        )}
+        <Text
+          className={`${iconOnly ? '' : 'ml-1'} ${fontSizeClassName}`}
+          style={iconOnly ? { fontSize: 15, lineHeight: 22, fontWeight: '700' } : undefined}
+        >
+          ▼
+        </Text>
       </TouchableOpacity>
       {open && (
         <View
-          style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 9999 }}
+          style={{ position: 'absolute', top: '100%', right: 0, zIndex: 9999, width: menuWidth }}
           pointerEvents="box-none"
         >
           {/* Backdrop */}
@@ -62,7 +73,7 @@ export default function CompactSelect({ value, onChange, options, placeholder = 
                   className={`px-2 py-2 ${selected ? 'bg-blue-600' : ''}`}
                   activeOpacity={0.6}
                 >
-                  <Text className={`${fontSizeClassName} ${selected ? 'text-white font-semibold' : 'text-black'}`}>{item.label}</Text>
+                  <Text numberOfLines={1} className={`${fontSizeClassName} ${selected ? 'text-white font-semibold' : 'text-black'}`}>{item.label}</Text>
                 </TouchableOpacity>
               );
             })}

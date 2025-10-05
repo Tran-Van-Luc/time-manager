@@ -135,6 +135,9 @@ export default function TaskModal({
   const formatTime = (d: Date) =>
     `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 
+  const endOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0, 0);
+  const oneHourFromNow = () => new Date(Date.now() + 60 * 60 * 1000);
+
   const getStartDateObj = () =>
     newTask.start_at ? new Date(newTask.start_at) : new Date();
   const getEndDateObj = () =>
@@ -160,6 +163,67 @@ export default function TaskModal({
       }
     }
   }, [repeat, repeatFrequency]);
+
+  // When user selects weekly/monthly repeat, default a single selection based on start date
+  useEffect(() => {
+    if (!visible) return;
+    if (!repeat) return;
+    // Only auto-pick for new tasks to avoid overriding edits
+    if (editId !== null) return;
+    const start = getStartDateObj();
+    if (repeatFrequency === "weekly") {
+      if (!repeatDaysOfWeek || repeatDaysOfWeek.length === 0) {
+        const dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][start.getDay()];
+        setRepeatDaysOfWeek([dow]);
+      }
+    } else if (repeatFrequency === "monthly") {
+      if (!repeatDaysOfMonth || repeatDaysOfMonth.length === 0) {
+        setRepeatDaysOfMonth([String(start.getDate())]);
+      }
+    }
+  }, [visible, repeat, repeatFrequency, newTask.start_at]);
+
+  // Initialize defaults when opening modal for creating a new task
+  useEffect(() => {
+    if (!visible) return;
+    if (editId !== null) return; // don't override when editing
+    const now = new Date();
+    // Default start: now + 1h05m
+    const defaultStart = new Date(now.getTime() + (120 * 60 * 1000));
+    // Always set start_at when not set
+    let startMs = newTask.start_at ?? defaultStart.getTime();
+    let startDate = new Date(startMs);
+    // Default end_at to end of day of the start date if not set
+    const defaultEnd = endOfDay(startDate).getTime();
+    setNewTask((prev: any) => ({
+      ...prev,
+      start_at: prev.start_at ?? startMs,
+      end_at: prev.end_at ?? defaultEnd,
+    }));
+  }, [visible]);
+
+  // Wrapper to enforce start time at least 1 hour from now when adding
+  const handleAddWithConstraint = () => {
+    const nowPlus1h = oneHourFromNow().getTime();
+    const startMs = newTask.start_at ?? Date.now();
+    if (startMs < nowPlus1h) {
+      onInlineAlert?.({
+        tone: 'warning',
+        title: 'Giờ bắt đầu chưa hợp lệ',
+        message: 'Vui lòng đặt giờ bắt đầu muộn hơn hiện tại ít nhất 1 giờ.'
+      });
+      return;
+    }
+    // Optional: ensure end_at exists and is after start
+    if (!newTask.end_at || newTask.end_at <= startMs) {
+      const eod = endOfDay(new Date(startMs));
+      setNewTask((prev: any) => ({ ...prev, end_at: eod.getTime() }));
+      // Call after state update in next tick to avoid stale state
+      setTimeout(() => handleAddTask(), 0);
+      return;
+    }
+    handleAddTask();
+  };
 
   const updateYearlyCount = (text: string) => {
     const nRaw = parseInt(text.replace(/[^0-9]/g, ""), 10);
@@ -213,16 +277,16 @@ export default function TaskModal({
                           if (event.type === "set" && pickedDate) {
                             const preservedTime = getStartDateObj();
                             let combined = combineDateTime(pickedDate, preservedTime);
-                            // Prevent selecting a start before now
+                            // For new task, ensure at least 1h from now
                             const now = new Date();
-                            if (combined.getTime() < now.getTime()) {
-                              // If selected date is today, bump to current time
+                            const minStart = editId === null ? oneHourFromNow() : now;
+                            if (combined.getTime() < minStart.getTime()) {
                               const isSameDay =
-                                pickedDate.getFullYear() === now.getFullYear() &&
-                                pickedDate.getMonth() === now.getMonth() &&
-                                pickedDate.getDate() === now.getDate();
+                                pickedDate.getFullYear() === minStart.getFullYear() &&
+                                pickedDate.getMonth() === minStart.getMonth() &&
+                                pickedDate.getDate() === minStart.getDate();
                               if (isSameDay) {
-                                combined = now;
+                                combined = minStart;
                               }
                             }
                             setNewTask((prev: any) => ({
@@ -246,21 +310,6 @@ export default function TaskModal({
                   <Text>
                     Ngày bắt đầu: {newTask.start_at ? formatDate(new Date(newTask.start_at)) : "--"}
                   </Text>
-                  {editId === null && (
-                    <TouchableOpacity
-                      onPress={(e) => {
-                        e.stopPropagation?.();
-                        onInlineAlert?.({
-                          tone: 'info',
-                          title: 'Ngày bắt đầu',
-                          message: 'Nếu bạn không chọn ngày bắt đầu, hệ thống sẽ mặc định dùng thời điểm hiện tại.'
-                        });
-                      }}
-                      className="ml-2 w-5 h-5 rounded-full bg-blue-600 items-center justify-center"
-                    >
-                      <Text className="text-white text-xs font-bold">?</Text>
-                    </TouchableOpacity>
-                  )}
                 </TouchableOpacity>
                 {Platform.OS === "ios" && iosShowStartDate && (
                   <DateTimePicker
@@ -274,13 +323,14 @@ export default function TaskModal({
                         const preservedTime = getStartDateObj();
                         let combined = combineDateTime(pickedDate, preservedTime);
                         const now = new Date();
-                        if (combined.getTime() < now.getTime()) {
+                        const minStart = editId === null ? oneHourFromNow() : now;
+                        if (combined.getTime() < minStart.getTime()) {
                           const isSameDay =
-                            pickedDate.getFullYear() === now.getFullYear() &&
-                            pickedDate.getMonth() === now.getMonth() &&
-                            pickedDate.getDate() === now.getDate();
+                            pickedDate.getFullYear() === minStart.getFullYear() &&
+                            pickedDate.getMonth() === minStart.getMonth() &&
+                            pickedDate.getDate() === minStart.getDate();
                           if (isSameDay) {
-                            combined = now;
+                            combined = minStart;
                           }
                         }
                         setNewTask((prev: any) => ({
@@ -309,9 +359,10 @@ export default function TaskModal({
                           if (event.type === "set" && pickedTime) {
                             const combined = combineDateTime(currentStart, pickedTime);
                             const now = new Date();
-                            // Disallow choosing a start earlier than now
-                            if (combined.getTime() < now.getTime()) {
-                              onInlineAlert?.({ tone:'warning', title:'Thời gian không hợp lệ', message:'Giờ bắt đầu không thể trước thời điểm hiện tại!' });
+                            const minStart = editId === null ? oneHourFromNow() : now;
+                            // Disallow choosing a start earlier than minStart
+                            if (combined.getTime() < minStart.getTime()) {
+                              onInlineAlert?.({ tone:'warning', title:'Thời gian không hợp lệ', message: editId === null ? 'Giờ bắt đầu phải muộn hơn hiện tại ít nhất 1 giờ!' : 'Giờ bắt đầu không thể trước thời điểm hiện tại!' });
                               return;
                             }
                             setNewTask((prev: any) => ({
@@ -332,21 +383,6 @@ export default function TaskModal({
                   className="border p-2 rounded mb-2 bg-gray-50 flex-row items-center justify-between"
                 >
                   <Text>Giờ bắt đầu: {newTask.start_at ? formatTime(new Date(newTask.start_at)) : "--"}</Text>
-                  {editId === null && (
-                    <TouchableOpacity
-                      onPress={(e) => {
-                        e.stopPropagation?.();
-                        onInlineAlert?.({
-                          tone: 'info',
-                          title: 'Giờ bắt đầu',
-                          message: 'Nếu bạn không chọn giờ bắt đầu, hệ thống sẽ dùng giờ hiện tại.'
-                        });
-                      }}
-                      className="ml-2 w-5 h-5 rounded-full bg-blue-600 items-center justify-center"
-                    >
-                      <Text className="text-white text-xs font-bold">?</Text>
-                    </TouchableOpacity>
-                  )}
                 </TouchableOpacity>
                 {Platform.OS === "ios" && iosShowStartTime && (
                   <DateTimePicker
@@ -358,8 +394,9 @@ export default function TaskModal({
                       if (event.type === "set" && pickedTime) {
                         const combined = combineDateTime(getStartDateObj(), pickedTime);
                         const now = new Date();
-                        if (combined.getTime() < now.getTime()) {
-                          onInlineAlert?.({ tone:'warning', title:'Thời gian không hợp lệ', message:'Giờ bắt đầu không thể trước thời điểm hiện tại!' });
+                        const minStart = editId === null ? oneHourFromNow() : now;
+                        if (combined.getTime() < minStart.getTime()) {
+                          onInlineAlert?.({ tone:'warning', title:'Thời gian không hợp lệ', message: editId === null ? 'Giờ bắt đầu phải muộn hơn hiện tại ít nhất 1 giờ!' : 'Giờ bắt đầu không thể trước thời điểm hiện tại!' });
                           return;
                         }
                         setNewTask((prev: any) => ({
@@ -593,7 +630,7 @@ export default function TaskModal({
                   <>
                     <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2">
                       <Text className="ml-1 mt-0.5 mb-1 font-medium">
-                        Loại lặp
+                        Lặp theo
                       </Text>
                       <ColoredSegmentGroup
                         value={repeatFrequency.toString()}
@@ -730,12 +767,12 @@ export default function TaskModal({
                     {/* Kết thúc lặp: Yearly dùng số lần; các loại khác dùng ngày kết thúc */}
                     {repeatFrequency === "yearly" ? (
                       <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2">
-                        <Text className="ml-1 mt-0.5 mb-1 font-medium">Số lần lặp (1-100)</Text>
+                        <Text className="ml-1 mt-0.5 mb-1 font-medium">Số lần lặp (1-100) *</Text>
                         <TextInput
                           className="border p-2 rounded bg-white"
                           keyboardType="number-pad"
                           value={yearlyCount === "" ? "" : String(yearlyCount)}
-                          placeholder="Nhập số lần (1-100)"
+                          placeholder="Nếu không nhập mặc định là 1"
                           onChangeText={updateYearlyCount}
                         />
                         <Text className="text-xs text-gray-500 mt-1 ml-1">
@@ -744,7 +781,7 @@ export default function TaskModal({
                       </View>
                     ) : (
                       <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2">
-                        <Text className="ml-1 mt-0.5 mb-1 font-medium">Ngày kết thúc lặp</Text>
+                        <Text className="ml-1 mt-0.5 mb-1 font-medium">Ngày kết thúc lặp *</Text>
                         <TouchableOpacity
                           className="border p-2 rounded bg-white"
                           onPress={() => {
@@ -795,7 +832,7 @@ export default function TaskModal({
                 {editId === null ? (
                   <TouchableOpacity
                     className={`bg-blue-600 p-3 rounded-lg mt-2 ${!newTask.title.trim() ? 'opacity-50' : ''}`}
-                    onPress={handleAddTask}
+                    onPress={handleAddWithConstraint}
                     disabled={!newTask.title.trim()}
                   >
                     <Text className="text-white text-center">Thêm công việc</Text>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -15,7 +15,7 @@ import { useSchedules } from "../hooks/useSchedules";
 import { useTaskOperations } from "../hooks/useTaskOperations";
 import ConflictModal from "../components/tasks/ConflictModal";
 import TaskAlertModal from "../components/tasks/TaskAlertModal";
-import FilterPicker from "../components/tasks/SelectBox";
+import CompactSelect from "../components/tasks/CompactSelect";
 import TaskModal from "../components/tasks/TaskModal";
 import TaskDetailModal from "../components/tasks/TaskDetailModal";
 import TaskListView from "../components/tasks/TaskListView";
@@ -155,6 +155,10 @@ export default function TasksScreen() {
   const [search, setSearch] = useState("");
   const [priority, setPriority] = useState("");
   const [status, setStatus] = useState("");
+  const [filtersWidth, setFiltersWidth] = useState<number | undefined>(undefined);
+  // Options for filters with an explicit "All" entry so users can clear selection
+  const PRIORITY_OPTIONS_FILTER = useMemo(() => ([{ label: "Tất cả mức độ", value: "" }, ...PRIORITY_OPTIONS]), []);
+  const STATUS_OPTIONS_FILTER = useMemo(() => ([{ label: "Tất cả trạng thái", value: "" }, ...STATUS_OPTIONS]), []);
   const [showModal, setShowModal] = useState(false);
   // Lưu thời điểm bắt đầu nhập task
   const [addTaskStartTime, setAddTaskStartTime] = useState<number | null>(null);
@@ -398,24 +402,34 @@ export default function TasksScreen() {
       {/* Ô tìm kiếm + lọc */}
       <View className="mb-4">
         <TextInput
-          placeholder="Tìm kiếm công việc..."
+          placeholder="Tìm kiếm công việc theo tiêu đề hoặc mô tả..."
           value={search}
           onChangeText={setSearch}
           className="border p-2 rounded mb-2"
         />
-        <View className="flex-row gap-2">
-          <FilterPicker
-            value={priority}
-            onChange={setPriority}
-            options={PRIORITY_OPTIONS}
-            placeholder="Tất cả mức độ"
-          />
-          <FilterPicker
-            value={status}
-            onChange={setStatus}
-            options={STATUS_OPTIONS}
-            placeholder="Tất cả trạng thái"
-          />
+        <View style={{ flexDirection: 'row', width: '100%' }} onLayout={(e)=> setFiltersWidth(e.nativeEvent.layout.width)}>
+          <View style={{ width: filtersWidth ? (filtersWidth - 8) / 2 : undefined, marginRight: 8 }}>
+            <CompactSelect
+              value={priority}
+              onChange={setPriority}
+              options={PRIORITY_OPTIONS_FILTER}
+              placeholder="Tất cả mức độ"
+              fontSizeClassName="text-sm"
+              buttonStyle={{ width: '100%' }}
+              menuWidth={filtersWidth ? (filtersWidth - 8) / 2 : undefined}
+            />
+          </View>
+          <View style={{ width: filtersWidth ? (filtersWidth - 8) / 2 : undefined }}>
+            <CompactSelect
+              value={status}
+              onChange={setStatus}
+              options={STATUS_OPTIONS_FILTER}
+              placeholder="Tất cả trạng thái"
+              fontSizeClassName="text-sm"
+              buttonStyle={{ width: '100%' }}
+              menuWidth={filtersWidth ? (filtersWidth - 8) / 2 : undefined}
+            />
+          </View>
         </View>
       </View>
 

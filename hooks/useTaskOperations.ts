@@ -323,7 +323,7 @@ export const useTaskOperations = (
         return false;
       }
 
-      // Recurrence must have end date (yêu cầu: bắt buộc người dùng chọn ngày kết thúc)
+      // Recurrence end date requirement: always require user input
       if (recurrenceConfig?.enabled && !recurrenceConfig.endDate) {
         if (options?.onNotify) options.onNotify({ tone:'warning', title:'Thiếu thông tin', message:'Vui lòng chọn ngày kết thúc cho lặp lại' }); else Alert.alert("Lỗi", "Vui lòng chọn ngày kết thúc cho lặp lại");
         return false;
@@ -510,7 +510,7 @@ export const useTaskOperations = (
         return false;
       }
 
-      // Recurrence must have end date when enabled
+      // Recurrence end date requirement (edit): always require user input
       if (recurrenceConfig?.enabled && !recurrenceConfig.endDate) {
         if (options?.onNotify) options.onNotify({ tone:'warning', title:'Thiếu thông tin', message:'Vui lòng chọn ngày kết thúc cho lặp lại' }); else Alert.alert("Lỗi", "Vui lòng chọn ngày kết thúc cho lặp lại");
         return false;
