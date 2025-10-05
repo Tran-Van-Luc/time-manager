@@ -1,4 +1,3 @@
-// screens/AddScheduleForm.tsx
 import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
@@ -19,14 +18,19 @@ import {
 } from "../../database/schedule";
 import { useSchedules } from "../../hooks/useSchedules";
 
-// 3 loại khi thêm mới
+// Các loại lịch
 const ADD_TYPES: ScheduleType[] = [
-  "Lịch học thường xuyên",
+  "Lịch học lý thuyết",
+  "Lịch học thực hành",
   "Lịch thi",
   "Lịch học bù",
 ];
-// khi sửa, thêm “Lịch tạm ngưng”
 const EDIT_TYPES: ScheduleType[] = [...ADD_TYPES, "Lịch tạm ngưng"];
+
+// Kiểm tra loại recurring
+function isRecurringType(t: ScheduleType) {
+  return t === "Lịch học lý thuyết" || t === "Lịch học thực hành";
+}
 
 // parse "YYYY-MM-DD" → local Date
 function parseLocalDate(s: string): Date {
@@ -72,10 +76,8 @@ export default function AddScheduleForm({
 }: Props) {
   const { schedules, loadSchedules } = useSchedules();
 
-  // choose between add or edit types
   const types = onSave ? EDIT_TYPES : ADD_TYPES;
 
-  // form fields
   const [courseName, setCourseName] = useState(
     initialValues?.courseName ?? ""
   );
@@ -84,14 +86,13 @@ export default function AddScheduleForm({
   );
   const [location, setLocation] = useState(initialValues?.location ?? "");
   const [type, setType] = useState<ScheduleType>(
-    initialValues?.type ?? types[0]
+    (initialValues?.type as ScheduleType) ?? types[0]
   );
 
   // dates
   const [startDate, setStartDate] = useState<Date>(() => {
     if (initialValues?.startDate) return parseLocalDate(initialValues.startDate);
-    if (initialValues?.singleDate)
-      return parseLocalDate(initialValues.singleDate);
+    if (initialValues?.singleDate) return parseLocalDate(initialValues.singleDate);
     return new Date();
   });
   const [endDate, setEndDate] = useState<Date>(() => {
@@ -99,21 +100,15 @@ export default function AddScheduleForm({
     return new Date(startDate);
   });
   const [singleDate, setSingleDate] = useState<Date>(() =>
-    initialValues?.singleDate
-      ? parseLocalDate(initialValues.singleDate)
-      : new Date()
+    initialValues?.singleDate ? parseLocalDate(initialValues.singleDate) : new Date()
   );
 
   // times
   const [startTime, setStartTime] = useState<Date>(() =>
-    initialValues?.startTime
-      ? parseLocalTime(initialValues.startTime)
-      : new Date()
+    initialValues?.startTime ? parseLocalTime(initialValues.startTime) : new Date()
   );
   const [endTime, setEndTime] = useState<Date>(() =>
-    initialValues?.endTime
-      ? parseLocalTime(initialValues.endTime)
-      : new Date(startTime)
+    initialValues?.endTime ? parseLocalTime(initialValues.endTime) : new Date(startTime)
   );
 
   useEffect(() => {
@@ -122,7 +117,7 @@ export default function AddScheduleForm({
 
   // conflict check (skip current entry when editing)
   const conflictDetail = useMemo(() => {
-    if (type === "Lịch học thường xuyên") return undefined;
+    if (isRecurringType(type)) return undefined;
     const ns = new Date(
       `${formatLocalDate(singleDate)}T${formatLocalTime(startTime)}:00`
     );
@@ -142,17 +137,11 @@ export default function AddScheduleForm({
   const isValid =
     courseName.trim() !== "" &&
     startTime < endTime &&
-    (type !== "Lịch học thường xuyên" || startDate <= endDate) &&
+    ( !isRecurringType(type) ? true : startDate <= endDate ) &&
     !conflictDetail;
 
-  // Modal DateTimePicker state
-  type PickerTarget =
-    | "startDate"
-    | "endDate"
-    | "singleDate"
-    | "startTime"
-    | "endTime";
-
+  // Picker states
+  type PickerTarget = "startDate" | "endDate" | "singleDate" | "startTime" | "endTime";
   const [isPickerVisible, setPickerVisible] = useState(false);
   const [pickerMode, setPickerMode] = useState<"date" | "time">("date");
   const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
@@ -184,19 +173,12 @@ export default function AddScheduleForm({
     setPickerVisible(false);
   };
 
-  // current date for modal
   const currentPickerDate =
-    pickerTarget === "startDate"
-      ? startDate
-      : pickerTarget === "endDate"
-      ? endDate
-      : pickerTarget === "singleDate"
-      ? singleDate
-      : pickerTarget === "startTime"
-      ? startTime
-      : endTime;
+    pickerTarget === "startDate" ? startDate :
+    pickerTarget === "endDate" ? endDate :
+    pickerTarget === "singleDate" ? singleDate :
+    pickerTarget === "startTime" ? startTime : endTime;
 
-  // save or update
   async function handleSave() {
     if (!isValid) {
       if (conflictDetail) {
@@ -217,17 +199,16 @@ export default function AddScheduleForm({
       endTime: formatLocalTime(endTime),
     };
 
-    const params: CreateScheduleParams =
-      type === "Lịch học thường xuyên"
-        ? {
-            ...(base as CreateScheduleParams),
-            startDate: formatLocalDate(startDate),
-            endDate: formatLocalDate(endDate),
-          }
-        : {
-            ...(base as CreateScheduleParams),
-            singleDate: formatLocalDate(singleDate),
-          };
+    const params: CreateScheduleParams = isRecurringType(type)
+      ? {
+          ...(base as CreateScheduleParams),
+          startDate: formatLocalDate(startDate),
+          endDate: formatLocalDate(endDate),
+        }
+      : {
+          ...(base as CreateScheduleParams),
+          singleDate: formatLocalDate(singleDate),
+        };
 
     try {
       if (onSave) {
@@ -236,17 +217,11 @@ export default function AddScheduleForm({
       } else {
         const { sessionsCreated } = await createSchedule(params);
         await loadSchedules();
-        Alert.alert(
-          "Thành công",
-          `Tạo ${sessionsCreated} buổi cho "${courseName}"`
-        );
+        Alert.alert("Thành công", `Tạo ${sessionsCreated} buổi cho "${courseName}"`);
       }
       onClose();
-    } catch {
-      Alert.alert(
-        "Trùng lịch",
-        "Buổi này trùng lịch, vui lòng chọn khung giờ khác"
-      );
+    } catch (err: any) {
+      Alert.alert("Lỗi", err?.message ?? "Không thể lưu lịch");
     }
   }
 
@@ -254,70 +229,35 @@ export default function AddScheduleForm({
     <View style={s.overlay}>
       <View style={s.modal}>
         <View style={s.header}>
-          <Text style={s.title}>
-            {onSave ? "Chỉnh sửa lịch" : "Thêm lịch mới"}
-          </Text>
-          <TouchableOpacity onPress={onClose}>
-            <Text style={{ fontSize: 18 }}>✕</Text>
-          </TouchableOpacity>
+          <Text style={s.title}>{onSave ? "Chỉnh sửa lịch" : "Thêm lịch mới"}</Text>
+          <TouchableOpacity onPress={onClose}><Text style={{fontSize:18}}>✕</Text></TouchableOpacity>
         </View>
 
         <ScrollView>
-          {/* Course Name */}
           <Text style={s.label}>Tên môn học *</Text>
-          <TextInput
-            style={s.input}
-            placeholder="VD: Toán cao cấp"
-            value={courseName}
-            onChangeText={setCourseName}
-          />
+          <TextInput style={s.input} placeholder="VD: Toán cao cấp" value={courseName} onChangeText={setCourseName} />
 
-          {/* Type */}
           <Text style={s.label}>Loại lịch</Text>
           <View style={s.picker}>
-            <Picker
-              selectedValue={type}
-              onValueChange={(v) => setType(v as ScheduleType)}
-            >
-              {types.map((t) => (
-                <Picker.Item key={t} label={t} value={t} />
-              ))}
+            <Picker selectedValue={type} onValueChange={(v) => setType(v as ScheduleType)}>
+              {types.map((t) => <Picker.Item key={t} label={t} value={t} />)}
             </Picker>
           </View>
 
-          {/* Instructor */}
           <Text style={s.label}>Giảng viên</Text>
-          <TextInput
-            style={s.input}
-            placeholder="VD: TS. Nguyễn Kiều Anh"
-            value={instructor}
-            onChangeText={setInstructor}
-          />
+          <TextInput style={s.input} placeholder="VD: TS. Nguyễn Kiều Anh" value={instructor} onChangeText={setInstructor} />
 
-          {/* Location */}
           <Text style={s.label}>Địa điểm</Text>
-          <TextInput
-            style={s.input}
-            placeholder="VD: Phòng G3"
-            value={location}
-            onChangeText={setLocation}
-          />
+          <TextInput style={s.input} placeholder="VD: Phòng G3" value={location} onChangeText={setLocation} />
 
-          {/* Dates */}
-          {type === "Lịch học thường xuyên" ? (
+          {isRecurringType(type) ? (
             <>
               <Text style={s.label}>Ngày bắt đầu – kết thúc</Text>
               <View style={s.row}>
-                <TouchableOpacity
-                  style={s.btn}
-                  onPress={() => openPicker("startDate", "date")}
-                >
+                <TouchableOpacity style={s.btn} onPress={() => openPicker("startDate", "date")}>
                   <Text>{formatLocalDate(startDate)}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={s.btn}
-                  onPress={() => openPicker("endDate", "date")}
-                >
+                <TouchableOpacity style={s.btn} onPress={() => openPicker("endDate", "date")}>
                   <Text>{formatLocalDate(endDate)}</Text>
                 </TouchableOpacity>
               </View>
@@ -325,39 +265,24 @@ export default function AddScheduleForm({
           ) : (
             <>
               <Text style={s.label}>Ngày</Text>
-              <TouchableOpacity
-                style={s.btn}
-                onPress={() => openPicker("singleDate", "date")}
-              >
+              <TouchableOpacity style={s.btn} onPress={() => openPicker("singleDate", "date")}>
                 <Text>{formatLocalDate(singleDate)}</Text>
               </TouchableOpacity>
             </>
           )}
 
-          {/* Times */}
           <Text style={s.label}>Giờ bắt đầu – kết thúc</Text>
           <View style={s.row}>
-            <TouchableOpacity
-              style={s.btn}
-              onPress={() => openPicker("startTime", "time")}
-            >
+            <TouchableOpacity style={s.btn} onPress={() => openPicker("startTime", "time")}>
               <Text>{formatLocalTime(startTime)}</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={s.btn}
-              onPress={() => openPicker("endTime", "time")}
-            >
+            <TouchableOpacity style={s.btn} onPress={() => openPicker("endTime", "time")}>
               <Text>{formatLocalTime(endTime)}</Text>
             </TouchableOpacity>
           </View>
 
-          {conflictDetail && (
-            <Text style={s.error}>
-              Trùng lịch: đã có "{conflictDetail.subject}" khung này
-            </Text>
-          )}
+          {conflictDetail && <Text style={s.error}>Trùng lịch: đã có "{conflictDetail.subject}" khung này</Text>}
 
-          {/* Modal DateTime Picker */}
           <DateTimePickerModal
             isVisible={isPickerVisible}
             mode={pickerMode}
@@ -368,15 +293,8 @@ export default function AddScheduleForm({
             onCancel={handleCancel}
           />
 
-          {/* Save */}
-          <TouchableOpacity
-            style={[s.saveBtn, isValid ? s.saveBtnActive : s.saveBtnDisabled]}
-            onPress={handleSave}
-            disabled={!isValid}
-          >
-            <Text style={[s.saveBtnText, !isValid && s.saveBtnTextDisabled]}>
-              {onSave ? "Cập nhật" : "Lưu lịch"}
-            </Text>
+          <TouchableOpacity style={[s.saveBtn, isValid ? s.saveBtnActive : s.saveBtnDisabled]} onPress={handleSave} disabled={!isValid}>
+            <Text style={[s.saveBtnText, !isValid && s.saveBtnTextDisabled]}>{onSave ? "Cập nhật" : "Lưu lịch"}</Text>
           </TouchableOpacity>
         </ScrollView>
       </View>

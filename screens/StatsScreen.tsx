@@ -32,7 +32,6 @@ export default function StatsScreen() {
   const { schedules, loadSchedules } = useSchedules();
   const { recurrences, loadRecurrences } = useRecurrences();
 
-  // week selection used only by Tasks view
   const [selectedWeekStart, setSelectedWeekStart] = useState(() =>
     startOfWeek(new Date(), { weekStartsOn: 1 })
   );
@@ -47,7 +46,6 @@ export default function StatsScreen() {
     loadRecurrences();
   }, [loadTasks, loadSchedules, loadRecurrences]);
 
-  // week options for picker (mon-based)
   const weekOptions = useMemo(() => {
     const now = startOfWeek(new Date(), { weekStartsOn: 1 });
     return Array.from({ length: WEEK_PICKER_COUNT }).map((_, i) =>
@@ -80,19 +78,15 @@ export default function StatsScreen() {
   }, [tasks, recurrenceMap]);
 
   const weekStart = selectedWeekStart;
-  // weekEnd trước đây là 00:00 ngày Chủ nhật khiến các task trong ngày CN bị loại.
-  // Chuyển sang end-of-day Chủ nhật để so sánh bao phủ đủ cả tuần.
   const rawWeekEnd = addDays(selectedWeekStart, 6);
   const weekEnd = new Date(rawWeekEnd.getFullYear(), rawWeekEnd.getMonth(), rawWeekEnd.getDate(), 23, 59, 59, 999);
 
-  // Tạo occurrences cho tuần hiện tại (bao gồm task lặp)
   const weekData = useMemo(() => {
     const occsForBar: { taskId: number; start: Date; end: Date; baseTask: any }[] = [];
     const tasksInWeek: any[] = [];
     const weekStartMs = weekStart.getTime();
-  const weekEndMs = weekEnd.getTime();
+    const weekEndMs = weekEnd.getTime();
     mappedTasks.forEach(t => {
-      // Xử lý recurrence
       if (t.recurrence && t.start) {
         const baseStartMs = t.start.getTime();
         const baseEndMs = t.end ? t.end.getTime() : (() => { const tmp = new Date(baseStartMs); tmp.setHours(23,59,59,999); return tmp.getTime(); })();
@@ -107,17 +101,15 @@ export default function StatsScreen() {
         } as any;
         let occs: { startAt: number; endAt: number }[] = [];
         try { occs = generateOccurrences(baseStartMs, baseEndMs, recConfig); } catch { occs = [{ startAt: baseStartMs, endAt: baseEndMs }]; }
-  // Bao gồm occurrence nếu (o.endAt >= weekStart && o.startAt <= weekEndInclusive)
-  const occsInWeek = occs.filter(o => !(o.endAt < weekStartMs || o.startAt > weekEndMs));
+        const occsInWeek = occs.filter(o => !(o.endAt < weekStartMs || o.startAt > weekEndMs));
         if (occsInWeek.length) {
-          tasksInWeek.push(t); // task có ít nhất 1 occurrence trong tuần
+          tasksInWeek.push(t);
           occsInWeek.forEach(o => occsForBar.push({ taskId: t.id, start: new Date(o.startAt), end: new Date(o.endAt), baseTask: t }));
         }
       } else {
-        // Non recurring
         const s = t.start ?? t.end;
         const e = t.end ?? t.start ?? s;
-  if (s && e && !(e.getTime() < weekStart.getTime() || s.getTime() > weekEnd.getTime())) {
+        if (s && e && !(e.getTime() < weekStart.getTime() || s.getTime() > weekEnd.getTime())) {
           tasksInWeek.push(t);
           occsForBar.push({ taskId: t.id, start: s, end: e, baseTask: t });
         }
@@ -128,11 +120,6 @@ export default function StatsScreen() {
 
   const weekTasks = weekData.tasksInWeek;
 
-  // Phân loại theo NGỮ CẢNH TUẦN (không phụ thuộc "hiện tại" đang chạy),
-  // "Đang thực hiện" = xuất hiện trong tuần, chưa hoàn thành, chưa quá hạn (recurrence end hoặc end_at).
-  const now = Date.now();
-  // Phân loại mới: CHỈ tính "trễ hạn" khi người dùng đã bấm hoàn thành và trạng thái hoàn thành là 'late'.
-  // Các công việc chưa hoàn thành (kể cả đã quá thời gian) vẫn nằm trong nhóm "đang thực hiện".
   const classifications = weekTasks.map((t) => {
     if (t.completedFlag) {
       if (t.completion_status === 'late') return 'overdue';
@@ -147,39 +134,14 @@ export default function StatsScreen() {
   const doingTasks = classifications.filter(c => c === 'doing').length;
 
   const tasksPieData = [
-    {
-      name: "Hoàn thành",
-      population: doneTasks,
-      color: "#22c55e",
-      legendFontColor: "#333",
-      legendFontSize: 12,
-    },
-    {
-      name: "Đang thực hiện",
-      population: doingTasks,
-      color: "#facc15",
-      legendFontColor: "#333",
-      legendFontSize: 12,
-    },
-    {
-      name: "Trễ hạn",
-      population: overdueTasks,
-      color: "#ef4444",
-      legendFontColor: "#333",
-      legendFontSize: 12,
-    },
+    { name: "Hoàn thành", population: doneTasks, color: "#22c55e", legendFontColor: "#333", legendFontSize: 12 },
+    { name: "Đang thực hiện", population: doingTasks, color: "#facc15", legendFontColor: "#333", legendFontSize: 12 },
+    { name: "Trễ hạn", population: overdueTasks, color: "#ef4444", legendFontColor: "#333", legendFontSize: 12 },
   ];
 
-  const weekDays = useMemo(
-    () => Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i)),
-    [weekStart]
-  );
+  const weekDays = useMemo(() => Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i)), [weekStart]);
   const weekLabels = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
-  // Đếm số lần xuất hiện (occurrence) trong ngày
-  const weekCounts = weekDays.map((d) => {
-    return weekData.occsForBar.filter(o => isSameDay(o.start, d)).length;
-  });
-// thêm: max cho biểu đồ công việc
+  const weekCounts = weekDays.map((d) => weekData.occsForBar.filter(o => isSameDay(o.start, d)).length);
   const maxWeekCount = useMemo(() => Math.max(0, ...weekCounts), [weekCounts]);
 
   const doingList = weekTasks.filter((t, i) => classifications[i] === 'doing');
@@ -188,39 +150,23 @@ export default function StatsScreen() {
 
   const renderTaskItem = ({ item }: { item: any }) => {
     const time = item.start ? `${item.start.toLocaleString()}` : "Không có giờ";
-
     const statusColor =
       item.completedFlag
         ? "#16a34a"
         : item.end && item.end.getTime() < Date.now()
         ? "#ef4444"
-        : item.rawStatus === "doing" ||
-          item.rawStatus === "in progress" ||
-          item.rawStatus === "in-progress"
+        : item.rawStatus === "doing" || item.rawStatus === "in progress" || item.rawStatus === "in-progress"
         ? "#facc15"
         : "#94a3b8";
-
     const priorityColor =
-      item.priority === "high"
-        ? "#dc2626"
-        : item.priority === "medium"
-        ? "#f59e0b"
-        : item.priority === "green" || item.priority === "low"
-        ? "#16a34a"
-        : "#94a3b8";
-
-    // Ưu tiên hiển thị màu theo mức độ quan trọng; nếu không có priority sẽ fallback sang màu trạng thái cũ
+      item.priority === "high" ? "#dc2626" : item.priority === "medium" ? "#f59e0b" : item.priority === "green" || item.priority === "low" ? "#16a34a" : "#94a3b8";
     const indicatorColor = item.priority ? priorityColor : statusColor;
-
     let priorityLabel = "";
     if (item.priority === "high") priorityLabel = "Cao";
     else if (item.priority === "medium") priorityLabel = "Trung bình";
-    else if (item.priority === "low" || item.priority === "green")
-      priorityLabel = "Thấp";
+    else if (item.priority === "low" || item.priority === "green") priorityLabel = "Thấp";
     else if (item.priority) priorityLabel = String(item.priority);
-
-    if (priorityLabel)
-      priorityLabel = priorityLabel.charAt(0).toUpperCase() + priorityLabel.slice(1);
+    if (priorityLabel) priorityLabel = priorityLabel.charAt(0).toUpperCase() + priorityLabel.slice(1);
 
     return (
       <View style={styles.itemWrap}>
@@ -229,7 +175,6 @@ export default function StatsScreen() {
           <Text style={styles.rowTitle}>{item.title}</Text>
           {item.description ? <Text style={styles.rowSubtitle}>{item.description}</Text> : null}
         </View>
-
         <View style={styles.itemMeta}>
           <Text style={styles.rowTime}>{time}</Text>
           {item.priority ? (
@@ -248,43 +193,44 @@ export default function StatsScreen() {
       const start = s.startAt ? new Date(s.startAt) : null;
       const end = s.endAt ? new Date(s.endAt) : null;
       const rawType = (s.type ?? "").toString().trim();
-      const typeNormalized = /tạm/i.test(rawType)
-        ? "tạm ngưng"
-        : /bù/i.test(rawType)
-        ? "bù"
-        : /thi/i.test(rawType)
-        ? "thi"
-        : "thường";
+      const low = rawType.toLowerCase();
+      const typeNormalized =
+        /tạm/i.test(rawType) ? "tạm ngưng" :
+        /bù/i.test(rawType) ? "bù" :
+        /thi/i.test(rawType) ? "thi" :
+        /lý|ly/i.test(low) ? "lý thuyết" :
+        /thực|thuc|thực hành|thuc hanh/i.test(low) ? "thực hành" :
+        "thường";
       return { ...s, start, end, rawType, typeNormalized };
     });
   }, [schedules]);
 
+  // Colors mapping
+  const TYPE_COLORS: Record<string, string> = {
+    "lý thuyết": "#06b6d4", // xanh nước
+    "thực hành": "#16a34a", // xanh lá
+    "tạm ngưng": "#f97316", // giữ như cũ
+    "bù": "#7c3aed",        // tím cho buổi bù
+    "thi": "#ef4444",
+    "thường": "#2563EB",
+  };
+
+  // Per-course stats: split Lý thuyết and Thực hành; total = LT + TH only
   const perCourseStats = useMemo(() => {
-    const map: Record<
-      string,
-      {
-        subject: string;
-        total: number;
-        thuong: number;
-        tamNgung: number;
-        bu: number;
-        thi: number;
-        sessions: any[];
-      }
-    > = {};
+    const map: Record<string, {
+      subject: string;
+      total: number; // LT + TH
+      lyThuyet: number;
+      thucHanh: number;
+      tamNgung: number;
+      bu: number;
+      thi: number;
+      sessions: any[];
+    }> = {};
     mappedSchedules.forEach((s: any) => {
       const key = (s.subject || s.title || "Không tên").trim();
       if (!map[key])
-        map[key] = {
-          subject: key,
-          total: 0,
-          thuong: 0,
-          tamNgung: 0,
-          bu: 0,
-          thi: 0,
-          sessions: [],
-        };
-      map[key].total += 1;
+        map[key] = { subject: key, total: 0, lyThuyet: 0, thucHanh: 0, tamNgung: 0, bu: 0, thi: 0, sessions: [] };
       map[key].sessions.push(s);
       switch (s.typeNormalized) {
         case "tạm ngưng":
@@ -296,13 +242,21 @@ export default function StatsScreen() {
         case "thi":
           map[key].thi += 1;
           break;
+        case "lý thuyết":
+          map[key].lyThuyet += 1;
+          break;
+        case "thực hành":
+          map[key].thucHanh += 1;
+          break;
         default:
-          map[key].thuong += 1;
+          break;
       }
     });
-    return Object.values(map).sort((a, b) => b.total - a.total);
+    const result = Object.values(map).map(v => ({ ...v, total: (v.lyThuyet || 0) + (v.thucHanh || 0) }));
+    return result.sort((a, b) => b.total - a.total);
   }, [mappedSchedules]);
 
+  // Counts including exams for display; KPI total will exclude exams below
   const scheduleTypeCounts = useMemo(() => {
     const counts = { thuong: 0, tamNgung: 0, bu: 0, thi: 0 };
     mappedSchedules.forEach((s: any) => {
@@ -312,6 +266,11 @@ export default function StatsScreen() {
       else counts.thuong++;
     });
     return counts;
+  }, [mappedSchedules]);
+
+  // TOTAL SESSIONS on KPI: count only LT + TH (exclude exams, pauses, makeups)
+  const totalSessionsLTTH = useMemo(() => {
+    return mappedSchedules.filter((s: any) => s.typeNormalized === "lý thuyết" || s.typeNormalized === "thực hành").length;
   }, [mappedSchedules]);
 
   const pausedList = mappedSchedules.filter((s: any) => s.typeNormalized === "tạm ngưng");
@@ -334,7 +293,6 @@ export default function StatsScreen() {
     });
     return counts;
   }, [mappedSchedules]);
-// thêm: max cho biểu đồ lịch học
   const maxSchedCount = useMemo(() => Math.max(0, ...weekCountsSched), [weekCountsSched]);
 
   const renderScheduleItem = ({ item }: { item: any }) => {
@@ -344,14 +302,8 @@ export default function StatsScreen() {
         : item.start
         ? `${item.start.toLocaleString()}`
         : "Không có giờ";
-    const color =
-      item.typeNormalized === "tạm ngưng"
-        ? "#f97316"
-        : item.typeNormalized === "bù"
-        ? "#10b981"
-        : item.typeNormalized === "thi"
-        ? "#ef4444"
-        : "#2563EB";
+    const lowType = String(item.typeNormalized || "").toLowerCase();
+    const color = TYPE_COLORS[lowType] ?? TYPE_COLORS[item.rawType?.toLowerCase()] ?? "#2563EB";
 
     return (
       <View style={styles.itemWrap}>
@@ -366,7 +318,7 @@ export default function StatsScreen() {
           <Text style={styles.rowTime}>{time}</Text>
           <View style={[styles.priorityPill, { backgroundColor: color }]}>
             <Text style={styles.priorityText}>
-              {item.typeNormalized?.charAt(0).toUpperCase() + item.typeNormalized?.slice(1)}
+              {String(item.typeNormalized ?? item.rawType ?? "").charAt(0).toUpperCase() + String(item.typeNormalized ?? item.rawType ?? "").slice(1)}
             </Text>
           </View>
         </View>
@@ -374,7 +326,6 @@ export default function StatsScreen() {
     );
   };
 
-  // monthWeeks for week picker modal (only used in tasks mode)
   const currentMonth = selectedWeekStart.getMonth();
   const currentYear = selectedWeekStart.getFullYear();
   const monthWeeks = useMemo(() => {
@@ -400,7 +351,6 @@ export default function StatsScreen() {
       <Text style={styles.header}>Báo cáo & Thống kê</Text>
 
       <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
-        {/* Week selector displayed only when viewing tasks */}
         {selectedKind === "tasks" ? (
           <TouchableOpacity
             style={styles.weekDropdown}
@@ -428,7 +378,6 @@ export default function StatsScreen() {
         </View>
       </View>
 
-      {/* Week picker modal (used only when tasks view active) */}
       <Modal
         visible={showWeekPicker && selectedKind === "tasks"}
         transparent
@@ -467,7 +416,7 @@ export default function StatsScreen() {
         </Pressable>
       </Modal>
 
-      {/* ---------------- TASKS VIEW (week-based) ---------------- */}
+      {/* TASKS VIEW */}
       {selectedKind === "tasks" && (
         <>
           <View style={styles.kpiRow}>
@@ -511,7 +460,7 @@ export default function StatsScreen() {
             height={220}
             fromZero
             showValuesOnTopOfBars
-            segments={maxWeekCount || 1}              // thêm
+            segments={maxWeekCount || 1}
             yAxisLabel=""
             yAxisSuffix=""
             chartConfig={{
@@ -536,7 +485,6 @@ export default function StatsScreen() {
           <Text style={[styles.subHeader, { marginTop: 12, color: "#ef4444" }]}>Công việc trễ hạn</Text>
           {overdueList.length === 0 ? <Text style={styles.empty}>Không có</Text> : <FlatList data={overdueList} keyExtractor={(i) => String(i.id)} renderItem={renderTaskItem} scrollEnabled={false} />}
 
-          {/* AI suggestions shown only in Tasks view */}
           <View style={styles.aiSuggestBox}>
             <Text style={styles.aiSuggestTitle}>Gợi ý cải thiện công việc từ AI</Text>
             <View style={styles.aiSuggestContent}>
@@ -551,14 +499,14 @@ export default function StatsScreen() {
         </>
       )}
 
-      {/* ---------------- SCHEDULES VIEW (aggregate, no week) ---------------- */}
+      {/* SCHEDULES VIEW */}
       {selectedKind === "schedules" && (
         <>
           <Text style={styles.subHeader}>Tổng quan Lịch học</Text>
 
           <View style={styles.kpiRow}>
             <View style={[styles.kpiCard, { backgroundColor: "#f8fafc" }]}>
-              <Text style={[styles.kpiValue, { color: "#2563EB" }]}>{mappedSchedules.length}</Text>
+              <Text style={[styles.kpiValue, { color: "#2563EB" }]}>{totalSessionsLTTH}</Text>
               <Text style={styles.kpiLabel}>Tổng buổi</Text>
             </View>
             <View style={[styles.kpiCard, { backgroundColor: "#fff7ed" }]}>
@@ -572,7 +520,7 @@ export default function StatsScreen() {
             data={[
               { name: "Buổi thường", population: scheduleTypeCounts.thuong, color: "#3b82f6", legendFontColor: "#333", legendFontSize: 12 },
               { name: "Tạm ngưng", population: scheduleTypeCounts.tamNgung, color: "#f97316", legendFontColor: "#333", legendFontSize: 12 },
-              { name: "Buổi bù", population: scheduleTypeCounts.bu, color: "#10b981", legendFontColor: "#333", legendFontSize: 12 },
+              { name: "Buổi bù", population: scheduleTypeCounts.bu, color: "#7c3aed", legendFontColor: "#333", legendFontSize: 12 },
               { name: "Lịch thi", population: scheduleTypeCounts.thi, color: "#ef4444", legendFontColor: "#333", legendFontSize: 12 },
             ]}
             width={screenWidth - 32}
@@ -584,14 +532,14 @@ export default function StatsScreen() {
             absolute
           />
 
-          <Text style={styles.subHeader}>Số buổi theo ngày trong tuần (tổng dữ liệu)</Text>
+          <Text style={styles.subHeader}>Số buổi theo ngày trong tuần (Tổng dữ liệu)</Text>
           <BarChart
             data={{ labels: weekDayLabels, datasets: [{ data: weekCountsSched }] }}
             width={screenWidth - 32}
             height={200}
             fromZero
             showValuesOnTopOfBars
-            segments={maxSchedCount || 1}             // thêm
+            segments={maxSchedCount || 1}
             yAxisLabel={""}
             yAxisSuffix={""}
             chartConfig={{
@@ -606,7 +554,7 @@ export default function StatsScreen() {
           />
           <View style={{ borderBottomWidth: 1, borderBottomColor: "#eef2ff", marginVertical: 12 }} />
 
-          <Text style={[styles.subHeader, { color: "#2563EB" }]}>Thống kê theo môn (tổng)</Text>
+          <Text style={[styles.subHeader, { color: "#2563EB" }]}>Thống kê theo môn </Text>
           {perCourseStats.length === 0 ? (
             <Text style={styles.empty}>Không có lịch</Text>
           ) : (
@@ -617,37 +565,20 @@ export default function StatsScreen() {
                   <Text style={{ color: "#374151" }}>{c.total} buổi</Text>
                 </View>
                 <View style={{ flexDirection: "row", marginTop: 8, justifyContent: "space-between" }}>
-                  <Text style={{ color: "#06b6d4" }}>Thường: {c.thuong}</Text>
+                  <Text style={{ color: "#06b6d4" }}>Lý thuyết: {c.lyThuyet}</Text>
+                  <Text style={{ color: "#16a34a" }}>Thực hành: {c.thucHanh}</Text>
                   <Text style={{ color: "#f97316" }}>Tạm ngưng: {c.tamNgung}</Text>
-                  <Text style={{ color: "#10b981" }}>Buổi bù: {c.bu}</Text>
-                  <Text style={{ color: "#ef4444" }}>Thi: {c.thi}</Text>
+                  <Text style={{ color: "#7c3aed" }}>Buổi bù: {c.bu}</Text>
                 </View>
               </View>
             ))
           )}
-
-          <Text style={[styles.subHeader, { marginTop: 12, color: "#16a34a" }]}>Buổi đang diễn ra</Text>
-          {ongoingList.length === 0 ? <Text style={styles.empty}>Không có</Text> : <FlatList data={ongoingList} keyExtractor={(i) => String(i.id)} renderItem={renderScheduleItem} scrollEnabled={false} />}
-
-          <Text style={[styles.subHeader, { marginTop: 12, color: "#f97316" }]}>Buổi tạm ngưng</Text>
-          {pausedList.length === 0 ? <Text style={styles.empty}>Không có</Text> : <FlatList data={pausedList} keyExtractor={(i) => String(i.id)} renderItem={renderScheduleItem} scrollEnabled={false} />}
-
-          <Text style={[styles.subHeader, { marginTop: 12, color: "#10b981" }]}>Buổi bù</Text>
-          {makeUpList.length === 0 ? <Text style={styles.empty}>Không có</Text> : <FlatList data={makeUpList} keyExtractor={(i) => String(i.id)} renderItem={renderScheduleItem} scrollEnabled={false} />}
-
-          <Text style={[styles.subHeader, { marginTop: 12, color: "#ef4444" }]}>Lịch thi</Text>
-          {examList.length === 0 ? <Text style={styles.empty}>Không có</Text> : <FlatList data={examList} keyExtractor={(i) => String(i.id)} renderItem={renderScheduleItem} scrollEnabled={false} />}
         </>
       )}
-
       <View style={{ height: 32 }} />
     </ScrollView>
   );
 }
-
-// helpers
-function startOfDayLocal(d: Date) { return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0); }
-function endOfDayLocal(d: Date) { return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999); }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff", padding: 16 },

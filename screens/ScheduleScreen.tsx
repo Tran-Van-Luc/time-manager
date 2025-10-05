@@ -1,4 +1,3 @@
-// screens/ScheduleScreen.tsx
 import React, { useEffect, useState, useMemo } from "react";
 import {
   View,
@@ -9,8 +8,6 @@ import {
   Modal,
   Alert,
   Platform,
-  PermissionsAndroid,
-  ActivityIndicator,
 } from "react-native";
 import { AntDesign } from "@expo/vector-icons";
 import AddScheduleForm from "../components/schedule/AddScheduleForm";
@@ -26,10 +23,11 @@ import { CreateScheduleParams, ScheduleType } from "../database/schedule";
 
 
 const TYPE_STYLE: Record<string, { color: string; emoji: string; pillBg: string }> = {
-  "Lịch học thường xuyên": { color: "#1D4ED8", emoji: "📚", pillBg: "#DBEAFE" },
+  "Lịch học lý thuyết": { color: "#1D4ED8", emoji: "📚", pillBg: "#DBEAFE" }, // xanh nước
+  "Lịch học thực hành": { color: "#047857", emoji: "🧪", pillBg: "#BBF7D0" }, // xanh lá
   "Lịch thi": { color: "#DC2626", emoji: "📝", pillBg: "#FECACA" },
   "Lịch tạm ngưng": { color: "#D97706", emoji: "⏸", pillBg: "#FDE68A" },
-  "Lịch học bù": { color: "#047857", emoji: "📅", pillBg: "#BBF7D0" },
+  "Lịch học bù": { color: "#7C3AED", emoji: "📅", pillBg: "#EDE9FE" }, // khác biệt
 };
 
 const DAY_NAMES = ["Chủ nhật","Thứ 2","Thứ 3","Thứ 4","Thứ 5","Thứ 6","Thứ 7"];
@@ -135,7 +133,6 @@ export default function ScheduleScreen() {
   async function handleImportExcel() {
     if (importing) return;
     setImporting(true);
-    console.log("▶️ handleImportExcel bắt đầu");
 
     try {
       // 1) Mở file picker
@@ -146,11 +143,10 @@ export default function ScheduleScreen() {
         ],
       });
       if (res.canceled) {
-        console.log("⏭ User canceled");
+        setImporting(false);
         return;
       }
       const uri = res.assets[0].uri;
-      console.log("📄 Chosen URI:", uri);
 
       // 2) Đọc base64
       const b64 = await FileSystem.readAsStringAsync(uri, { encoding: "base64" });
@@ -163,7 +159,6 @@ export default function ScheduleScreen() {
         blankrows: false,
         raw: true,
       });
-      console.log("🔥 raw row count:", raw.length);
 
       // 4) Find header row
       const headerRowIndex = raw.findIndex(row =>
@@ -171,10 +166,10 @@ export default function ScheduleScreen() {
       );
       if (headerRowIndex < 0) {
         Alert.alert("Lỗi import", "Không tìm thấy header “Tên môn học”");
+        setImporting(false);
         return;
       }
       const header = raw[headerRowIndex].map(c => String(c).trim());
-      console.log("✅ Detected header:", header);
 
       // 5) Column indexes
       const findIdx = (name: string) => {
@@ -195,7 +190,6 @@ export default function ScheduleScreen() {
 
       // 6) Data rows
       const rows = raw.slice(headerRowIndex + 1);
-      console.log("🛠️ Data rows to import:", rows.length);
 
       // Helpers để parse Excel cells
       const pad2 = (n: number) => String(n).padStart(2, "0");
@@ -225,7 +219,8 @@ export default function ScheduleScreen() {
       let addedCount = 0;
       const conflictMessages: string[] = [];
       const validTypes: ScheduleType[] = [
-        "Lịch học thường xuyên",
+        "Lịch học lý thuyết",
+        "Lịch học thực hành",
         "Lịch thi",
         "Lịch học bù",
         "Lịch tạm ngưng",
@@ -236,16 +231,17 @@ export default function ScheduleScreen() {
         const rawName     = String(row[idx.courseName] ?? "").trim();
         const rawType     = String(row[idx.type]       ?? "").trim();
         if (!rawName || !rawType) {
-          console.warn(`Dòng ${i+2} bỏ qua: thiếu môn hoặc loại.`);
           continue;
         }
 
+        // Normalize legacy type "Lịch học thường xuyên" -> "Lịch học lý thuyết"
+        const normType = rawType === "Lịch học thường xuyên" ? "Lịch học lý thuyết" : rawType;
+
         // Validate and cast type
-        if (!validTypes.includes(rawType as ScheduleType)) {
-          console.warn(`Dòng ${i+2} bỏ qua: Loại lịch không hợp lệ "${rawType}".`);
+        if (!validTypes.includes(normType as ScheduleType)) {
           continue;
         }
-        const scheduleType = rawType as ScheduleType;
+        const scheduleType = normType as ScheduleType;
 
         // Raw date/time
         const sdRaw = row[idx.startDate];
@@ -253,7 +249,6 @@ export default function ScheduleScreen() {
         const stRaw = row[idx.startTime];
         const etRaw = row[idx.endTime];
         if (!sdRaw || !stRaw || !etRaw) {
-          console.warn(`Dòng ${i+2} bỏ qua: thiếu ngày/giờ.`);
           continue;
         }
 
@@ -266,7 +261,7 @@ export default function ScheduleScreen() {
         const endTime      = `${pad2(eh)}:${pad2(em)}`;
 
         let params: CreateScheduleParams;
-        if (scheduleType === "Lịch học thường xuyên") {
+        if (scheduleType === "Lịch học lý thuyết") {
           const [ey, emn, eday] = edRaw
             ? toDateParts(edRaw)
             : [y, m, d];
@@ -293,7 +288,6 @@ export default function ScheduleScreen() {
           };
         }
 
-        console.log(`→ import dòng ${i+2}:`, params);
         try {
           await addSchedule(params);
           addedCount++;
@@ -564,7 +558,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   subjectText: { flex: 1, fontWeight: "bold", fontSize: 16, color: "#111" },
-  typeTag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, height: 22 },
+  typeTag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, height: 25 },
   infoText: { fontSize: 14, color: "#374151", marginTop: 2 },
   bottomRow: {
     flexDirection: "row",

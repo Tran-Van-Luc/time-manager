@@ -65,7 +65,8 @@ db.$client.execSync(`
     user_id       INTEGER NOT NULL,
     type          TEXT    NOT NULL
                   CHECK(type IN (
-                    'Lịch học thường xuyên',
+                    'Lịch học lý thuyết',
+                    'Lịch học thực hành',
                     'Lịch thi',
                     'Lịch học bù',
                     'Lịch tạm ngưng'

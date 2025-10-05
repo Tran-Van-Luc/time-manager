@@ -1,10 +1,10 @@
-// database/schedule.ts
 import { db } from "./database";
 import { courses, schedule_entries } from "./schema";
-import { eq, and, lt, gt } from "drizzle-orm";
+import { eq, and, lt, gt, or } from "drizzle-orm";
 
 export type ScheduleType =
-  | "Lịch học thường xuyên"
+  | "Lịch học lý thuyết"
+  | "Lịch học thực hành"
   | "Lịch thi"
   | "Lịch học bù"
   | "Lịch tạm ngưng";
@@ -89,6 +89,10 @@ async function checkOverlap(
     .get();
 }
 
+function isRecurringType(t: ScheduleType) {
+  return t === "Lịch học lý thuyết" || t === "Lịch học thực hành";
+}
+
 export async function createSchedule(
   params: CreateScheduleParams
 ): Promise<{ courseId: number; sessionsCreated: number }> {
@@ -112,8 +116,8 @@ export async function createSchedule(
   );
 
   // Tập hợp tất cả sessions cần tạo
-  const slots: Array<{ start: Date; end: Date; insertType?: string }> = [];
-  if (type === "Lịch học thường xuyên") {
+  const slots: Array<{ start: Date; end: Date; insertType?: ScheduleType }> = [];
+  if (isRecurringType(type)) {
     const S = new Date(`${startDate}T00:00:00`);
     const E = new Date(`${endDate}T00:00:00`);
     while (S <= E) {
@@ -121,7 +125,7 @@ export async function createSchedule(
       const [hE, mE] = endTime.split(":").map(Number);
       const s = new Date(S); s.setHours(hS, mS, 0, 0);
       const e = new Date(S); e.setHours(hE, mE, 0, 0);
-      slots.push({ start: s, end: e, insertType: "Lịch học thường xuyên" });
+      slots.push({ start: s, end: e, insertType: type });
       S.setDate(S.getDate() + 7);
     }
   } else if (type === "Lịch tạm ngưng") {
@@ -131,7 +135,7 @@ export async function createSchedule(
     const e = new Date(`${day}T${endTime}:00`);
     slots.push({ start: s, end: e, insertType: "Lịch tạm ngưng" });
 
-    // 2) Tìm tất cả các buổi "Lịch học thường xuyên" cùng môn, cùng thứ, cùng giờ, sau ngày tạm ngưng
+    // 2) Tìm tất cả các buổi "Lịch học lý thuyết" hoặc "Lịch học thực hành" cùng môn, cùng thứ, cùng giờ, sau ngày tạm ngưng
     const regulars = await db
       .select({
         id: schedule_entries.id,
@@ -143,7 +147,11 @@ export async function createSchedule(
       .where(
         and(
           eq(schedule_entries.course_id, courseId),
-          eq(schedule_entries.type, "Lịch học thường xuyên")
+          // lấy cả hai loại recurring
+          or(
+            eq(schedule_entries.type, "Lịch học lý thuyết"),
+            eq(schedule_entries.type, "Lịch học thực hành")
+          )
         )
       )
       .all();
@@ -169,7 +177,7 @@ export async function createSchedule(
       )
       .sort((a, b) => a.start.getTime() - b.start.getTime());
 
-    // Chèn thêm 1 buổi "Lịch học thường xuyên" vào ngay sau buổi cuối cùng
+    // Chèn thêm 1 buổi recurring (giữ cùng loại là lý thuyết/ thực hành của lớp) vào ngay sau buổi cuối cùng
     let insertAfter: Date;
     if (futureRegulars.length > 0) {
       // Sau buổi cuối cùng
@@ -188,7 +196,12 @@ export async function createSchedule(
     // Kiểm tra trùng lịch trước khi thêm
     const conflict = await checkOverlap(userId, s2, e2);
     if (!conflict) {
-      slots.push({ start: s2, end: e2, insertType: "Lịch học thường xuyên" });
+      // Nếu có futureRegulars, giữ loại giống buổi tương tự; nếu không biết, mặc định tạo lịch lý thuyết
+      const insertType: ScheduleType =
+        futureRegulars.length > 0 && (futureRegulars[0].type === "Lịch học thực hành")
+          ? "Lịch học thực hành"
+          : "Lịch học lý thuyết";
+      slots.push({ start: s2, end: e2, insertType });
     }
   } else {
     const day = singleDate!;
@@ -222,7 +235,8 @@ export async function createSchedule(
         type:          insertType ?? type,
         start_at:      start,
         end_at:        end,
-        recurrence_id: (insertType ?? type) === "Lịch học thường xuyên" ? Date.now() : null,
+        // recurrence_id có giá trị nếu là recurring (lý thuyết hoặc thực hành)
+        recurrence_id: isRecurringType(insertType ?? type) ? Date.now() : null,
         status:        "active",
         cancel_reason: null,
         created_at:    new Date(),
