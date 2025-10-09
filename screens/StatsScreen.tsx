@@ -16,6 +16,7 @@ import { useTasks } from "../hooks/useTasks";
 import { useSchedules } from "../hooks/useSchedules";
 import { useRecurrences } from "../hooks/useRecurrences";
 import { generateOccurrences } from "../utils/taskValidation";
+import { getHabitCompletions, getHabitCompletionTimes, fmtYMD } from "../utils/habits";
 import {
   startOfWeek,
   addDays,
@@ -39,12 +40,44 @@ export default function StatsScreen() {
     "tasks"
   );
   const [showWeekPicker, setShowWeekPicker] = useState(false);
+  // habit completion caches: per recurrence id
+  const [habitSets, setHabitSets] = useState<Record<number, Set<string>>>({});
+  const [habitTimes, setHabitTimes] = useState<Record<number, Record<string, number>>>({});
 
   useEffect(() => {
     loadTasks();
     loadSchedules();
     loadRecurrences();
   }, [loadTasks, loadSchedules, loadRecurrences]);
+
+  // Load habit completions/times for all recurrence ids present in tasks
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const recIds = Array.from(new Set((tasks || []).map((t: any) => t.recurrence_id).filter((id: any) => id != null)));
+        const sets: Record<number, Set<string>> = {};
+        const timesMap: Record<number, Record<string, number>> = {};
+        await Promise.all(recIds.map(async (rid: number) => {
+          try {
+            const s = await getHabitCompletions(rid);
+            const times = await getHabitCompletionTimes(rid);
+            sets[rid] = s;
+            timesMap[rid] = times;
+          } catch {
+            // ignore
+          }
+        }));
+        if (mounted) {
+          setHabitSets(sets);
+          setHabitTimes(timesMap);
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
+    return () => { mounted = false; };
+  }, [tasks]);
 
   const weekOptions = useMemo(() => {
     const now = startOfWeek(new Date(), { weekStartsOn: 1 });
@@ -82,7 +115,9 @@ export default function StatsScreen() {
   const weekEnd = new Date(rawWeekEnd.getFullYear(), rawWeekEnd.getMonth(), rawWeekEnd.getDate(), 23, 59, 59, 999);
 
   const weekData = useMemo(() => {
-    const occsForBar: { taskId: number; start: Date; end: Date; baseTask: any }[] = [];
+    // occsForBar now represents individual occurrences (including from recurrences).
+    // Each occurrence gets a stable unique occId to avoid duplicate React keys.
+    const occsForBar: { occId: string; taskId: number; start: Date; end: Date; baseTask: any; completedFlag?: boolean; completion_status?: string }[] = [];
     const tasksInWeek: any[] = [];
     const weekStartMs = weekStart.getTime();
     const weekEndMs = weekEnd.getTime();
@@ -103,32 +138,67 @@ export default function StatsScreen() {
         try { occs = generateOccurrences(baseStartMs, baseEndMs, recConfig); } catch { occs = [{ startAt: baseStartMs, endAt: baseEndMs }]; }
         const occsInWeek = occs.filter(o => !(o.endAt < weekStartMs || o.startAt > weekEndMs));
         if (occsInWeek.length) {
+          // keep base task for course-level listings, but build occurrence-level entries for counting and lists
           tasksInWeek.push(t);
-          occsInWeek.forEach(o => occsForBar.push({ taskId: t.id, start: new Date(o.startAt), end: new Date(o.endAt), baseTask: t }));
+          occsInWeek.forEach((o, idx) => {
+            // create a stable unique id for the occurrence: <taskId>_<startMs>
+            const occId = `${t.id}_${o.startAt}`;
+            // Determine completion from habitSets/habitTimes (per recurrence)
+            let completedFlag = t.completedFlag;
+            let completion_status = t.completion_status;
+            try {
+              const rid = t.recurrence_id;
+              if (rid && habitSets[rid]) {
+                const d = new Date(o.startAt);
+                const ymd = fmtYMD(d);
+                if (habitSets[rid].has(ymd)) {
+                  completedFlag = true;
+                  const times = habitTimes[rid] || {};
+                  const tms = times[ymd];
+                  if (tms != null) {
+                    // compare recorded completion time to occ.endAt to compute status
+                    const diffMinutes = Math.round((tms - o.endAt) / 60000);
+                    if (diffMinutes < -1) completion_status = 'early';
+                    else if (diffMinutes > 1) completion_status = 'late';
+                    else completion_status = 'on_time';
+                  }
+                }
+              }
+            } catch (e) {
+              // ignore
+            }
+            occsForBar.push({ occId, taskId: t.id, start: new Date(o.startAt), end: new Date(o.endAt), baseTask: t, completedFlag, completion_status });
+          });
         }
       } else {
         const s = t.start ?? t.end;
         const e = t.end ?? t.start ?? s;
         if (s && e && !(e.getTime() < weekStart.getTime() || s.getTime() > weekEnd.getTime())) {
+          // non-recurring tasks are treated as a single occurrence
           tasksInWeek.push(t);
-          occsForBar.push({ taskId: t.id, start: s, end: e, baseTask: t });
+          const occId = `${t.id}_${s.getTime()}`;
+          const completedFlag = t.completedFlag;
+          const completion_status = t.completion_status;
+          occsForBar.push({ occId, taskId: t.id, start: s, end: e, baseTask: t, completedFlag, completion_status });
         }
       }
     });
     return { tasksInWeek, occsForBar };
   }, [mappedTasks, weekStart, weekEnd]);
 
-  const weekTasks = weekData.tasksInWeek;
-
-  const classifications = weekTasks.map((t) => {
-    if (t.completedFlag) {
-      if (t.completion_status === 'late') return 'overdue';
+  // Use occurrence-level data to compute accurate weekly KPIs (handles recurring instances correctly)
+  const occs = weekData.occsForBar;
+  const classifications = occs.map((o) => {
+    if (o.completedFlag) {
+      if (o.completion_status === 'late') return 'overdue';
       return 'done';
     }
+    // if end time passed and not completed -> overdue
+    if (o.end && o.end.getTime() < Date.now() && !o.completedFlag) return 'overdue';
     return 'doing';
   });
 
-  const totalTasks = weekTasks.length;
+  const totalTasks = occs.length;
   const doneTasks = classifications.filter(c => c === 'done').length;
   const overdueTasks = classifications.filter(c => c === 'overdue').length;
   const doingTasks = classifications.filter(c => c === 'doing').length;
@@ -144,9 +214,26 @@ export default function StatsScreen() {
   const weekCounts = weekDays.map((d) => weekData.occsForBar.filter(o => isSameDay(o.start, d)).length);
   const maxWeekCount = useMemo(() => Math.max(0, ...weekCounts), [weekCounts]);
 
-  const doingList = weekTasks.filter((t, i) => classifications[i] === 'doing');
-  const doneList = weekTasks.filter((t, i) => classifications[i] === 'done');
-  const overdueList = weekTasks.filter((t, i) => classifications[i] === 'overdue');
+  // Build occurrence-level lists (include occId and relevant fields for rendering)
+  const occItems = occs.map((o, i) => {
+    const base = o.baseTask || {};
+    return {
+      occId: o.occId,
+      id: `${o.taskId}_${o.start.getTime()}`,
+      title: base.title || base.name || "Không tên",
+      description: base.description,
+      start: o.start,
+      end: o.end,
+      priority: base.priority,
+      completedFlag: o.completedFlag,
+      completion_status: o.completion_status,
+      baseTask: base,
+    } as any;
+  });
+
+  const doingList = occItems.filter((t, i) => classifications[i] === 'doing');
+  const doneList = occItems.filter((t, i) => classifications[i] === 'done');
+  const overdueList = occItems.filter((t, i) => classifications[i] === 'overdue');
 
   const renderTaskItem = ({ item }: { item: any }) => {
     const time = item.start ? `${item.start.toLocaleString()}` : "Không có giờ";
@@ -477,13 +564,13 @@ export default function StatsScreen() {
           <View style={{ borderBottomWidth: 1, borderBottomColor: "#eef2ff", marginVertical: 12 }} />
 
           <Text style={[styles.subHeader, { color: "#ca8a04" }]}>Công việc đang thực hiện</Text>
-          {doingList.length === 0 ? <Text style={styles.empty}>Không có</Text> : <FlatList data={doingList} keyExtractor={(i) => String(i.id)} renderItem={renderTaskItem} scrollEnabled={false} />}
+          {doingList.length === 0 ? <Text style={styles.empty}>Không có</Text> : <FlatList data={doingList} keyExtractor={(i) => String(i.occId ?? i.id)} renderItem={renderTaskItem} scrollEnabled={false} />}
 
           <Text style={[styles.subHeader, { marginTop: 12, color: "#16a34a" }]}>Công việc đã hoàn thành</Text>
-          {doneList.length === 0 ? <Text style={styles.empty}>Không có</Text> : <FlatList data={doneList} keyExtractor={(i) => String(i.id)} renderItem={renderTaskItem} scrollEnabled={false} />}
+          {doneList.length === 0 ? <Text style={styles.empty}>Không có</Text> : <FlatList data={doneList} keyExtractor={(i) => String(i.occId ?? i.id)} renderItem={renderTaskItem} scrollEnabled={false} />}
 
           <Text style={[styles.subHeader, { marginTop: 12, color: "#ef4444" }]}>Công việc trễ hạn</Text>
-          {overdueList.length === 0 ? <Text style={styles.empty}>Không có</Text> : <FlatList data={overdueList} keyExtractor={(i) => String(i.id)} renderItem={renderTaskItem} scrollEnabled={false} />}
+          {overdueList.length === 0 ? <Text style={styles.empty}>Không có</Text> : <FlatList data={overdueList} keyExtractor={(i) => String(i.occId ?? i.id)} renderItem={renderTaskItem} scrollEnabled={false} />}
 
           <View style={styles.aiSuggestBox}>
             <Text style={styles.aiSuggestTitle}>Gợi ý cải thiện công việc từ AI</Text>

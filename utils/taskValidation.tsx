@@ -9,11 +9,9 @@ export const validateTaskTime = (
 ): string | null => {
   // Removed 5-minute constraint; only validate logical order
   if (!startAt && !endAt) return null;
-  
   if (endAt && startAt && endAt <= startAt) {
     return "Ngày giờ kết thúc phải sau ngày giờ bắt đầu!";
   }
-  
   return null;
 };
 
@@ -25,20 +23,17 @@ export const checkTimeConflicts = (
   excludeTaskId?: number
 ): { hasConflict: boolean; conflictMessage: string } => {
   const now = Date.now();
-  
+
   const formatDateTime = (d: Date) =>
     `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")} ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
 
   // Kiểm tra trùng với tasks
   const overlappingTasks = tasks.filter((t) => {
     if (excludeTaskId && t.id === excludeTaskId) return false;
-    
     const tStart = t.start_at ? new Date(t.start_at).getTime() : null;
     const tEnd = t.end_at ? new Date(t.end_at).getTime() : null;
-    
     if (tEnd && tEnd < now) return false;
     if (!tStart || !tEnd) return false;
-    
     return startAt < tEnd && endAt > tStart;
   });
 
@@ -70,14 +65,12 @@ export const checkTimeConflicts = (
     .join("\n");
 
   const conflictMessage = [tasksMsg, schedMsg].filter(Boolean).join("\n\n");
-
   return { hasConflict: true, conflictMessage };
 };
 
 export const shouldUpdateToInProgress = (startAt?: number): boolean => {
   if (!startAt) return false;
   const now = Date.now();
-  // No ±5 minutes window anymore: switch to in-progress once start time arrives
   return startAt <= now;
 };
 
@@ -135,7 +128,6 @@ export function generateOccurrences(
   const endBoundary = rec.endDate;
 
   const baseStart = new Date(baseStartAt);
-  const baseEnd = new Date(baseEndAt);
   const timeH = baseStart.getHours();
   const timeM = baseStart.getMinutes();
   const timeS = baseStart.getSeconds();
@@ -150,13 +142,12 @@ export function generateOccurrences(
     }
   };
 
-  // Always include the first instance
-  pushOcc(baseStart);
-
   // Cap to avoid runaway loops
   const MAX_OCCURRENCES = 500;
 
   if (freq === "daily") {
+    // Always include base for daily
+    pushOcc(baseStart);
     let cursor = sameYMD(baseStart);
     let count = 1;
     while (count < MAX_OCCURRENCES) {
@@ -168,21 +159,13 @@ export function generateOccurrences(
     }
   } else if (freq === "weekly") {
     const dowSet = new Set((rec.daysOfWeek || []).map((d) => dayNameToIndex(d)).filter((n): n is number => n !== null));
-    // If none provided, default to the base start's DOW
     if (dowSet.size === 0) dowSet.add(baseStart.getDay());
-
-    // Start from the Monday/Sunday of the first week that contains baseStart
-    // We'll walk day-by-day to keep logic simple and robust with month/year boundaries
+    // Walk day-by-day starting from base date; include base only if it matches selection
     let cursor = sameYMD(baseStart);
-    let count = 1;
+    let count = 0;
     while (count < MAX_OCCURRENCES && cursor.getTime() <= endBoundary) {
-      // For current day, if it's in set and not before the base start date
-      if (dowSet.has(cursor.getDay())) {
-        // Avoid duplicating the very first day we already pushed
-        const isSameDayAsBase = sameYMD(cursor).getTime() === sameYMD(baseStart).getTime();
-        if (!isSameDayAsBase || occurrences.length === 0) {
-          if (cursor.getTime() !== sameYMD(baseStart).getTime()) pushOcc(cursor);
-        }
+      if (dowSet.has(cursor.getDay()) && cursor.getTime() >= sameYMD(baseStart).getTime()) {
+        pushOcc(cursor);
       }
       // advance one day; after finishing a week, skip (interval-1) weeks
       const prevWeek = getWeekNumber(cursor);
@@ -190,7 +173,6 @@ export function generateOccurrences(
       cursor.setDate(cursor.getDate() + 1);
       const newWeek = getWeekNumber(cursor);
       if (newWeek !== prevWeek) {
-        // Jump (interval-1) additional weeks
         cursor.setDate(cursor.getDate() + (interval - 1) * 7);
       }
       count++;
@@ -201,14 +183,16 @@ export function generateOccurrences(
       : [baseStart.getDate()]
     ).sort((a, b) => a - b);
 
+    // Iterate months starting from base month; include base only if its day is selected
     let cursor = new Date(baseStart.getFullYear(), baseStart.getMonth(), 1);
     let count = 0;
     while (count < MAX_OCCURRENCES) {
       for (const dom of domList) {
         const candidate = new Date(cursor.getFullYear(), cursor.getMonth(), dom, timeH, timeM, timeS, timeMs);
         if (candidate.getMonth() !== cursor.getMonth()) continue; // skip invalid day (e.g., 31 in Feb)
-        if (candidate.getTime() < baseStartAt) continue; // don't produce before base
-        if (candidate.getTime() > endBoundary) {
+        const candMs = candidate.getTime();
+        if (candMs < baseStartAt) continue; // don't produce before base
+        if (candMs > endBoundary) {
           count = MAX_OCCURRENCES; // break outer
           break;
         }
@@ -216,12 +200,13 @@ export function generateOccurrences(
         if (occurrences.length >= MAX_OCCURRENCES) break;
       }
       if (occurrences.length >= MAX_OCCURRENCES) break;
-      // advance months by interval
       cursor = new Date(cursor.getFullYear(), cursor.getMonth() + interval, 1);
       if (cursor.getTime() > endBoundary) break;
       count++;
     }
   } else if (freq === "yearly") {
+    // Always include base for yearly
+    pushOcc(baseStart);
     let cursor = new Date(baseStart);
     let count = 1;
     while (count < MAX_OCCURRENCES) {
@@ -238,8 +223,7 @@ export function generateOccurrences(
 function getWeekNumber(d: Date): number {
   // ISO week number approximation for grouping; used only to detect week boundary jumps
   const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  // Thursday in current week decides the year
-  const dayNum = date.getUTCDay() || 7;
+  const dayNum = date.getUTCDay() || 7; // Thursday in current week decides the year
   date.setUTCDate(date.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
   return Math.ceil((((date as any) - (yearStart as any)) / 86400000 + 1) / 7);

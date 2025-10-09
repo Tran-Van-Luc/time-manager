@@ -10,6 +10,7 @@ import {
   TouchableWithoutFeedback,
   ScrollView,
 } from "react-native";
+import { isHabitDoneOnDate } from "../utils/habits";
 import { useSchedules } from "../hooks/useSchedules";
 import { useTasks } from "../hooks/useTasks";
 import { useRecurrences } from "../hooks/useRecurrences";
@@ -180,7 +181,7 @@ export default function HomeScreen() {
             interval: rec.interval || 1,
             daysOfWeek: rec.days_of_week ? JSON.parse(rec.days_of_week) : [],
             daysOfMonth: rec.day_of_month ? JSON.parse(rec.day_of_month) : [],
-            endDate: rec.end_date ? new Date(rec.end_date).getTime() : undefined,
+            endDate: rec.end_date ? (() => { const d = new Date(rec.end_date); d.setHours(23,59,59,999); return d.getTime(); })() : undefined,
           } as any;
 
           let occs: { startAt: number; endAt: number }[] = [];
@@ -385,6 +386,68 @@ export default function HomeScreen() {
       </View>
     );
   };
+
+  // Small card renderer for task items that also checks whether a recurring task's occurrence
+  // for the provided date is already completed and displays the sentence "Lặp hôm nay đã hoàn thành".
+  function TaskCard({ t, date }: { t: DayTaskItem; date: Date }) {
+    const [todayDone, setTodayDone] = useState<boolean | null>(null);
+
+    useEffect(() => {
+      let mounted = true;
+      (async () => {
+        try {
+          const orig = tasks.find(tt => tt.id === t.id);
+          if (orig && (orig as any).recurrence_id) {
+            const recId = (orig as any).recurrence_id;
+            const done = await isHabitDoneOnDate(recId, startOfDay(date));
+            if (mounted) setTodayDone(!!done);
+          } else {
+            if (mounted) setTodayDone(null);
+          }
+        } catch (e) {
+          if (mounted) setTodayDone(null);
+        }
+      })();
+      return () => { mounted = false; };
+    }, [t.id, date, tasks]);
+
+    const bgColor = getTaskBgColor(t.priority ?? undefined);
+    const borderColor = getTaskColor(t.priority ?? undefined);
+    const textColor = "#111827";
+
+    return (
+      <View
+        style={[
+          styles.taskCard,
+          { backgroundColor: bgColor, borderLeftWidth: 6, borderLeftColor: borderColor },
+        ]}
+      >
+        <View style={styles.rowTop}>
+          <Text style={[styles.taskTitleText, { color: textColor }]}>📚 {t.title}</Text>
+        </View>
+
+        <Text style={[styles.timeText, { color: textColor }]}>
+          ⏰ {fmtTime(t.start)} {t.start || t.end ? "–" : ""} {fmtTime(t.end)}
+        </Text>
+
+        {todayDone === true ? (
+          <Text style={[styles.detailText, { color: "#16a34a", marginBottom: 6 }]}>Hôm nay đã hoàn thành</Text>
+        ) : null}
+
+        <View style={styles.rowPills}>
+          <View style={[styles.pill, { backgroundColor: borderColor }]}>
+            <Text style={styles.pillText}>{labelPriorityVn(t.priority ?? undefined)}</Text>
+          </View>
+
+          <View style={[styles.pill, { backgroundColor: "#fff", borderWidth: 0, paddingHorizontal: 12 }]}>
+            <Text style={[styles.pillText, { color: "#111827" }]}>{labelStatusVn(t.status ?? undefined)}</Text>
+          </View>
+        </View>
+
+        {t.notes ? <Text style={[styles.detailText, { color: textColor }]}>📝 {t.notes}</Text> : null}
+      </View>
+    );
+  }
 
   function renderWordsWithNewlines(text: string, prefix?: string) {
     if (!text) return null;
@@ -700,40 +763,7 @@ export default function HomeScreen() {
             const items = dayMap.get(key) ?? [];
             const tasksList = items.filter(it => it.kind === "task") as DayTaskItem[];
             if (tasksList.length === 0) return <View style={styles.emptyRow}><Text style={styles.emptyRowText}>Không có công việc</Text></View>;
-            return tasksList.map((t, i) => {
-              const bgColor = getTaskBgColor(t.priority ?? undefined);
-              const borderColor = getTaskColor(t.priority ?? undefined);
-              const textColor = "#111827";
-              return (
-                <View
-                  key={i}
-                  style={[
-                    styles.taskCard,
-                    { backgroundColor: bgColor, borderLeftWidth: 6, borderLeftColor: borderColor },
-                  ]}
-                >
-                  <View style={styles.rowTop}>
-                    <Text style={[styles.taskTitleText, { color: textColor }]}>📚 {t.title}</Text>
-                  </View>
-
-                  <Text style={[styles.timeText, { color: textColor }]}>
-                    ⏰ {fmtTime(t.start)} {t.start || t.end ? "–" : ""} {fmtTime(t.end)}
-                  </Text>
-
-                  <View style={styles.rowPills}>
-                    <View style={[styles.pill, { backgroundColor: borderColor }]}>
-                      <Text style={styles.pillText}>{labelPriorityVn(t.priority ?? undefined)}</Text>
-                    </View>
-
-                    <View style={[styles.pill, { backgroundColor: "#fff", borderWidth: 0, paddingHorizontal: 12 }]}>
-                      <Text style={[styles.pillText, { color: "#111827" }]}>{labelStatusVn(t.status ?? undefined)}</Text>
-                    </View>
-                  </View>
-
-                  {t.notes ? <Text style={[styles.detailText, { color: textColor }]}>📝 {t.notes}</Text> : null}
-                </View>
-              );
-            });
+            return tasksList.map((t, i) => <TaskCard key={i} t={t} date={dayFocused} />);
           })()}
         </ScrollView>
       )}
@@ -763,40 +793,7 @@ export default function HomeScreen() {
                     <Text style={[styles.sectionTitle, { marginTop: 10 }]}>Công việc</Text>
                     {tasksForDay.length === 0 ? (
                       <View style={styles.emptyRow}><Text style={styles.emptyRowText}>Không có công việc</Text></View>
-                    ) : tasksForDay.map((t, i) => {
-                      const bgColor = getTaskBgColor(t.priority ?? undefined);
-                      const borderColor = getTaskColor(t.priority ?? undefined);
-                      const textColor = "#111827";
-                      return (
-                        <View
-                          key={i}
-                          style={[
-                            styles.taskCard,
-                            { backgroundColor: bgColor, borderLeftWidth: 6, borderLeftColor: borderColor },
-                          ]}
-                        >
-                          <View style={styles.rowTop}>
-                            <Text style={[styles.taskTitleText, { color: textColor }]}>📚 {t.title}</Text>
-                          </View>
-
-                          <Text style={[styles.timeText, { color: textColor }]}>
-                            ⏰ {fmtTime(t.start)} {t.start || t.end ? "–" : ""} {fmtTime(t.end)}
-                          </Text>
-
-                          <View style={styles.rowPills}>
-                            <View style={[styles.pill, { backgroundColor: borderColor }]}>
-                              <Text style={styles.pillText}>{labelPriorityVn(t.priority ?? undefined)}</Text>
-                            </View>
-
-                            <View style={[styles.pill, { backgroundColor: "#fff", borderWidth: 0, paddingHorizontal: 12 }]}>
-                              <Text style={[styles.pillText, { color: "#111827" }]}>{labelStatusVn(t.status ?? undefined)}</Text>
-                            </View>
-                          </View>
-
-                          {t.notes ? <Text style={[styles.detailText, { color: textColor }]}>📝 {t.notes}</Text> : null}
-                        </View>
-                      );
-                    })}
+                    ) : tasksForDay.map((t, i) => <TaskCard key={i} t={t} date={selectedDate ?? startOfDay(new Date())} />)}
                   </ScrollView>
                 </View>
               </View>

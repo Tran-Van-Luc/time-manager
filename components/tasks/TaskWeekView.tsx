@@ -129,8 +129,33 @@ export default function TaskWeekView({
         pushOcc(t, s, duration);
       };
 
-      // Always include the base occurrence if inside the window
-      pushOcc(t, baseStartAt, duration);
+      // Only include base occurrence when it actually matches the recurrence selection
+      const maybeIncludeBase = () => {
+        if (freq === 'daily' || freq === 'yearly') {
+          pushOcc(t, baseStartAt, duration);
+          return;
+        }
+        if (freq === 'weekly') {
+          const dowSet = new Set(
+            rec.days_of_week
+              ? (JSON.parse(rec.days_of_week) as string[])
+                  .map((d) => dayNameToIndex(d))
+                  .filter((n): n is number => n !== null)
+              : []
+          );
+          if (dowSet.size === 0) dowSet.add(start.getDay());
+          if (dowSet.has(start.getDay())) pushOcc(t, baseStartAt, duration);
+          return;
+        }
+        if (freq === 'monthly') {
+          const domList: number[] = rec.day_of_month
+            ? (JSON.parse(rec.day_of_month) as string[]).map((d) => parseInt(d, 10)).filter((n) => !isNaN(n) && n >= 1 && n <= 31)
+            : [start.getDate()];
+          if (domList.includes(start.getDate())) pushOcc(t, baseStartAt, duration);
+          return;
+        }
+      };
+      maybeIncludeBase();
 
       if (freq === "daily") {
         let cursor = sameYMD(start);

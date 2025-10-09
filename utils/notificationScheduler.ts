@@ -104,7 +104,7 @@ export async function rescheduleTaskNotifications() {
             interval: rec.interval || 1,
             daysOfWeek: rec.days_of_week ? JSON.parse(rec.days_of_week) : [],
             daysOfMonth: rec.day_of_month ? JSON.parse(rec.day_of_month) : [],
-            endDate: rec.end_date ? new Date(rec.end_date).getTime() : undefined,
+            endDate: rec.end_date ? (() => { const d = new Date(rec.end_date); d.setHours(23,59,59,999); return d.getTime(); })() : undefined,
         } as any;
         if (!recConfig.endDate) {
           // Không có endDate thì chỉ lập lịch cho lần gốc

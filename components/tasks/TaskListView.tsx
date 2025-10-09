@@ -62,32 +62,51 @@ export default function TaskListView({
   // Filter tasks for selected date
   const getOccurrenceForDate = (task: Task, date: Date): { start: number; end?: number } | null => {
     const baseStart = task.start_at ? new Date(task.start_at) : null;
-    if (!baseStart) return null;
-    const baseStartMs = baseStart.getTime();
+    const baseStartMs = baseStart ? baseStart.getTime() : undefined;
     const baseEndMs = task.end_at ? new Date(task.end_at).getTime() : undefined;
-    const duration = baseEndMs && baseEndMs > baseStartMs ? (baseEndMs - baseStartMs) : undefined;
 
+    // Non-repeating: include if any part of [start, end] overlaps the selected date
+    const selStart = startOfDay(date);
+    const selEnd = endOfDay(date);
+    if (!task.recurrence_id) {
+      const s = (baseStartMs != null) ? baseStartMs : (baseEndMs != null ? baseEndMs : undefined);
+      const e = (baseEndMs != null) ? baseEndMs : (baseStartMs != null ? baseStartMs : undefined);
+      if (s == null || e == null) return null;
+      const overlaps = s <= selEnd && e >= selStart;
+      if (!overlaps) return null;
+      const occStart = Math.max(s, selStart);
+      const occEnd = baseEndMs != null ? Math.min(baseEndMs, selEnd) : undefined;
+      return { start: occStart, end: occEnd };
+    }
+
+  const rec = getRecurrenceFor(task);
+    if (!rec) {
+      // Fallback: treat as non-recurring if recurrence record is missing
+      const s = (baseStartMs != null) ? baseStartMs : (baseEndMs != null ? baseEndMs : undefined);
+      const e = (baseEndMs != null) ? baseEndMs : (baseStartMs != null ? baseStartMs : undefined);
+      if (s == null || e == null) return null;
+      const overlaps = s <= selEnd && e >= selStart;
+      if (!overlaps) return null;
+      const occStart = Math.max(s, selStart);
+      const occEnd = baseEndMs != null ? Math.min(baseEndMs, selEnd) : undefined;
+      return { start: occStart, end: occEnd };
+    }
+    // Recurrence exists: need base start to compute time-of-day candidate
+    if (baseStartMs == null || !baseStart) return null;
+    const bs = baseStartMs as number;
+    const duration = (baseEndMs != null && baseEndMs > bs) ? (baseEndMs - bs) : undefined;
     const timeH = baseStart.getHours();
     const timeM = baseStart.getMinutes();
     const timeS = baseStart.getSeconds();
     const timeMs = baseStart.getMilliseconds();
-
-    // Candidate occurrence at same time-of-day
     const candidateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), timeH, timeM, timeS, timeMs).getTime();
     const candidateEnd = duration !== undefined ? candidateStart + duration : undefined;
 
-    // Non-repeating: check if base starts on selected date
-    const selStart = startOfDay(date);
-    const selEnd = endOfDay(date);
-    if (!task.recurrence_id) {
-      return (baseStartMs >= selStart && baseStartMs <= selEnd) ? { start: baseStartMs, end: baseEndMs } : null;
-    }
-
-    const rec = getRecurrenceFor(task);
-    if (!rec) return null;
-
-    const endBoundary = rec.end_date ?? Infinity;
-    const boundaryStart = Math.max(baseStartMs, rec.start_date ?? baseStartMs);
+    // Convert recurrence boundaries to ms and make endDate inclusive (end of day)
+    const recStartMs = rec.start_date ? new Date(rec.start_date).getTime() : undefined;
+    const recEndMs = rec.end_date ? endOfDay(new Date(rec.end_date)) : undefined;
+    const endBoundary = recEndMs ?? Infinity;
+    const boundaryStart = Math.max(bs, recStartMs ?? bs);
     if (candidateStart < boundaryStart || candidateStart > endBoundary) return null;
 
     const freq = (rec.type || "daily").toLowerCase();
@@ -275,6 +294,8 @@ export default function TaskListView({
             openEditModal={openEditModal}
             handleDeleteTask={handleDeleteTask}
             hideDate={!showAll}
+            allMode={showAll}
+            selectedDate={selectedDate}
           />
         )}
       />

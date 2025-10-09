@@ -13,6 +13,8 @@ import {
 } from "../utils/taskValidation";
 import type { Recurrence } from "../types/Recurrence";
 import type { Task } from "../types/Task";
+import { setHabitMeta } from "../utils/habits";
+import { getRecurrenceById } from "../database/recurrence";
 type ScheduleLike = { startAt: Date; endAt: Date; subject?: string };
 
 interface NewTaskData {
@@ -139,7 +141,7 @@ export const useTaskOperations = (
         interval: rec.interval || 1,
         daysOfWeek: parseJsonArray(rec.days_of_week),
         daysOfMonth: parseJsonArray(rec.day_of_month),
-        endDate: rec.end_date,
+        endDate: rec.end_date ? (() => { const d = new Date(rec.end_date); d.setHours(23,59,59,999); return d.getTime(); })() : undefined,
       } as any;
       let occs: Array<{ startAt: number; endAt: number }> = [];
       try {
@@ -387,6 +389,8 @@ export const useTaskOperations = (
             : undefined,
           start_date: startAt,
           end_date: recurrenceConfig.endDate,
+          auto_complete_expired: (global as any).__habitFlags?.auto ? 1 : 0,
+          merge_streak: (global as any).__habitFlags?.merge ? 1 : 0,
         });
       }
 
@@ -510,10 +514,11 @@ export const useTaskOperations = (
         return false;
       }
 
-      // Recurrence end date requirement (edit): always require user input
+      // Recurrence end date requirement (edit): if user didn't set, default softly to end-of-day of startAt
       if (recurrenceConfig?.enabled && !recurrenceConfig.endDate) {
-        if (options?.onNotify) options.onNotify({ tone:'warning', title:'Thiếu thông tin', message:'Vui lòng chọn ngày kết thúc cho lặp lại' }); else Alert.alert("Lỗi", "Vui lòng chọn ngày kết thúc cho lặp lại");
-        return false;
+        const tmp = new Date(startAt!);
+        tmp.setHours(23,59,59,999);
+        recurrenceConfig.endDate = tmp.getTime();
       }
 
       // Conflicts (exclude itself) — dùng builder gom block như lúc thêm. Với task không lặp vẫn phải xét các occurrence của task lặp khác.
@@ -572,16 +577,35 @@ export const useTaskOperations = (
             : undefined,
           start_date: startAt,
           end_date: recurrenceConfig.endDate,
+          auto_complete_expired: (global as any).__habitFlags?.auto ? 1 : 0,
+          merge_streak: (global as any).__habitFlags?.merge ? 1 : 0,
         };
 
         if (recurrence_id) {
-          await editRecurrence(recurrence_id, payload);
+          try {
+            await editRecurrence(recurrence_id, payload);
+            // Verify that the recurrence still exists (update may be a no-op if row was deleted)
+            try {
+              const exists = await getRecurrenceById(recurrence_id);
+              if (!exists) {
+                recurrence_id = await addRecurrence(payload);
+              }
+            } catch {
+              // On any fetch error, fallback to creating a new recurrence
+              recurrence_id = await addRecurrence(payload);
+            }
+          } catch {
+            // If the old recurrence was removed or stale, create a new one and re-link
+            recurrence_id = await addRecurrence(payload);
+          }
         } else {
           recurrence_id = await addRecurrence(payload);
         }
+        try { if (loadRecurrences) await loadRecurrences(); } catch {}
       } else if (recurrence_id) {
         await removeRecurrence(recurrence_id);
         recurrence_id = undefined;
+        try { if (loadRecurrences) await loadRecurrences(); } catch {}
       }
 
       // Update task
