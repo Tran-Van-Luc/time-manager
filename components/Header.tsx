@@ -4,28 +4,24 @@ import { View, Text, TouchableOpacity, Image, StyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
 
 export default function Header() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [notifications, setNotifications] = useState(3);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   useEffect(() => {
     let mounted = true;
     const loadName = async () => {
       try {
-        // ưu tiên tên lịch đã lưu; nếu không có, lấy userId và có thể truy DB sau
         const scheduleName = await AsyncStorage.getItem("scheduleName");
         if (mounted) {
-          if (scheduleName) {
-            setDisplayName(scheduleName);
-          } else {
-            // fallback tên mặc định nếu chưa set
-            setDisplayName("StudyTime");
-          }
+          setDisplayName(scheduleName || "StudyTime");
         }
-      } catch (e) {
+      } catch {
         if (mounted) setDisplayName("StudyTime");
       }
     };
@@ -82,8 +78,9 @@ export default function Header() {
           )}
         </TouchableOpacity>
 
+        {/* ⚙️ CHUYỂN ĐẾN MÀN SETTING */}
         <TouchableOpacity
-          onPress={() => alert("Cài đặt!")}
+          onPress={() => router.push("/setting")}
           style={styles.iconButton}
         >
           <Text style={styles.iconText}>⚙️</Text>

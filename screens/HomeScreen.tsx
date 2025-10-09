@@ -1,3 +1,4 @@
+// screens/HomeScreen.tsx
 import React, { useMemo, useState, useEffect } from "react";
 import {
   View,
@@ -10,19 +11,19 @@ import {
   TouchableWithoutFeedback,
   ScrollView,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSchedules } from "../hooks/useSchedules";
 import { useTasks } from "../hooks/useTasks";
 import { useRecurrences } from "../hooks/useRecurrences";
 import { generateOccurrences } from "../utils/taskValidation";
-import { AnimatedToggle } from "../components/schedule/AnimatedToggle";
+import { AnimatedToggle } from "../components/schedules/AnimatedToggle";
+import { useTheme } from "../context/ThemeContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-// Chiều rộng cột “Phiên”
 const SESSION_COL_WIDTH = 60;
-// Chia đều phần còn lại cho 7 ngày trong tuần
 const DAY_COL_WIDTH = (SCREEN_WIDTH - SESSION_COL_WIDTH) / 7.4;
-// Chiều cao mỗi hàng phiên (dễ tùy chỉnh)
 const ROW_HEIGHT = 180;
+const STORAGE_KEY_PRIMARY = "primaryColor";
 
 type DayScheduleItem = {
   kind: "schedule";
@@ -89,8 +90,6 @@ function getScheduleColor(type?: string, subject?: string) {
   return subject ? hashColor(subject) : "#6366f1";
 }
 
-const themeColor = "#2563EB";
-
 const DEFAULT_TYPE_STYLE: Record<string, { color: string; emoji: string; pillBg: string }> = {
   "Lịch học thường xuyên": { color: "#1D4ED8", emoji: "📚", pillBg: "#DBEAFE" },
   "Lịch học thực hành": { color: "#047857", emoji: "🧪", pillBg: "#BBF7D0" },
@@ -114,7 +113,6 @@ function labelStatusVn(s?: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-// Helper: chuyển khoảng trắng thành newline để mỗi từ xuống hàng
 function splitByWordAsLines(s?: string) {
   if (!s) return "";
   return s.trim().replace(/\s+/g, "\n");
@@ -124,6 +122,31 @@ export default function HomeScreen() {
   const { schedules, loadSchedules } = useSchedules();
   const { tasks, loadTasks } = useTasks();
   const { recurrences, loadRecurrences } = useRecurrences();
+
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+
+  const [primaryColor, setPrimaryColor] = useState<string | null>(null);
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const c = await AsyncStorage.getItem(STORAGE_KEY_PRIMARY);
+        if (mounted && c) setPrimaryColor(c);
+      } catch { /* ignore */ }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  const colors = {
+    background: isDark ? "#0B1220" : "#f9fafb",
+    surface: isDark ? "#0F1724" : "#fff",
+    card: isDark ? "#111827" : "#fff",
+    text: isDark ? "#E6EEF8" : "#111827",
+    muted: isDark ? "#9AA4B2" : "#6b7280",
+    border: isDark ? "#1f2937" : "#eee",
+    themeColor: primaryColor ?? "#2563EB",
+  };
 
   const [viewMode, setViewMode] = useState<"month" | "week" | "day">("month");
   const [current, setCurrent] = useState(() => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1); });
@@ -352,13 +375,13 @@ export default function HomeScreen() {
   }, [selectedDate, dayMap]);
 
   const ScheduleItemView = ({ s }: { s: DayScheduleItem }) => {
-    const st = DEFAULT_TYPE_STYLE[s.type] || { color: s.color || "#6B7280", emoji: "📋", pillBg: "#fff" };
+    const st = DEFAULT_TYPE_STYLE[s.type] || { color: s.color || "#6B7280", emoji: "📋", pillBg: isDark ? "#0B1F16" : "#fff" };
     return (
-      <View style={[styles.scheduleCard, { borderLeftColor: st.color, backgroundColor: st.pillBg }]}>
+      <View style={[styles.scheduleCard, { borderLeftColor: st.color, backgroundColor: isDark ? "#0f1724" : st.pillBg }]}>
         <View style={styles.rowTop}>
           <View style={{ flex: 1, marginRight: 8 }}>
             <Text
-              style={[styles.subjectText, { flexWrap: "wrap", flexShrink: 1 }]}
+              style={[styles.subjectText, { flexWrap: "wrap", flexShrink: 1, color: colors.text }]}
               ellipsizeMode="tail"
               allowFontScaling={false}
             >
@@ -366,7 +389,7 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          <View style={[styles.typePill, { backgroundColor: st.pillBg, borderColor: st.color }]}>
+          <View style={[styles.typePill, { backgroundColor: isDark ? "#0b1320" : st.pillBg, borderColor: st.color }]}>
             <Text
               style={[styles.typePillText, { color: st.color }]}
               numberOfLines={1}
@@ -379,9 +402,9 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        <Text style={styles.timeText}>⏰ {fmtTime(s.start)} – {fmtTime(s.end)}</Text>
-        <Text style={styles.detailText}>👨‍🏫 {s.instructorName ?? "Chưa có giảng viên"}</Text>
-        <Text style={styles.detailText}>📍 {s.location ?? "Chưa có phòng"}</Text>
+        <Text style={[styles.timeText, { color: colors.muted }]}>⏰ {fmtTime(s.start)} – {fmtTime(s.end)}</Text>
+        <Text style={[styles.detailText, { color: colors.muted }]}>👨‍🏫 {s.instructorName ?? "Chưa có giảng viên"}</Text>
+        <Text style={[styles.detailText, { color: colors.muted }]}>📍 {s.location ?? "Chưa có phòng"}</Text>
       </View>
     );
   };
@@ -391,9 +414,9 @@ export default function HomeScreen() {
     const words = text.trim().split(/\s+/);
     return (
       <>
-        {prefix ? <Text>{prefix} </Text> : null}
+        {prefix ? <Text style={{ color: colors.text }}>{prefix} </Text> : null}
         {words.map((word, idx) => (
-          <Text key={idx}>
+          <Text key={idx} style={{ color: colors.text }}>
             {word}
             {"\n"}
           </Text>
@@ -403,14 +426,14 @@ export default function HomeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.headerSmall}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.headerSmall, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
         <View style={styles.headerLeft}>
-          <TouchableOpacity onPress={prev} style={styles.navBtnSmall}><Text style={styles.navTextSmall}>‹</Text></TouchableOpacity>
+          <TouchableOpacity onPress={prev} style={[styles.navBtnSmall, { backgroundColor: isDark ? "#0b1320" : "#f3f4f6" }]}><Text style={[styles.navTextSmall, { color: colors.text }]}>‹</Text></TouchableOpacity>
 
           <View style={styles.titleWrapper}>
             <Text
-              style={styles.monthTitleSmall}
+              style={[styles.monthTitleSmall, { color: colors.text }]}
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.7}
@@ -427,28 +450,29 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          <TouchableOpacity onPress={next} style={styles.navBtnSmall}><Text style={styles.navTextSmall}>›</Text></TouchableOpacity>
+          <TouchableOpacity onPress={next} style={[styles.navBtnSmall, { backgroundColor: isDark ? "#0b1320" : "#f3f4f6" }]}><Text style={[styles.navTextSmall, { color: colors.text }]}>›</Text></TouchableOpacity>
         </View>
 
         <AnimatedToggle
           value={viewMode === "day" ? "day" : viewMode === "week" ? "week" : "month"}
           onChange={(v) => {
             resetToToday();
-            if (v === "day") {
-              setViewMode("day");
-            } else if (v === "week") {
-              setViewMode("week");
-            } else {
-              setViewMode("month");
-            }
+            setViewMode(v);
             setShowModal(false);
           }}
+          accentColor={colors.themeColor}
+          surfaceColor={isDark ? "#071226" : "#f3f4f6"}
+          textColor={isDark ? "#E6EEF8" : "#374151"}
+          activeTextColor="#ffffff"
+          style={{ alignSelf: "flex-end" }}
         />
       </View>
 
       {viewMode === "month" && (
-        <View style={styles.weekRow}>
-          {WEEKDAY_LABELS.map((lbl) => <Text key={lbl} style={styles.weekLabel}>{lbl}</Text>)}
+        <View style={[styles.weekRow, { backgroundColor: colors.surface }]}>
+          {WEEKDAY_LABELS.map((lbl) => (
+            <Text key={lbl} style={[styles.weekLabel, { color: colors.themeColor }]}>{lbl}</Text>
+          ))}
         </View>
       )}
 
@@ -473,16 +497,16 @@ export default function HomeScreen() {
                   {
                     height: cellHeight,
                     borderRadius: 12,
-                    backgroundColor: isToday ? `${themeColor}20` : "#fff",
-                    borderColor: showBorder ? themeColor : "#e5e7eb",
+                    backgroundColor: isToday ? `${colors.themeColor}20` : colors.surface,
+                    borderColor: showBorder ? colors.themeColor : colors.border,
                     borderWidth: showBorder ? 2 : 0.5,
-                    opacity: inMonth ? 1 : 0.3,
+                    opacity: inMonth ? 1 : 0.35,
                   },
                 ]}
                 onPress={() => handlePressDay(d)}
                 activeOpacity={0.7}
               >
-                <Text style={styles.dayNum}>{d.getDate()}</Text>
+                <Text style={[styles.dayNum, { color: colors.text }]}>{d.getDate()}</Text>
                 <View style={styles.iconColumn}>
                   {icons.map((it, i) => (
                     <View key={i} style={[styles.iconBadge, { backgroundColor: (it as DayItem).kind === "task" ? (it as DayTaskItem).color ?? "#9ca3af" : (it as DayScheduleItem).color }]} >
@@ -503,10 +527,10 @@ export default function HomeScreen() {
 
       {viewMode === "week" && (
         <>
-          <View style={{ flexDirection: "row", backgroundColor: "#fff", borderBottomWidth: 1, borderColor: "#eee" }}>
-            <View style={{ width: 64, borderRightWidth: 1, borderColor: "#eee", paddingVertical: 8 }}>
+          <View style={{ flexDirection: "row", backgroundColor: colors.surface, borderBottomWidth: 1, borderColor: colors.border }}>
+            <View style={{ width: 64, borderRightWidth: 1, borderColor: colors.border, paddingVertical: 8 }}>
               <View style={{ height: 40, justifyContent: "center", alignItems: "center" }}>
-                <Text style={{ fontWeight: "700", fontSize: 12 }}>Phiên</Text>
+                <Text style={{ fontWeight: "700", fontSize: 12, color: colors.text }}>Phiên</Text>
               </View>
             </View>
 
@@ -520,14 +544,14 @@ export default function HomeScreen() {
                   style={{
                     flex: 1,
                     borderRightWidth: idx < 6 ? 1 : 0,
-                    borderColor: "#eee",
-                    backgroundColor: isToday ? `${themeColor}10` : "#fff",
+                    borderColor: colors.border,
+                    backgroundColor: isToday ? `${colors.themeColor}10` : colors.surface,
                   }}
                   onPress={() => openDetailsFor(day)}
                   activeOpacity={0.8}
                 >
                   <View style={{ paddingVertical: 6, alignItems: "center" }}>
-                    <Text style={{ fontSize: 12, fontWeight: "700", color: isSelected ? themeColor : "#374151", textAlign: "center" }}>
+                    <Text style={{ fontSize: 12, fontWeight: "700", color: isSelected ? colors.themeColor : colors.text, textAlign: "center" }}>
                       {WEEKDAY_LABELS[idx]}{"\n"}{day.getDate()}/{day.getMonth() + 1}
                     </Text>
                   </View>
@@ -536,8 +560,8 @@ export default function HomeScreen() {
             })}
           </View>
 
-          <View style={{ flexDirection: "row", backgroundColor: "#fff" }}>
-            <View style={{ width: 64, borderRightWidth: 1, borderColor: "#eee" }}>
+          <View style={{ flexDirection: "row", backgroundColor: colors.surface }}>
+            <View style={{ width: 64, borderRightWidth: 1, borderColor: colors.border }}>
               {["Sáng", "Chiều", "Tối"].map((s, i) => (
                 <View
                   key={i}
@@ -546,10 +570,10 @@ export default function HomeScreen() {
                     justifyContent: "center",
                     alignItems: "center",
                     borderBottomWidth: i < 2 ? 1 : 0,
-                    borderColor: "#eee",
+                    borderColor: colors.border,
                   }}
                 >
-                  <Text style={{ fontSize: 12 }}>{s === "Sáng" ? "🌅 Sáng" : s === "Chiều" ? "🌞 Chiều" : "🌙 Tối"}</Text>
+                  <Text style={{ fontSize: 12, color: colors.text }}>{s === "Sáng" ? "🌅 Sáng" : s === "Chiều" ? "🌞 Chiều" : "🌙 Tối"}</Text>
                 </View>
               ))}
             </View>
@@ -572,7 +596,7 @@ export default function HomeScreen() {
               }
 
               return (
-                <View key={dayIdx} style={{ flex: 1, borderRightWidth: dayIdx < 6 ? 1 : 0, borderColor: "#eee" }}>
+                <View key={dayIdx} style={{ flex: 1, borderRightWidth: dayIdx < 6 ? 1 : 0, borderColor: colors.border }}>
                   {["Sáng", "Chiều", "Tối"].map((session, sidx) => {
                     const cellItems = bySession[session as keyof typeof bySession];
                     return (
@@ -582,12 +606,12 @@ export default function HomeScreen() {
                           height: ROW_HEIGHT,
                           padding: 6,
                           borderBottomWidth: sidx < 2 ? 1 : 0,
-                          borderColor: "#f1f1f1",
+                          borderColor: isDark ? "#17202A" : "#f1f1f1",
                           overflow: "hidden",
                         }}
                       >
                         {cellItems.length === 0 ? (
-                          <Text style={{ fontSize: 11, color: "#c0c0c0" }}>–</Text>
+                          <Text style={{ fontSize: 11, color: colors.muted }}>–</Text>
                         ) : (
                           <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: ROW_HEIGHT - 12 }}>
                             {cellItems.map((it, i) => {
@@ -605,7 +629,7 @@ export default function HomeScreen() {
                                     style={{
                                       marginBottom: 6,
                                       borderRadius: 6,
-                                      backgroundColor: st.pillBg,
+                                      backgroundColor: isDark ? "#071226" : st.pillBg,
                                       paddingHorizontal: 5,
                                       borderLeftWidth: 4,
                                       borderLeftColor: st.color,
@@ -642,7 +666,7 @@ export default function HomeScreen() {
                                       marginBottom: 6,
                                       borderRadius: 6,
                                       paddingHorizontal: 5,
-                                      backgroundColor: getTaskBgColor(t.priority ?? undefined),
+                                      backgroundColor: isDark ? "#071226" : getTaskBgColor(t.priority ?? undefined),
                                       borderLeftWidth: 6,
                                       borderLeftColor: borderColor,
                                       minHeight: 48,
@@ -653,7 +677,7 @@ export default function HomeScreen() {
                                         fontSize: 9,
                                         marginTop: 2,
                                         fontWeight: "700",
-                                        color: "#111827",
+                                        color: isDark ? "#E6EEF8" : "#111827",
                                         lineHeight: 14,
                                       }}
                                       allowFontScaling={true}
@@ -679,31 +703,31 @@ export default function HomeScreen() {
       {viewMode === "day" && (
         <ScrollView style={{ paddingHorizontal: 12, paddingTop: 8 }}>
           <View style={{ marginBottom: 8, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text style={{ fontSize: 16, fontWeight: "700", color: "#111827" }}>{ymd(startOfDay(dayFocused))}</Text>
-            <TouchableOpacity onPress={() => openDetailsFor(dayFocused)} style={[styles.navBtn]}>
-              <Text style={{ color: "#374151" }}>Xem chi tiết</Text>
+            <Text style={{ fontSize: 16, fontWeight: "700", color: colors.text }}>{ymd(startOfDay(dayFocused))}</Text>
+            <TouchableOpacity onPress={() => openDetailsFor(dayFocused)} style={[styles.navBtn, { backgroundColor: isDark ? "#071226" : "#f3f4f6" }]}>
+              <Text style={{ color: colors.text }}>Xem chi tiết</Text>
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.sectionTitle}>Lịch học</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Lịch học</Text>
           {(() => {
             const key = ymd(startOfDay(dayFocused));
             const items = dayMap.get(key) ?? [];
             const scheds = items.filter(it => it.kind === "schedule") as DayScheduleItem[];
-            if (scheds.length === 0) return <View style={styles.emptyRow}><Text style={styles.emptyRowText}>Không có lịch học</Text></View>;
+            if (scheds.length === 0) return <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>Không có lịch học</Text></View>;
             return scheds.map((s, i) => <ScheduleItemView key={s.id ?? i} s={s} />);
           })()}
 
-          <Text style={[styles.sectionTitle, { marginTop: 10 }]}>Công việc</Text>
+          <Text style={[styles.sectionTitle, { marginTop: 10, color: colors.text }]}>Công việc</Text>
           {(() => {
             const key = ymd(startOfDay(dayFocused));
             const items = dayMap.get(key) ?? [];
             const tasksList = items.filter(it => it.kind === "task") as DayTaskItem[];
-            if (tasksList.length === 0) return <View style={styles.emptyRow}><Text style={styles.emptyRowText}>Không có công việc</Text></View>;
+            if (tasksList.length === 0) return <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>Không có công việc</Text></View>;
             return tasksList.map((t, i) => {
-              const bgColor = getTaskBgColor(t.priority ?? undefined);
+              const bgColor = isDark ? "#071226" : getTaskBgColor(t.priority ?? undefined);
               const borderColor = getTaskColor(t.priority ?? undefined);
-              const textColor = "#111827";
+              const textColor = isDark ? "#E6EEF8" : "#111827";
               return (
                 <View
                   key={i}
@@ -740,33 +764,33 @@ export default function HomeScreen() {
 
       <Modal visible={showModal} transparent animationType="fade" onRequestClose={() => setShowModal(false)}>
         <TouchableWithoutFeedback onPress={() => setShowModal(false)}>
-          <View style={styles.overlay}>
+          <View style={[styles.overlay, { backgroundColor: "rgba(0,0,0,0.45)" }]}>
             <TouchableWithoutFeedback>
               <View style={styles.cardWrapper}>
-                <View style={styles.modalList}>
+                <View style={[styles.modalList, { backgroundColor: colors.surface }]}>
                   <View style={styles.modalHeaderRow}>
                     <View style={styles.datePill}>
-                      <Text style={styles.modalDateTitle}>{selectedDate ? `${ymd(startOfDay(selectedDate))}` : ""}</Text>
+                      <Text style={[styles.modalDateTitle, { color: colors.text }]}>{selectedDate ? `${ymd(startOfDay(selectedDate))}` : ""}</Text>
                     </View>
 
                     <TouchableOpacity onPress={() => setShowModal(false)} style={styles.closeButton}>
-                      <Text style={styles.closeBtn}>✕</Text>
+                      <Text style={[styles.closeBtn, { color: colors.themeColor }]}>✕</Text>
                     </TouchableOpacity>
                   </View>
 
                   <ScrollView contentContainerStyle={{ padding: 8 }}>
-                    <Text style={styles.sectionTitle}>Lịch học</Text>
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>Lịch học</Text>
                     {schedulesForDay.length === 0 ? (
-                      <View style={styles.emptyRow}><Text style={styles.emptyRowText}>Không có lịch học</Text></View>
+                      <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>Không có lịch học</Text></View>
                     ) : schedulesForDay.map((s, i) => <ScheduleItemView key={s.id ?? i} s={s} />)}
 
-                    <Text style={[styles.sectionTitle, { marginTop: 10 }]}>Công việc</Text>
+                    <Text style={[styles.sectionTitle, { marginTop: 10, color: colors.text }]}>Công việc</Text>
                     {tasksForDay.length === 0 ? (
-                      <View style={styles.emptyRow}><Text style={styles.emptyRowText}>Không có công việc</Text></View>
+                      <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>Không có công việc</Text></View>
                     ) : tasksForDay.map((t, i) => {
-                      const bgColor = getTaskBgColor(t.priority ?? undefined);
+                      const bgColor = isDark ? "#071226" : getTaskBgColor(t.priority ?? undefined);
                       const borderColor = getTaskColor(t.priority ?? undefined);
-                      const textColor = "#111827";
+                      const textColor = isDark ? "#E6EEF8" : "#111827";
                       return (
                         <View
                           key={i}
@@ -809,7 +833,7 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f9fafb" },
+  container: { flex: 1 },
 
   headerSmall: {
     flexDirection: "row",
@@ -817,7 +841,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: "#fff",
     shadowColor: "#000",
     shadowOpacity: 0.03,
     shadowOffset: { width: 0, height: 1 },
@@ -827,25 +850,25 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 10,
   },
   headerLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
-  navBtnSmall: { padding: 6, borderRadius: 6, backgroundColor: "#f3f4f6", marginHorizontal: 4 },
-  navTextSmall: { fontSize: 18, color: "#374151" },
+  navBtnSmall: { padding: 6, borderRadius: 6, marginHorizontal: 4 },
+  navTextSmall: { fontSize: 18 },
   titleWrapper: { flex: 1, marginHorizontal: 6, minWidth: 80, alignItems: "center" },
-  monthTitleSmall: { fontSize: 14, fontWeight: "700", color: "#111827", textAlign: "center", paddingHorizontal: 2 },
+  monthTitleSmall: { fontSize: 14, fontWeight: "700", textAlign: "center", paddingHorizontal: 2 },
 
-  navBtn: { padding: 8, borderRadius: 8, backgroundColor: "#f3f4f6" },
-  navText: { fontSize: 22, color: "#374151" },
+  navBtn: { padding: 8, borderRadius: 8 },
+  navText: { fontSize: 22 },
 
   weekRow: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 6, paddingVertical: 6 },
-  weekLabel: { width: `${100 / 7}%`, textAlign: "center", color: "#6b7280", fontWeight: "600" },
+  weekLabel: { width: `${100 / 7}%`, textAlign: "center", fontWeight: "600" },
 
   grid: { flexDirection: "row", flexWrap: "wrap" },
   cell: { width: `${100 / 7}%`, alignItems: "center", justifyContent: "flex-start", paddingVertical: 4 },
-  dayNum: { fontSize: 14, fontWeight: "600", color: "#111827", marginBottom: 4 },
+  dayNum: { fontSize: 14, fontWeight: "600", marginBottom: 4 },
   iconColumn: { justifyContent: "flex-start", alignItems: "center", gap: 4 },
   iconBadge: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   iconText: { fontSize: 12, color: "#fff" },
 
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", alignItems: "center", paddingHorizontal: 16 },
+  overlay: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 16 },
   cardWrapper: { width: "95%", maxHeight: "85%", backgroundColor: "transparent" },
 
   modalHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
@@ -856,7 +879,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     elevation: 2,
   },
-  modalDateTitle: { fontSize: 16, fontWeight: "700", color: "#111827" },
+  modalDateTitle: { fontSize: 16, fontWeight: "700" },
   closeButton: {
     backgroundColor: "#ffffff",
     width: 38,
@@ -866,17 +889,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     elevation: 2,
   },
-  closeBtn: { fontSize: 18, color: themeColor },
+  closeBtn: { fontSize: 18 },
 
-  modalList: { backgroundColor: "#fff", borderRadius: 10, padding: 8 },
+  modalList: { borderRadius: 10, padding: 8 },
 
-  sectionTitle: { fontSize: 14, fontWeight: "700", color: "#374151", marginBottom: 8 },
+  sectionTitle: { fontSize: 14, fontWeight: "700", marginBottom: 8 },
 
   scheduleCard: {
     borderRadius: 8,
     borderLeftWidth: 4,
     padding: 12,
-    backgroundColor: "#fff",
     marginBottom: 10,
     elevation: 2,
     minHeight: 48,
@@ -893,11 +915,11 @@ const styles = StyleSheet.create({
   rowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 },
   subjectText: { fontSize: 16, fontWeight: "600", flexShrink: 1, lineHeight: 20 },
   taskTitleText: { fontSize: 16, fontWeight: "600" },
-  timeText: { fontSize: 14, marginBottom: 4, color: "#374151" },
-  detailText: { fontSize: 14, marginBottom: 2, color: "#374151" },
+  timeText: { fontSize: 14, marginBottom: 4 },
+  detailText: { fontSize: 14, marginBottom: 2 },
 
-  emptyRow: { padding: 12, borderRadius: 8, backgroundColor: "#fff", marginBottom: 8 },
-  emptyRowText: { color: "#6b7280" },
+  emptyRow: { padding: 12, borderRadius: 8, marginBottom: 8 },
+  emptyRowText: { },
 
   rowPills: { flexDirection: "row", gap: 8, marginTop: 6 },
   pill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, alignItems: "center", justifyContent: "center", marginRight: 8 },

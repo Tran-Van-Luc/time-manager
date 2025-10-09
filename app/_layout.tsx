@@ -1,11 +1,12 @@
-// app/_layout.tsx
 import React, { useEffect, useState } from "react";
 import { Slot, useRouter, useSegments } from "expo-router";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import { View, StatusBar, ActivityIndicator } from "react-native";
+import { View, StatusBar, ActivityIndicator, StyleSheet } from "react-native";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+
+import { ThemeProvider, useTheme } from "../context/ThemeContext";
 
 const tabs = [
   { key: "home", route: "/" },
@@ -15,12 +16,21 @@ const tabs = [
   { key: "stats", route: "/stats" },
 ];
 
-export default function MainLayout() {
+function LayoutContent() {
   const router = useRouter();
   const segments = useSegments();
-  const currentRoute = "/" + (segments?.[0] || "index");
+  const currentRoute = "/" + (segments?.[0] || "");
 
   const [loading, setLoading] = useState(true);
+
+
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
+  const colors = {
+    background: isDark ? '#121212' : '#FFFFFF',
+    activityIndicator: isDark ? '#FFFFFF' : '#2E6EF7'
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -28,7 +38,6 @@ export default function MainLayout() {
       try {
         const onboarded = await AsyncStorage.getItem("hasOnboarded");
         if (mounted) {
-          // nếu chưa onboard và không ở trang onboarding/name-schedule/prepare => chuyển về onboarding
           if (
             !onboarded &&
             currentRoute !== "/onboarding" &&
@@ -51,31 +60,38 @@ export default function MainLayout() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" color="#2E6EF7" />
+      <View style={[styles.loaderContainer, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.activityIndicator} />
       </View>
     );
   }
 
-  // routes where header/footer (chrome) should be hidden
-  const noChromeRoutes = ["/onboarding", "/name-schedule", "/prepare"];
-  const showChrome = !noChromeRoutes.includes(currentRoute);
+  const noChromeRoutes = [
+    "/onboarding",
+    "/name-schedule",
+    "/prepare",
+    "/setting",
+  ];
 
+  const showChrome = !noChromeRoutes.includes(currentRoute) || currentRoute === "/";
+  
   return (
     <SafeAreaProvider>
-      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
+      <StatusBar
+        translucent
+        backgroundColor="transparent"
+        barStyle={isDark ? "light-content" : "dark-content"}
+      />
 
-      {/* HEADER */}
       {showChrome && <Header />}
 
-      {/* CONTENT */}
-      <View style={{ flex: 1, backgroundColor: "white" }}>
+
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
         <Slot />
       </View>
 
-      {/* FOOTER */}
       {showChrome && (
-        <SafeAreaView edges={["bottom"]} style={{ backgroundColor: "white" }}>
+        <SafeAreaView edges={["bottom"]} style={{ backgroundColor: colors.background }}>
           <Footer
             activeTab={tabs.find((t) => t.route === currentRoute)?.key || "home"}
             onTabPress={(key) => {
@@ -88,3 +104,19 @@ export default function MainLayout() {
     </SafeAreaProvider>
   );
 }
+
+export default function MainLayout() {
+  return (
+    <ThemeProvider>
+      <LayoutContent />
+    </ThemeProvider>
+  );
+}
+
+const styles = StyleSheet.create({
+  loaderContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+});

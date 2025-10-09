@@ -16,13 +16,8 @@ import { useTasks } from "../hooks/useTasks";
 import { useSchedules } from "../hooks/useSchedules";
 import { useRecurrences } from "../hooks/useRecurrences";
 import { generateOccurrences } from "../utils/taskValidation";
-import {
-  startOfWeek,
-  addDays,
-  isSameDay,
-  format,
-  subWeeks,
-} from "date-fns";
+import { startOfWeek, addDays, isSameDay, format, subWeeks } from "date-fns";
+import { useTheme } from "../context/ThemeContext";
 
 const screenWidth = Dimensions.get("window").width;
 const WEEK_PICKER_COUNT = 12;
@@ -31,6 +26,24 @@ export default function StatsScreen() {
   const { tasks, loadTasks } = useTasks();
   const { schedules, loadSchedules } = useSchedules();
   const { recurrences, loadRecurrences } = useRecurrences();
+
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+
+  const colors = {
+    background: isDark ? "#071226" : "#fff",
+    surface: isDark ? "#0b1220" : "#fff",
+    muted: isDark ? "#9AA4B2" : "#374151",
+    text: isDark ? "#E6EEF8" : "#111827",
+    cardBg: isDark ? "#0F1724" : "#f8fafc",
+    border: isDark ? "#1f2937" : "#eef2ff",
+    accent: "#2563EB",
+    positive: "#16a34a",
+    warn: "#facc15",
+    danger: "#ef4444",
+    panel: isDark ? "#071226" : "#fff",
+    modalBg: isDark ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.15)",
+  };
 
   const [selectedWeekStart, setSelectedWeekStart] = useState(() =>
     startOfWeek(new Date(), { weekStartsOn: 1 })
@@ -53,7 +66,6 @@ export default function StatsScreen() {
     );
   }, []);
 
-  // ------------------ TASKS (week-based) ------------------
   const recurrenceMap = useMemo(() => {
     const m: Record<number, any> = {};
     (recurrences || []).forEach((r: any) => { if (r.id != null) m[r.id] = r; });
@@ -134,9 +146,9 @@ export default function StatsScreen() {
   const doingTasks = classifications.filter(c => c === 'doing').length;
 
   const tasksPieData = [
-    { name: "Hoàn thành", population: doneTasks, color: "#22c55e", legendFontColor: "#333", legendFontSize: 12 },
-    { name: "Đang thực hiện", population: doingTasks, color: "#facc15", legendFontColor: "#333", legendFontSize: 12 },
-    { name: "Trễ hạn", population: overdueTasks, color: "#ef4444", legendFontColor: "#333", legendFontSize: 12 },
+    { name: "Hoàn thành", population: doneTasks, color: colors.positive, legendFontColor: colors.text, legendFontSize: 12 },
+    { name: "Đang thực hiện", population: doingTasks, color: colors.warn, legendFontColor: colors.text, legendFontSize: 12 },
+    { name: "Trễ hạn", population: overdueTasks, color: colors.danger, legendFontColor: colors.text, legendFontSize: 12 },
   ];
 
   const weekDays = useMemo(() => Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i)), [weekStart]);
@@ -152,12 +164,12 @@ export default function StatsScreen() {
     const time = item.start ? `${item.start.toLocaleString()}` : "Không có giờ";
     const statusColor =
       item.completedFlag
-        ? "#16a34a"
+        ? colors.positive
         : item.end && item.end.getTime() < Date.now()
-        ? "#ef4444"
+        ? colors.danger
         : item.rawStatus === "doing" || item.rawStatus === "in progress" || item.rawStatus === "in-progress"
-        ? "#facc15"
-        : "#94a3b8";
+        ? colors.warn
+        : colors.muted;
     const priorityColor =
       item.priority === "high" ? "#dc2626" : item.priority === "medium" ? "#f59e0b" : item.priority === "green" || item.priority === "low" ? "#16a34a" : "#94a3b8";
     const indicatorColor = item.priority ? priorityColor : statusColor;
@@ -169,14 +181,14 @@ export default function StatsScreen() {
     if (priorityLabel) priorityLabel = priorityLabel.charAt(0).toUpperCase() + priorityLabel.slice(1);
 
     return (
-      <View style={styles.itemWrap}>
+      <View style={[styles.itemWrap, { backgroundColor: colors.panel, shadowOpacity: isDark ? 0 : 0.03 }]}>
         <View style={[styles.statusIndicator, { backgroundColor: indicatorColor }]} />
         <View style={styles.itemContent}>
-          <Text style={styles.rowTitle}>{item.title}</Text>
-          {item.description ? <Text style={styles.rowSubtitle}>{item.description}</Text> : null}
+          <Text style={[styles.rowTitle, { color: colors.text }]}>{item.title}</Text>
+          {item.description ? <Text style={[styles.rowSubtitle, { color: colors.muted }]}>{item.description}</Text> : null}
         </View>
         <View style={styles.itemMeta}>
-          <Text style={styles.rowTime}>{time}</Text>
+          <Text style={[styles.rowTime, { color: colors.muted }]}>{time}</Text>
           {item.priority ? (
             <View style={[styles.priorityPill, { backgroundColor: priorityColor }]}>
               <Text style={styles.priorityText}>{priorityLabel}</Text>
@@ -187,7 +199,6 @@ export default function StatsScreen() {
     );
   };
 
-  // ------------------ SCHEDULES (aggregate total, no week) ------------------
   const mappedSchedules = useMemo(() => {
     return (schedules || []).map((s: any) => {
       const start = s.startAt ? new Date(s.startAt) : null;
@@ -205,21 +216,19 @@ export default function StatsScreen() {
     });
   }, [schedules]);
 
-  // Colors mapping
   const TYPE_COLORS: Record<string, string> = {
-    "lý thuyết": "#06b6d4", // xanh nước
-    "thực hành": "#16a34a", // xanh lá
-    "tạm ngưng": "#f97316", // giữ như cũ
-    "bù": "#7c3aed",        // tím cho buổi bù
+    "lý thuyết": "#06b6d4",
+    "thực hành": "#16a34a",
+    "tạm ngưng": "#f97316",
+    "bù": "#7c3aed",
     "thi": "#ef4444",
     "thường": "#2563EB",
   };
 
-  // Per-course stats: split Lý thuyết and Thực hành; total = LT + TH only
   const perCourseStats = useMemo(() => {
     const map: Record<string, {
       subject: string;
-      total: number; // LT + TH
+      total: number;
       lyThuyet: number;
       thucHanh: number;
       tamNgung: number;
@@ -256,7 +265,6 @@ export default function StatsScreen() {
     return result.sort((a, b) => b.total - a.total);
   }, [mappedSchedules]);
 
-  // Counts including exams for display; KPI total will exclude exams below
   const scheduleTypeCounts = useMemo(() => {
     const counts = { thuong: 0, tamNgung: 0, bu: 0, thi: 0 };
     mappedSchedules.forEach((s: any) => {
@@ -268,95 +276,39 @@ export default function StatsScreen() {
     return counts;
   }, [mappedSchedules]);
 
-  // TOTAL SESSIONS on KPI: count only LT + TH (exclude exams, pauses, makeups)
   const totalSessionsLTTH = useMemo(() => {
     return mappedSchedules.filter((s: any) => s.typeNormalized === "lý thuyết" || s.typeNormalized === "thực hành").length;
   }, [mappedSchedules]);
-
-  const pausedList = mappedSchedules.filter((s: any) => s.typeNormalized === "tạm ngưng");
-  const makeUpList = mappedSchedules.filter((s: any) => s.typeNormalized === "bù");
-  const examList = mappedSchedules.filter((s: any) => s.typeNormalized === "thi");
-  const ongoingList = mappedSchedules.filter((s: any) => {
-    if (!s.start || !s.end) return false;
-    const now = Date.now();
-    return s.start.getTime() <= now && now <= s.end.getTime();
-  });
 
   const weekDayLabels = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
   const weekCountsSched = useMemo(() => {
     const counts = [0, 0, 0, 0, 0, 0, 0];
     mappedSchedules.forEach((s: any) => {
       if (!s.start) return;
-      const wd = s.start.getDay(); // 0 Sun .. 6 Sat
-      const idx = wd === 0 ? 6 : wd - 1; // map to 0..6 Mon..Sun
+      const wd = s.start.getDay();
+      const idx = wd === 0 ? 6 : wd - 1;
       counts[idx] = counts[idx] + 1;
     });
     return counts;
   }, [mappedSchedules]);
   const maxSchedCount = useMemo(() => Math.max(0, ...weekCountsSched), [weekCountsSched]);
 
-  const renderScheduleItem = ({ item }: { item: any }) => {
-    const time =
-      item.start && item.end
-        ? `${item.start.toLocaleString()} - ${item.end.toLocaleTimeString()}`
-        : item.start
-        ? `${item.start.toLocaleString()}`
-        : "Không có giờ";
-    const lowType = String(item.typeNormalized || "").toLowerCase();
-    const color = TYPE_COLORS[lowType] ?? TYPE_COLORS[item.rawType?.toLowerCase()] ?? "#2563EB";
-
-    return (
-      <View style={styles.itemWrap}>
-        <View style={[styles.statusIndicator, { backgroundColor: color }]} />
-        <View style={styles.itemContent}>
-          <Text style={styles.rowTitle}>{item.subject || item.title || "Không tên"}</Text>
-          {item.instructorName ? <Text style={styles.rowSubtitle}>Giảng viên: {item.instructorName}</Text> : null}
-          {item.location ? <Text style={styles.rowSubtitle}>Phòng: {item.location}</Text> : null}
-        </View>
-
-        <View style={styles.itemMeta}>
-          <Text style={styles.rowTime}>{time}</Text>
-          <View style={[styles.priorityPill, { backgroundColor: color }]}>
-            <Text style={styles.priorityText}>
-              {String(item.typeNormalized ?? item.rawType ?? "").charAt(0).toUpperCase() + String(item.typeNormalized ?? item.rawType ?? "").slice(1)}
-            </Text>
-          </View>
-        </View>
-      </View>
-    );
-  };
-
-  const currentMonth = selectedWeekStart.getMonth();
-  const currentYear = selectedWeekStart.getFullYear();
-  const monthWeeks = useMemo(() => {
-    const firstDay = new Date(currentYear, currentMonth, 1);
-    const lastDay = new Date(currentYear, currentMonth + 1, 0);
-    let weeks: Date[] = [];
-    let week = startOfWeek(firstDay, { weekStartsOn: 1 });
-    while (week <= lastDay) {
-      weeks.push(week);
-      week = addDays(week, 7);
-    }
-    return weeks;
-  }, [currentMonth, currentYear, selectedWeekStart]);
-
   const onSelectWeek = (d: Date) => {
     setSelectedWeekStart(startOfWeek(d, { weekStartsOn: 1 }));
     setShowWeekPicker(false);
   };
 
-  // ------------------ UI ------------------
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 30 }}>
-      <Text style={styles.header}>Báo cáo & Thống kê</Text>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={{ paddingBottom: 30 }}>
+      <Text style={[styles.header, { color: colors.text }]}>Báo cáo & Thống kê</Text>
 
       <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
         {selectedKind === "tasks" ? (
           <TouchableOpacity
-            style={styles.weekDropdown}
+            style={[styles.weekDropdown, { backgroundColor: colors.panel, borderColor: colors.border }]}
             onPress={() => setShowWeekPicker(true)}
           >
-            <Text style={styles.weekDropdownText}>
+            <Text style={[styles.weekDropdownText, { color: colors.text }]}>
               {format(selectedWeekStart, "dd/MM")} - {format(addDays(selectedWeekStart, 6), "dd/MM")}
             </Text>
           </TouchableOpacity>
@@ -364,16 +316,16 @@ export default function StatsScreen() {
 
         <View style={{ flexDirection: "row", marginLeft: "auto" }}>
           <TouchableOpacity
-            style={[styles.kindBtn, selectedKind === "tasks" && styles.kindBtnActive]}
+            style={[styles.kindBtn, selectedKind === "tasks" && styles.kindBtnActive, { backgroundColor: selectedKind === "tasks" ? colors.accent : colors.panel }]}
             onPress={() => setSelectedKind("tasks")}
           >
-            <Text style={[styles.kindBtnText, selectedKind === "tasks" && styles.kindBtnTextActive]}>Công việc</Text>
+            <Text style={[styles.kindBtnText, selectedKind === "tasks" && styles.kindBtnTextActive, { color: selectedKind === "tasks" ? "#fff" : colors.text }]}>Công việc</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.kindBtn, selectedKind === "schedules" && styles.kindBtnActive, { marginLeft: 8 }]}
+            style={[styles.kindBtn, selectedKind === "schedules" && styles.kindBtnActive, { marginLeft: 8, backgroundColor: selectedKind === "schedules" ? colors.accent : colors.panel }]}
             onPress={() => setSelectedKind("schedules")}
           >
-            <Text style={[styles.kindBtnText, selectedKind === "schedules" && styles.kindBtnTextActive]}>Lịch học</Text>
+            <Text style={[styles.kindBtnText, selectedKind === "schedules" && styles.kindBtnTextActive, { color: selectedKind === "schedules" ? "#fff" : colors.text }]}>Lịch học</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -384,12 +336,12 @@ export default function StatsScreen() {
         animationType="fade"
         onRequestClose={() => setShowWeekPicker(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setShowWeekPicker(false)}>
-          <View style={styles.weekModal}>
-            <Text style={{ fontWeight: "700", marginBottom: 8, fontSize: 16 }}>
+        <Pressable style={[styles.modalOverlay, { backgroundColor: colors.modalBg }]} onPress={() => setShowWeekPicker(false)}>
+          <View style={[styles.weekModal, { backgroundColor: colors.panel }]}>
+            <Text style={{ fontWeight: "700", marginBottom: 8, fontSize: 16, color: colors.text }}>
               Chọn tuần ({format(selectedWeekStart, "MM/yyyy")})
             </Text>
-            {monthWeeks.map((week) => {
+            {weekOptions.map((week) => {
               const isSelected = isSameDay(week, selectedWeekStart);
               const isCurrent = isSameDay(week, startOfWeek(new Date(), { weekStartsOn: 1 }));
               return (
@@ -399,6 +351,7 @@ export default function StatsScreen() {
                     styles.weekModalItem,
                     isSelected && styles.weekModalItemActive,
                     !isSelected && isCurrent && styles.weekModalItemCurrent,
+                    { backgroundColor: isSelected ? colors.accent : !isSelected && isCurrent ? (isDark ? "#07315a" : "#e0e7ff") : colors.panel }
                   ]}
                   onPress={() => onSelectWeek(week)}
                 >
@@ -406,6 +359,7 @@ export default function StatsScreen() {
                     styles.weekModalItemText,
                     isSelected && styles.weekModalItemTextActive,
                     !isSelected && isCurrent && styles.weekModalItemTextCurrent,
+                    { color: isSelected ? "#fff" : colors.text }
                   ]}>
                     {format(week, "dd/MM")} - {format(addDays(week, 6), "dd/MM")}
                   </Text>
@@ -416,32 +370,31 @@ export default function StatsScreen() {
         </Pressable>
       </Modal>
 
-      {/* TASKS VIEW */}
       {selectedKind === "tasks" && (
         <>
           <View style={styles.kpiRow}>
-            <View style={[styles.kpiCard, { backgroundColor: "#f0f7ff" }]}>
-              <Text style={[styles.kpiValue, { color: "#2563EB" }]}>{totalTasks}</Text>
-              <Text style={styles.kpiLabel}>Tổng công việc</Text>
+            <View style={[styles.kpiCard, { backgroundColor: isDark ? "#071226" : "#f0f7ff" }]}>
+              <Text style={[styles.kpiValue, { color: colors.accent }]}>{totalTasks}</Text>
+              <Text style={[styles.kpiLabel, { color: colors.muted }]}>Tổng công việc</Text>
             </View>
-            <View style={[styles.kpiCard, { backgroundColor: "#ecfdf5" }]}>
-              <Text style={[styles.kpiValue, { color: "#16a34a" }]}>{doneTasks}</Text>
-              <Text style={styles.kpiLabel}>Đã hoàn thành</Text>
+            <View style={[styles.kpiCard, { backgroundColor: isDark ? "#072614" : "#ecfdf5" }]}>
+              <Text style={[styles.kpiValue, { color: colors.positive }]}>{doneTasks}</Text>
+              <Text style={[styles.kpiLabel, { color: colors.muted }]}>Đã hoàn thành</Text>
             </View>
           </View>
 
           <View style={styles.kpiRow}>
-            <View style={[styles.kpiCard, { backgroundColor: "#fefce8" }]}>
+            <View style={[styles.kpiCard, { backgroundColor: isDark ? "#2b1f00" : "#fefce8" }]}>
               <Text style={[styles.kpiValue, { color: "#ca8a04" }]}>{doingTasks}</Text>
-              <Text style={styles.kpiLabel}>Đang thực hiện</Text>
+              <Text style={[styles.kpiLabel, { color: colors.muted }]}>Đang thực hiện</Text>
             </View>
-            <View style={[styles.kpiCard, { backgroundColor: "#fef2f2" }]}>
-              <Text style={[styles.kpiValue, { color: "#dc2626" }]}>{overdueTasks}</Text>
-              <Text style={styles.kpiLabel}>Trễ hạn</Text>
+            <View style={[styles.kpiCard, { backgroundColor: isDark ? "#2b0f10" : "#fef2f2" }]}>
+              <Text style={[styles.kpiValue, { color: colors.danger }]}>{overdueTasks}</Text>
+              <Text style={[styles.kpiLabel, { color: colors.muted }]}>Trễ hạn</Text>
             </View>
           </View>
 
-          <Text style={styles.subHeader}>Tỷ lệ trạng thái</Text>
+          <Text style={[styles.subHeader, { color: colors.text }]}>Tỷ lệ trạng thái</Text>
           <PieChart
             data={tasksPieData}
             width={screenWidth - 32}
@@ -453,44 +406,51 @@ export default function StatsScreen() {
             absolute
           />
 
-          <Text style={styles.subHeader}>Số công việc theo ngày</Text>
+          <Text style={[styles.subHeader, { color: colors.text }]}>Số công việc theo ngày</Text>
           <BarChart
             data={{ labels: weekLabels, datasets: [{ data: weekCounts }] }}
             width={screenWidth - 32}
             height={220}
-            fromZero
-            showValuesOnTopOfBars
-            segments={maxWeekCount || 1}
             yAxisLabel=""
             yAxisSuffix=""
+            fromZero
+            showValuesOnTopOfBars
+            segments={Math.max(4, Math.ceil(maxWeekCount || 1))}
             chartConfig={{
-              backgroundColor: "#fff",
-              backgroundGradientFrom: "#fff",
-              backgroundGradientTo: "#fff",
+              backgroundColor: colors.surface,
+              backgroundGradientFrom: colors.surface,
+              backgroundGradientTo: colors.surface,
               decimalPlaces: 0,
-              color: () => "#2563EB",
-              labelColor: () => "#333",
+              color: (opacity = 1) => `${colors.accent}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`,
+              labelColor: (opacity = 1) => colors.text,
+              propsForLabels: {
+                fontSize: '12',
+                fontWeight: 'bold',
+                fill: colors.text,
+              },
             }}
-            style={{ borderRadius: 8 }}
+            style={{
+              borderRadius: 8,
+              paddingLeft: 0, 
+            }}
           />
-
-          <View style={{ borderBottomWidth: 1, borderBottomColor: "#eef2ff", marginVertical: 12 }} />
+          <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border, marginVertical: 12 }} />
 
           <Text style={[styles.subHeader, { color: "#ca8a04" }]}>Công việc đang thực hiện</Text>
-          {doingList.length === 0 ? <Text style={styles.empty}>Không có</Text> : <FlatList data={doingList} keyExtractor={(i) => String(i.id)} renderItem={renderTaskItem} scrollEnabled={false} />}
+          {doingList.length === 0 ? <Text style={[styles.empty, { color: colors.muted }]}>Không có</Text> : <FlatList data={doingList} keyExtractor={(i) => String(i.id)} renderItem={renderTaskItem} scrollEnabled={false} />}
 
-          <Text style={[styles.subHeader, { marginTop: 12, color: "#16a34a" }]}>Công việc đã hoàn thành</Text>
-          {doneList.length === 0 ? <Text style={styles.empty}>Không có</Text> : <FlatList data={doneList} keyExtractor={(i) => String(i.id)} renderItem={renderTaskItem} scrollEnabled={false} />}
+          <Text style={[styles.subHeader, { marginTop: 12, color: colors.positive }]}>Công việc đã hoàn thành</Text>
+          {doneList.length === 0 ? <Text style={[styles.empty, { color: colors.muted }]}>Không có</Text> : <FlatList data={doneList} keyExtractor={(i) => String(i.id)} renderItem={renderTaskItem} scrollEnabled={false} />}
 
-          <Text style={[styles.subHeader, { marginTop: 12, color: "#ef4444" }]}>Công việc trễ hạn</Text>
-          {overdueList.length === 0 ? <Text style={styles.empty}>Không có</Text> : <FlatList data={overdueList} keyExtractor={(i) => String(i.id)} renderItem={renderTaskItem} scrollEnabled={false} />}
+          <Text style={[styles.subHeader, { marginTop: 12, color: colors.danger }]}>Công việc trễ hạn</Text>
+          {overdueList.length === 0 ? <Text style={[styles.empty, { color: colors.muted }]}>Không có</Text> : <FlatList data={overdueList} keyExtractor={(i) => String(i.id)} renderItem={renderTaskItem} scrollEnabled={false} />}
 
-          <View style={styles.aiSuggestBox}>
-            <Text style={styles.aiSuggestTitle}>Gợi ý cải thiện công việc từ AI</Text>
+          <View style={[styles.aiSuggestBox, { backgroundColor: isDark ? "#071226" : "#f1f5f9" }]}>
+            <Text style={[styles.aiSuggestTitle, { color: colors.accent }]}>Gợi ý cải thiện công việc từ AI</Text>
             <View style={styles.aiSuggestContent}>
-              <Text style={styles.aiSuggestText}>• Ưu tiên các công việc quan trọng trong tuần này.</Text>
-              <Text style={styles.aiSuggestText}>• Phân bổ thời gian hợp lý giữa các công việc đang thực hiện.</Text>
-              <Text style={styles.aiSuggestText}>• Đặt nhắc nhở cho các công việc sắp đến hạn.</Text>
+              <Text style={[styles.aiSuggestText, { color: colors.muted }]}>• Ưu tiên các công việc quan trọng trong tuần này.</Text>
+              <Text style={[styles.aiSuggestText, { color: colors.muted }]}>• Phân bổ thời gian hợp lý giữa các công việc đang thực hiện.</Text>
+              <Text style={[styles.aiSuggestText, { color: colors.muted }]}>• Đặt nhắc nhở cho các công việc sắp đến hạn.</Text>
               <TouchableOpacity style={styles.aiSuggestBtn}>
                 <Text style={styles.aiSuggestBtnText}>Nhận gợi ý công việc từ AI</Text>
               </TouchableOpacity>
@@ -499,29 +459,28 @@ export default function StatsScreen() {
         </>
       )}
 
-      {/* SCHEDULES VIEW */}
       {selectedKind === "schedules" && (
         <>
-          <Text style={styles.subHeader}>Tổng quan Lịch học</Text>
+          <Text style={[styles.subHeader, { color: colors.text }]}>Tổng quan Lịch học</Text>
 
           <View style={styles.kpiRow}>
-            <View style={[styles.kpiCard, { backgroundColor: "#f8fafc" }]}>
-              <Text style={[styles.kpiValue, { color: "#2563EB" }]}>{totalSessionsLTTH}</Text>
-              <Text style={styles.kpiLabel}>Tổng buổi</Text>
+            <View style={[styles.kpiCard, { backgroundColor: isDark ? "#071226" : "#f8fafc" }]}>
+              <Text style={[styles.kpiValue, { color: colors.accent }]}>{totalSessionsLTTH}</Text>
+              <Text style={[styles.kpiLabel, { color: colors.muted }]}>Tổng buổi</Text>
             </View>
-            <View style={[styles.kpiCard, { backgroundColor: "#fff7ed" }]}>
+            <View style={[styles.kpiCard, { backgroundColor: isDark ? "#2b1608" : "#fff7ed" }]}>
               <Text style={[styles.kpiValue, { color: "#c2410c" }]}>{scheduleTypeCounts.thi}</Text>
-              <Text style={styles.kpiLabel}>Lịch thi</Text>
+              <Text style={[styles.kpiLabel, { color: colors.muted }]}>Lịch thi</Text>
             </View>
           </View>
 
-          <Text style={styles.subHeader}>Tỉ lệ loại buổi</Text>
+          <Text style={[styles.subHeader, { color: colors.text }]}>Tỉ lệ loại buổi</Text>
           <PieChart
             data={[
-              { name: "Buổi thường", population: scheduleTypeCounts.thuong, color: "#3b82f6", legendFontColor: "#333", legendFontSize: 12 },
-              { name: "Tạm ngưng", population: scheduleTypeCounts.tamNgung, color: "#f97316", legendFontColor: "#333", legendFontSize: 12 },
-              { name: "Buổi bù", population: scheduleTypeCounts.bu, color: "#7c3aed", legendFontColor: "#333", legendFontSize: 12 },
-              { name: "Lịch thi", population: scheduleTypeCounts.thi, color: "#ef4444", legendFontColor: "#333", legendFontSize: 12 },
+              { name: "Buổi thường", population: scheduleTypeCounts.thuong, color: "#3b82f6", legendFontColor: colors.text, legendFontSize: 12 },
+              { name: "Tạm ngưng", population: scheduleTypeCounts.tamNgung, color: "#f97316", legendFontColor: colors.text, legendFontSize: 12 },
+              { name: "Buổi bù", population: scheduleTypeCounts.bu, color: "#7c3aed", legendFontColor: colors.text, legendFontSize: 12 },
+              { name: "Lịch thi", population: scheduleTypeCounts.thi, color: "#ef4444", legendFontColor: colors.text, legendFontSize: 12 },
             ]}
             width={screenWidth - 32}
             height={200}
@@ -532,37 +491,45 @@ export default function StatsScreen() {
             absolute
           />
 
-          <Text style={styles.subHeader}>Số buổi theo ngày trong tuần (Tổng dữ liệu)</Text>
+          <Text style={[styles.subHeader, { color: colors.text }]}>Số buổi theo ngày trong tuần (Tổng dữ liệu)</Text>
           <BarChart
             data={{ labels: weekDayLabels, datasets: [{ data: weekCountsSched }] }}
             width={screenWidth - 32}
             height={200}
+            yAxisLabel=""
+            yAxisSuffix=""
             fromZero
             showValuesOnTopOfBars
-            segments={maxSchedCount || 1}
-            yAxisLabel={""}
-            yAxisSuffix={""}
+            segments={Math.max(4, Math.ceil(maxSchedCount || 1))}
             chartConfig={{
-              backgroundColor: "#fff",
-              backgroundGradientFrom: "#fff",
-              backgroundGradientTo: "#fff",
+              backgroundColor: colors.surface,
+              backgroundGradientFrom: colors.surface,
+              backgroundGradientTo: colors.surface,
               decimalPlaces: 0,
-              color: () => "#2563EB",
-              labelColor: () => "#333",
+              color: (opacity = 1) => `${colors.accent}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`,
+              labelColor: (opacity = 1) => colors.text,
+              propsForLabels: {
+                fontSize: '12',
+                fontWeight: 'bold',
+                fill: colors.text,
+              },
             }}
-            style={{ borderRadius: 8 }}
+            style={{
+              borderRadius: 8,
+              paddingLeft: -15,
+            }}
           />
-          <View style={{ borderBottomWidth: 1, borderBottomColor: "#eef2ff", marginVertical: 12 }} />
+          <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border, marginVertical: 12 }} />
 
-          <Text style={[styles.subHeader, { color: "#2563EB" }]}>Thống kê theo môn </Text>
+          <Text style={[styles.subHeader, { color: colors.accent }]}>Thống kê theo môn </Text>
           {perCourseStats.length === 0 ? (
-            <Text style={styles.empty}>Không có lịch</Text>
+            <Text style={[styles.empty, { color: colors.muted }]}>Không có lịch</Text>
           ) : (
             perCourseStats.map((c) => (
-              <View key={c.subject} style={[styles.itemWrap, { flexDirection: "column", alignItems: "stretch" }]}>
+              <View key={c.subject} style={[styles.itemWrap, { flexDirection: "column", alignItems: "stretch", backgroundColor: colors.panel }]}>
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                  <Text style={{ fontWeight: "700" }}>{c.subject}</Text>
-                  <Text style={{ color: "#374151" }}>{c.total} buổi</Text>
+                  <Text style={{ fontWeight: "700", color: colors.text }}>{c.subject}</Text>
+                  <Text style={{ color: colors.muted }}>{c.total} buổi</Text>
                 </View>
                 <View style={{ flexDirection: "row", marginTop: 8, justifyContent: "space-between" }}>
                   <Text style={{ color: "#06b6d4" }}>Lý thuyết: {c.lyThuyet}</Text>
@@ -581,7 +548,7 @@ export default function StatsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", padding: 16 },
+  container: { flex: 1, padding: 16 },
   header: { fontSize: 18, fontWeight: "700", marginBottom: 12 },
 
   kpiRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12 },
@@ -593,24 +560,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   kpiValue: { fontSize: 20, fontWeight: "700" },
-  kpiLabel: { fontSize: 13, color: "#555", marginTop: 4 },
+  kpiLabel: { fontSize: 13, marginTop: 4 },
   subHeader: { fontSize: 16, fontWeight: "700", marginVertical: 12 },
 
-  empty: { color: "#666", fontSize: 14, textAlign: "center", paddingVertical: 8 },
+  empty: { fontSize: 14, textAlign: "center", paddingVertical: 8 },
   rowTitle: { fontSize: 15, fontWeight: "600" },
-  rowSubtitle: { fontSize: 13, color: "#666", marginTop: 2 },
-  rowTime: { fontSize: 12, color: "#888", marginLeft: 8 },
+  rowSubtitle: { fontSize: 13, marginTop: 2 },
+  rowTime: { fontSize: 12, marginLeft: 8 },
 
   itemWrap: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 10,
     paddingHorizontal: 8,
-    backgroundColor: "#fff",
     borderRadius: 10,
     marginBottom: 8,
     shadowColor: "#000",
-    shadowOpacity: 0.03,
     shadowRadius: 4,
     elevation: 1,
   },
@@ -646,31 +611,26 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderRadius: 10,
-    backgroundColor: "#f3f4f6",
     borderWidth: 1,
-    borderColor: "#e5e7eb",
     minWidth: 180,
   },
-  weekDropdownText: { color: "#374151", fontWeight: "700" },
+  weekDropdownText: { fontWeight: "700" },
 
   kindBtn: {
     paddingVertical: 8,
     paddingHorizontal: 12,
-    backgroundColor: "#f3f4f6",
     borderRadius: 10,
   },
-  kindBtnActive: { backgroundColor: "#2563EB" },
-  kindBtnText: { color: "#374151", fontWeight: "700" },
+  kindBtnActive: { },
+  kindBtnText: { fontWeight: "700" },
   kindBtnTextActive: { color: "#fff" },
 
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.15)",
     justifyContent: "center",
     alignItems: "center",
   },
   weekModal: {
-    backgroundColor: "#fff",
     borderRadius: 12,
     padding: 18,
     minWidth: 260,
@@ -689,7 +649,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#e0e7ff",
   },
   weekModalItemText: {
-    color: "#374151",
     fontWeight: "600",
     fontSize: 15,
   },
@@ -702,7 +661,6 @@ const styles = StyleSheet.create({
   },
 
   aiSuggestBox: {
-    backgroundColor: "#f1f5f9",
     borderRadius: 12,
     padding: 16,
     marginBottom: 18,
@@ -712,12 +670,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     marginBottom: 8,
-    color: "#2563EB",
   },
   aiSuggestContent: {},
   aiSuggestText: {
     fontSize: 14,
-    color: "#374151",
     marginBottom: 4,
   },
   aiSuggestBtn: {
