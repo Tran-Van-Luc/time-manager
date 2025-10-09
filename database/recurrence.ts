@@ -10,6 +10,8 @@ export async function createRecurrence(data: {
   day_of_month?: string;
   start_date?: number;
   end_date?: number;
+  auto_complete_expired?: number;
+  merge_streak?: number;
 }) {
   const result = await db.insert(recurrences).values({
     ...data,
@@ -40,6 +42,8 @@ export async function updateRecurrence(id: number, data: {
 	day_of_month?: string;
 	start_date?: number;
 	end_date?: number;
+	auto_complete_expired?: number;
+    merge_streak?: number;
 }) {
 	return db.update(recurrences)
 		.set({

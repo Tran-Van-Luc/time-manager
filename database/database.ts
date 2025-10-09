@@ -158,10 +158,16 @@ db.$client.execSync(`
     day_of_month TEXT,
     start_date DATETIME,
     end_date DATETIME,
+    auto_complete_expired INTEGER DEFAULT 0, -- 1 = auto tick when expired
+    merge_streak INTEGER DEFAULT 0,          -- 1 = merge consecutive days as one cycle
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 `);
 
+// Bổ sung cột mới cho recurrences nếu nâng cấp từ DB cũ
+try { db.$client.execSync(`ALTER TABLE recurrences ADD COLUMN auto_complete_expired INTEGER DEFAULT 0`); } catch(e) {}
+try { db.$client.execSync(`ALTER TABLE recurrences ADD COLUMN merge_streak INTEGER DEFAULT 0`); } catch(e) {}
+// Nếu DB cũ có cột recurrence_type thì giữ nguyên, không dùng nữa
 // ------------------ BẢNG SCHEDULED_NOTIFICATIONS ------------------
 db.$client.execSync(`
   CREATE TABLE IF NOT EXISTS scheduled_notifications (

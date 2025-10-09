@@ -98,6 +98,8 @@ export const recurrences = sqliteTable("recurrences", {
   day_of_month: text("day_of_month"),
   start_date: integer("start_date", { mode: "timestamp" }),
   end_date: integer("end_date", { mode: "timestamp" }),
+  auto_complete_expired: integer("auto_complete_expired").default(0), // 1 = tự đánh hoàn thành nếu hết hạn
+  merge_streak: integer("merge_streak").default(0), // 1 = gộp nhiều ngày thành 1 chu kỳ
   created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
 });
 
