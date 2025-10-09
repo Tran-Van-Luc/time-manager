@@ -123,6 +123,10 @@ export const useTaskOperations = (
     recurrences.forEach(r => { if (r.id != null) recMap[r.id] = r; });
     for (const t of tasks) {
       if (!t.recurrence_id) continue;
+      // If the base task is already completed, ignore its recurring occurrences
+      // when building existing occurrences for conflict checks. This prevents
+      // completed recurring tasks from triggering conflicts when adding new tasks.
+      if ((t as any).status === 'completed') continue;
       if (excludeTaskId && t.id === excludeTaskId) continue;
       const rec = recMap[t.recurrence_id];
       if (!rec) continue;

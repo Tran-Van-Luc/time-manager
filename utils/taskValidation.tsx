@@ -30,6 +30,9 @@ export const checkTimeConflicts = (
   // Kiểm tra trùng với tasks
   const overlappingTasks = tasks.filter((t) => {
     if (excludeTaskId && t.id === excludeTaskId) return false;
+    // If we're in add mode (no excludeTaskId passed), skip tasks that are already completed
+    // so adding a new task won't be blocked by tasks that have finished.
+    if (!excludeTaskId && (t as any).status === 'completed') return false;
     const tStart = t.start_at ? new Date(t.start_at).getTime() : null;
     const tEnd = t.end_at ? new Date(t.end_at).getTime() : null;
     if (tEnd && tEnd < now) return false;
