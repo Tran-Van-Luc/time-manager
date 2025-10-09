@@ -21,6 +21,10 @@ export const tasks = sqliteTable("tasks", {
   priority: text("priority"),
   status: text("status"),
   recurrence_id: integer("recurrence_id"),
+  // Tracking completion timing
+  completed_at: integer("completed_at", { mode: "timestamp" }), // thời điểm user đánh hoàn thành
+  completion_diff_minutes: integer("completion_diff_minutes"), // chênh lệch (phút) so với hạn (âm = sớm, dương = trễ)
+  completion_status: text("completion_status"), // 'early' | 'on_time' | 'late'
   is_deleted: integer("is_deleted").default(0),
   created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
   updated_at: integer("updated_at", { mode: "timestamp" }).default(new Date()),
@@ -94,6 +98,23 @@ export const recurrences = sqliteTable("recurrences", {
   day_of_month: text("day_of_month"),
   start_date: integer("start_date", { mode: "timestamp" }),
   end_date: integer("end_date", { mode: "timestamp" }),
+  auto_complete_expired: integer("auto_complete_expired").default(0), // 1 = tự đánh hoàn thành nếu hết hạn
+  merge_streak: integer("merge_streak").default(0), // 1 = gộp nhiều ngày thành 1 chu kỳ
+  created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
+});
+
+// Bảng scheduled_notifications: lưu tất cả notification đã lập lịch (task reminders)
+export const scheduled_notifications = sqliteTable("scheduled_notifications", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  task_id: integer("task_id"),              // FK -> tasks.id
+  reminder_id: integer("reminder_id"),      // FK -> reminders.id
+  recurrence_id: integer("recurrence_id"),  // FK -> recurrences.id (nếu có)
+  occurrence_start_at: integer("occurrence_start_at", { mode: "timestamp" }),
+  occurrence_end_at: integer("occurrence_end_at", { mode: "timestamp" }),
+  schedule_time: integer("schedule_time", { mode: "timestamp" }), // khi sẽ bắn
+  notification_id: text("notification_id"), // id trả về từ Expo
+  lead_minutes: integer("lead_minutes"),    // phút nhắc trước
+  status: text("status"),                   // scheduled | fired | cancelled
   created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
 });
 
