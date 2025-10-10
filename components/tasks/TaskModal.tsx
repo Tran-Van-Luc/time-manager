@@ -504,10 +504,10 @@ export default function TaskModal({
                             setNewTask((prev: any) => ({
                               ...prev,
                               start_at: combined.getTime(),
-                              // If end becomes invalid, clear it
+                              // If end becomes invalid (<= new start), set it to end of the new start day instead of clearing
                               end_at:
                                 prev.end_at && prev.end_at <= combined.getTime()
-                                  ? undefined
+                                  ? endOfDay(combined).getTime()
                                   : prev.end_at,
                             }));
                           }
@@ -555,11 +555,11 @@ export default function TaskModal({
                         }
                         setNewTask((prev: any) => ({
                           ...prev,
-                          start_at: combined.getTime(),
-                          end_at:
-                            prev.end_at && prev.end_at <= combined.getTime()
-                              ? undefined
-                              : prev.end_at,
+                            start_at: combined.getTime(),
+                            end_at:
+                              prev.end_at && prev.end_at <= combined.getTime()
+                                ? endOfDay(combined).getTime()
+                                : prev.end_at,
                         }));
                       }
                     }}
@@ -594,11 +594,11 @@ export default function TaskModal({
                             }
                             setNewTask((prev: any) => ({
                               ...prev,
-                              start_at: combined.getTime(),
-                              end_at:
-                                prev.end_at && prev.end_at <= combined.getTime()
-                                  ? undefined
-                                  : prev.end_at,
+                                start_at: combined.getTime(),
+                                end_at:
+                                  prev.end_at && prev.end_at <= combined.getTime()
+                                    ? endOfDay(combined).getTime()
+                                    : prev.end_at,
                             }));
                           }
                         },
@@ -634,12 +634,12 @@ export default function TaskModal({
                           }
                         }
                         setNewTask((prev: any) => ({
-                          ...prev,
-                          start_at: combined.getTime(),
-                          end_at:
-                            prev.end_at && prev.end_at <= combined.getTime()
-                              ? undefined
-                              : prev.end_at,
+                            ...prev,
+                            start_at: combined.getTime(),
+                            end_at:
+                              prev.end_at && prev.end_at <= combined.getTime()
+                                ? endOfDay(combined).getTime()
+                                : prev.end_at,
                         }));
                       }
                     }}

@@ -10,6 +10,7 @@ const habitTimesKey = (recurrenceId: number) => `habit:recurrence:${recurrenceId
 export type HabitMeta = {
   auto?: boolean;
   merge?: boolean;
+  enabledAt?: number; // epoch ms when auto-complete was enabled; used to avoid retroactive marking
 };
 
 export async function setHabitMeta(recurrenceId: number, meta: HabitMeta) {
@@ -227,6 +228,12 @@ export async function computeHabitProgress(task: Task, rec: Recurrence): Promise
 export async function autoCompletePastIfEnabled(task: Task, rec: Recurrence) {
   if (!rec.id) return;
   const now = Date.now();
+  // Read habit meta to determine when auto was enabled. If enabledAt exists,
+  // only auto-complete occurrences that end after enabledAt (i.e. do not touch
+  // occurrences that fully ended before enabledAt). This prevents retroactive
+  // marking of past occurrences when a user turns on auto-complete during an edit.
+  const meta = await getHabitMeta(rec.id);
+  const enabledAt = meta && (meta as any).enabledAt ? Number((meta as any).enabledAt) : undefined;
   const occs = plannedHabitOccurrences(task, rec);
   if (occs.length === 0) return;
 
@@ -247,7 +254,11 @@ export async function autoCompletePastIfEnabled(task: Task, rec: Recurrence) {
   const times = await getHabitCompletionTimes(rec.id);
   let changed = false;
   for (const occ of occs) {
-    if (occ.endAt <= now) {
+    // Only auto-complete occurrences that finished in the past and
+    // (if enabledAt is set) that finished at or after enabledAt. This
+    // prevents retroactive marking of occurrences that fully completed
+    // before the user enabled auto-complete.
+    if (occ.endAt <= now && (!enabledAt || occ.endAt >= enabledAt)) {
       const d = new Date(occ.startAt);
       d.setHours(0,0,0,0);
       const ymd = fmtYMD(d);

@@ -396,6 +396,15 @@ export const useTaskOperations = (
           auto_complete_expired: (global as any).__habitFlags?.auto ? 1 : 0,
           merge_streak: (global as any).__habitFlags?.merge ? 1 : 0,
         });
+        // Persist habit meta to record when auto-complete was enabled for
+        // newly created recurrence. If auto flag is true, set enabledAt to now.
+        try {
+          if (recurrence_id && (global as any).__habitFlags?.auto) {
+            await setHabitMeta(recurrence_id, { auto: true, merge: !!(global as any).__habitFlags?.merge, enabledAt: Date.now() } as any);
+          } else if (recurrence_id) {
+            await setHabitMeta(recurrence_id, { auto: !!(global as any).__habitFlags?.auto, merge: !!(global as any).__habitFlags?.merge } as any);
+          }
+        } catch {}
       }
 
       // Add task
@@ -606,6 +615,18 @@ export const useTaskOperations = (
           recurrence_id = await addRecurrence(payload);
         }
         try { if (loadRecurrences) await loadRecurrences(); } catch {}
+        // Persist habit meta to record when auto-complete was enabled. This
+        // prevents retroactive marking of past occurrences when the user turns
+        // on auto-complete during an edit. Only set enabledAt when auto flag is true.
+        try {
+          if (recurrence_id && (global as any).__habitFlags?.auto) {
+            // store epoch ms of now as enabledAt
+            await setHabitMeta(recurrence_id, { auto: true, merge: !!(global as any).__habitFlags?.merge, enabledAt: Date.now() } as any);
+          } else if (recurrence_id) {
+            // ensure meta reflects current flags (clear enabledAt when auto disabled)
+            await setHabitMeta(recurrence_id, { auto: !!(global as any).__habitFlags?.auto, merge: !!(global as any).__habitFlags?.merge } as any);
+          }
+        } catch {}
       } else if (recurrence_id) {
         await removeRecurrence(recurrence_id);
         recurrence_id = undefined;
