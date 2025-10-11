@@ -467,7 +467,7 @@ export default function ScheduleScreen() {
             style={styles.importButton}
             onPress={handleImportExcel}
           >
-            <AntDesign name="upload" size={20} color="#1D4ED8" />
+            <AntDesign name="download" size={20} color="#1D4ED8" />
             <Text style={styles.importText}>Import</Text>
           </TouchableOpacity>
         

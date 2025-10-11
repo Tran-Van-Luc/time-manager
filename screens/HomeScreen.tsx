@@ -10,8 +10,11 @@ import {
   Dimensions,
   TouchableWithoutFeedback,
   ScrollView,
+  Platform,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { isHabitDoneOnDate } from "../utils/habits";
 import { useSchedules } from "../hooks/useSchedules";
 import { useTasks } from "../hooks/useTasks";
 import { useRecurrences } from "../hooks/useRecurrences";
@@ -54,7 +57,8 @@ type DayItem = DayScheduleItem | DayTaskItem;
 const WEEKDAY_LABELS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
 
 function pad2(n: number) { return String(n).padStart(2, "0"); }
-function ymd(d: Date) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+function ymd(d: Date) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; } // internal key (ISO)
+function dmy(d: Date) { return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`; } // display DD/MM/YYYY
 function startOfDay(d: Date) { return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0); }
 function endOfDay(d: Date) { return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999); }
 function hashColor(input: string) { let h = 0; for (let i = 0; i < input.length; i++) h = (h << 5) - h + input.charCodeAt(i); return `hsl(${Math.abs(h) % 360}, 60%, 60%)`; }
@@ -113,11 +117,6 @@ function labelStatusVn(s?: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function splitByWordAsLines(s?: string) {
-  if (!s) return "";
-  return s.trim().replace(/\s+/g, "\n");
-}
-
 export default function HomeScreen() {
   const { schedules, loadSchedules } = useSchedules();
   const { tasks, loadTasks } = useTasks();
@@ -152,6 +151,9 @@ export default function HomeScreen() {
   const [current, setCurrent] = useState(() => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1); });
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showModal, setShowModal] = useState(false);
+
+  // date picker state for day view
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   useEffect(() => { loadSchedules(); loadTasks(); loadRecurrences(); }, [loadSchedules, loadTasks, loadRecurrences]);
 
@@ -298,8 +300,11 @@ export default function HomeScreen() {
       const ref = new Date(current);
       ref.setDate(ref.getDate() - 1);
       setCurrent(ref);
+      const day = startOfDay(ref);
+      setSelectedDate(day);
     }
   };
+
   const next = () => {
     if (viewMode === "month") {
       setCurrent(new Date(current.getFullYear(), current.getMonth() + 1, 1));
@@ -311,6 +316,8 @@ export default function HomeScreen() {
       const ref = new Date(current);
       ref.setDate(ref.getDate() + 1);
       setCurrent(ref);
+      const day = startOfDay(ref);
+      setSelectedDate(day);
     }
   };
 
@@ -392,10 +399,8 @@ export default function HomeScreen() {
           <View style={[styles.typePill, { backgroundColor: isDark ? "#0b1320" : st.pillBg, borderColor: st.color }]}>
             <Text
               style={[styles.typePillText, { color: st.color }]}
-              numberOfLines={1}
-              ellipsizeMode="tail"
-              allowFontScaling={false}
-              minimumFontScale={0.75}
+              allowFontScaling={true}
+              minimumFontScale={0.7}
             >
               {s.type}
             </Text>
@@ -408,6 +413,66 @@ export default function HomeScreen() {
       </View>
     );
   };
+
+  function TaskCard({ t, date }: { t: DayTaskItem; date: Date }) {
+    const [todayDone, setTodayDone] = useState<boolean | null>(null);
+
+    useEffect(() => {
+      let mounted = true;
+      (async () => {
+        try {
+          const orig = tasks.find(tt => tt.id === t.id);
+          if (orig && (orig as any).recurrence_id) {
+            const recId = (orig as any).recurrence_id;
+            const done = await isHabitDoneOnDate(recId, startOfDay(date));
+            if (mounted) setTodayDone(!!done);
+          } else {
+            if (mounted) setTodayDone(null);
+          }
+        } catch (e) {
+          if (mounted) setTodayDone(null);
+        }
+      })();
+      return () => { mounted = false; };
+    }, [t.id, date, tasks]);
+
+    const bgColor = isDark ? "#071226" : getTaskBgColor(t.priority ?? undefined);
+    const borderColor = getTaskColor(t.priority ?? undefined);
+    const textColor = isDark ? "#E6EEF8" : "#111827";
+
+    return (
+      <View
+        style={[
+          styles.taskCard,
+          { backgroundColor: bgColor, borderLeftWidth: 6, borderLeftColor: borderColor },
+        ]}
+      >
+        <View style={styles.rowTop}>
+          <Text style={[styles.taskTitleText, { color: textColor }]}>📚 {t.title}</Text>
+        </View>
+
+        <Text style={[styles.timeText, { color: textColor }]}>
+          ⏰ {fmtTime(t.start)} {t.start || t.end ? "–" : ""} {fmtTime(t.end)}
+        </Text>
+
+        {todayDone === true ? (
+          <Text style={[styles.detailText, { color: "#16a34a", marginBottom: 6 }]}>Hôm nay đã hoàn thành</Text>
+        ) : null}
+
+        <View style={styles.rowPills}>
+          <View style={[styles.pill, { backgroundColor: borderColor }]}>
+            <Text style={styles.pillText}>{labelPriorityVn(t.priority ?? undefined)}</Text>
+          </View>
+
+          <View style={[styles.pill, { backgroundColor: "#fff", borderWidth: 0, paddingHorizontal: 12 }]}>
+            <Text style={[styles.pillText, { color: "#111827" }]}>{labelStatusVn(t.status ?? undefined)}</Text>
+          </View>
+        </View>
+
+        {t.notes ? <Text style={[styles.detailText, { color: textColor }]}>📝 {t.notes}</Text> : null}
+      </View>
+    );
+  }
 
   function renderWordsWithNewlines(text: string, prefix?: string) {
     if (!text) return null;
@@ -424,6 +489,18 @@ export default function HomeScreen() {
       </>
     );
   }
+
+  // handler for date picker change (day mode)
+  const onDatePickerChange = (event: any, picked?: Date) => {
+    if (Platform.OS === "android") {
+      setShowDatePicker(false);
+    }
+    if (picked) {
+      const day = startOfDay(picked);
+      setSelectedDate(day);
+      setCurrent(new Date(day.getFullYear(), day.getMonth(), day.getDate()));
+    }
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -446,7 +523,7 @@ export default function HomeScreen() {
                  if (sameMonth) return `Tuần ${mon.getDate()} - ${sun.getDate()} ${mon.getMonth() + 1}/${mon.getFullYear()}`;
                  return `Tuần ${mon.getDate()}/${mon.getMonth() + 1} - ${sun.getDate()}/${sun.getMonth() + 1} ${sun.getFullYear()}`;
                })() :
-               `Ngày ${ymd(dayFocused)}`}
+               `Ngày ${dmy(dayFocused)}`}
             </Text>
           </View>
 
@@ -703,10 +780,12 @@ export default function HomeScreen() {
       {viewMode === "day" && (
         <ScrollView style={{ paddingHorizontal: 12, paddingTop: 8 }}>
           <View style={{ marginBottom: 8, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text style={{ fontSize: 16, fontWeight: "700", color: colors.text }}>{ymd(startOfDay(dayFocused))}</Text>
-            <TouchableOpacity onPress={() => openDetailsFor(dayFocused)} style={[styles.navBtn, { backgroundColor: isDark ? "#071226" : "#f3f4f6" }]}>
-              <Text style={{ color: colors.text }}>Xem chi tiết</Text>
-            </TouchableOpacity>
+            <Text style={{ fontSize: 16, fontWeight: "700", color: colors.text }}>{dmy(startOfDay(dayFocused))}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <TouchableOpacity onPress={() => setShowDatePicker(true)} style={[styles.navBtn, { backgroundColor: isDark ? "#071226" : "#f3f4f6", marginRight: 8 }]}>
+                <Text style={{ color: colors.text }}>Chọn ngày</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Lịch học</Text>
@@ -724,42 +803,22 @@ export default function HomeScreen() {
             const items = dayMap.get(key) ?? [];
             const tasksList = items.filter(it => it.kind === "task") as DayTaskItem[];
             if (tasksList.length === 0) return <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>Không có công việc</Text></View>;
-            return tasksList.map((t, i) => {
-              const bgColor = isDark ? "#071226" : getTaskBgColor(t.priority ?? undefined);
-              const borderColor = getTaskColor(t.priority ?? undefined);
-              const textColor = isDark ? "#E6EEF8" : "#111827";
-              return (
-                <View
-                  key={i}
-                  style={[
-                    styles.taskCard,
-                    { backgroundColor: bgColor, borderLeftWidth: 6, borderLeftColor: borderColor },
-                  ]}
-                >
-                  <View style={styles.rowTop}>
-                    <Text style={[styles.taskTitleText, { color: textColor }]}>📚 {t.title}</Text>
-                  </View>
-
-                  <Text style={[styles.timeText, { color: textColor }]}>
-                    ⏰ {fmtTime(t.start)} {t.start || t.end ? "–" : ""} {fmtTime(t.end)}
-                  </Text>
-
-                  <View style={styles.rowPills}>
-                    <View style={[styles.pill, { backgroundColor: borderColor }]}>
-                      <Text style={styles.pillText}>{labelPriorityVn(t.priority ?? undefined)}</Text>
-                    </View>
-
-                    <View style={[styles.pill, { backgroundColor: "#fff", borderWidth: 0, paddingHorizontal: 12 }]}>
-                      <Text style={[styles.pillText, { color: "#111827" }]}>{labelStatusVn(t.status ?? undefined)}</Text>
-                    </View>
-                  </View>
-
-                  {t.notes ? <Text style={[styles.detailText, { color: textColor }]}>📝 {t.notes}</Text> : null}
-                </View>
-              );
-            });
+            return tasksList.map((t, i) => <TaskCard key={i} t={t} date={dayFocused} />);
           })()}
         </ScrollView>
+      )}
+
+      {/* Date picker (visible for both platforms when showDatePicker true) */}
+      {showDatePicker && (
+        <DateTimePicker
+          testID="dateTimePicker"
+          value={selectedDate ?? startOfDay(dayFocused)}
+          mode="date"
+          display={Platform.OS === "ios" ? "spinner" : "calendar"}
+          onChange={onDatePickerChange}
+          maximumDate={new Date(2100, 11, 31)}
+          minimumDate={new Date(1900, 0, 1)}
+        />
       )}
 
       <Modal visible={showModal} transparent animationType="fade" onRequestClose={() => setShowModal(false)}>
@@ -770,7 +829,7 @@ export default function HomeScreen() {
                 <View style={[styles.modalList, { backgroundColor: colors.surface }]}>
                   <View style={styles.modalHeaderRow}>
                     <View style={styles.datePill}>
-                      <Text style={[styles.modalDateTitle, { color: colors.text }]}>{selectedDate ? `${ymd(startOfDay(selectedDate))}` : ""}</Text>
+                      <Text style={[styles.modalDateTitle, { color: colors.text }]}>{selectedDate ? `${dmy(startOfDay(selectedDate))}` : ""}</Text>
                     </View>
 
                     <TouchableOpacity onPress={() => setShowModal(false)} style={styles.closeButton}>
@@ -926,14 +985,15 @@ const styles = StyleSheet.create({
   pillText: { color: "#fff", fontSize: 12, fontWeight: "600" },
 
   typePill: {
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
     borderWidth: 1,
     marginLeft: 8,
     alignItems: "center",
     justifyContent: "center",
-    maxWidth: 120,
+    alignSelf: "flex-start",
+    minWidth: 48,
   },
   typePillText: {
     fontSize: 12,

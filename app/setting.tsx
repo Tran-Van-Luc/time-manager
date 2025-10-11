@@ -8,6 +8,7 @@ import {
   ScrollView,
   Switch,
   StatusBar,
+  Linking,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -26,15 +27,26 @@ export default function SettingsScreen() {
   const { theme } = useTheme();
   const isDark = theme === "dark";
 
-  const [notifEnabled, setNotifEnabled] = React.useState(true);
-  const [showAppearance, setShowAppearance] = React.useState(false);
-  const [showLanguage, setShowLanguage] = React.useState(false);
+  const [notifEnabled, setNotifEnabled] = useState(true);
+  const [showAppearance, setShowAppearance] = useState(false);
+  const [showLanguage, setShowLanguage] = useState(false);
+
   const [labels, setLabels] = useState({
     close: "Đóng",
     title: "Cài đặt",
     notifications: "Thông báo",
     appearance: "Giao diện",
     language: "Ngôn ngữ",
+    detailedSettings: "Thiết lập chi tiết",
+    utilities: "Tiện ích",
+    dataManagement: "Quản lý dữ liệu",
+    help: "Trợ giúp",
+    contactSupport: "Liên hệ hỗ trợ",
+    joinSurvey: "Tham gia khảo sát",
+    rateApp: "Đánh giá ứng dụng",
+    inviteFriends: "Mời bạn bè",
+    termsOfUse: "Điều khoản sử dụng",
+    privacyPolicy: "Chính sách bảo mật",
   });
 
   useEffect(() => {
@@ -48,6 +60,16 @@ export default function SettingsScreen() {
             notifications: "Notifications",
             appearance: "Appearance",
             language: "Language",
+            detailedSettings: "Detailed Settings",
+            utilities: "Utilities",
+            dataManagement: "Data Management",
+            help: "Help",
+            contactSupport: "Contact Support",
+            joinSurvey: "Join Survey",
+            rateApp: "Rate App",
+            inviteFriends: "Invite Friends",
+            termsOfUse: "Terms of Use",
+            privacyPolicy: "Privacy Policy",
           });
         } else {
           setLabels({
@@ -56,6 +78,16 @@ export default function SettingsScreen() {
             notifications: "Thông báo",
             appearance: "Giao diện",
             language: "Ngôn ngữ",
+            detailedSettings: "Thiết lập chi tiết",
+            utilities: "Tiện ích",
+            dataManagement: "Quản lý dữ liệu",
+            help: "Trợ giúp",
+            contactSupport: "Liên hệ hỗ trợ",
+            joinSurvey: "Tham gia khảo sát",
+            rateApp: "Đánh giá ứng dụng",
+            inviteFriends: "Mời bạn bè",
+            termsOfUse: "Điều khoản sử dụng",
+            privacyPolicy: "Chính sách bảo mật",
           });
         }
       } catch {
@@ -68,7 +100,7 @@ export default function SettingsScreen() {
     background: isDark ? "#121212" : "#f6f7fb",
     surface: isDark ? "#1E1E1E" : "#fff",
     text: isDark ? "#E1E1E1" : "#111",
-    subtleText: isDark ? "#A0A0A0" : "#999",
+    subtleText: isDark ? "#A0A0A0" : "#ddd",
     border: isDark ? "#333" : "#ddd",
     accent: "#2563EB",
   };
@@ -84,6 +116,13 @@ export default function SettingsScreen() {
       <View style={styles.right}>{right}</View>
     </TouchableOpacity>
   );
+
+  const handlePress = (action: string) => {
+    console.log(`Pressed: ${action}`);
+    if (action === "contact") {
+      Linking.openURL("mailto:support@example.com");
+    }
+  };
 
   return (
     <View
@@ -107,7 +146,9 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
+        {/* Group 1 */}
         <View style={[styles.group, { borderColor: colors.border }]}>
+          {/* Thông báo */}
           <Row
             icon="🔔"
             title={labels.notifications}
@@ -124,29 +165,109 @@ export default function SettingsScreen() {
             onPress={() => setNotifEnabled((v) => !v)}
           />
 
+          <View style={[styles.rowDivider, { backgroundColor: colors.subtleText }]} />
+
+          {/* Giao diện */}
           <Row
-            icon="🎨"
+            icon="⚙️"
             title={labels.appearance}
-            right={<AntDesign name="right" size={18} color={colors.text} />}
+            right={<AntDesign name="right" size={18} color={colors.subtleText} />}
             onPress={() => setShowAppearance(true)}
           />
+          <View style={[styles.rowDivider, { backgroundColor: colors.subtleText }]} />
 
+          {/* Ngôn ngữ */}
           <Row
             icon="🌐"
             title={labels.language}
-            right={<AntDesign name="right" size={18} color={colors.text} />}
+            right={<AntDesign name="right" size={18} color={colors.subtleText} />}
             onPress={() => setShowLanguage(true)}
+          />
+          <View style={[styles.rowDivider, { backgroundColor: colors.subtleText }]} />
+        </View>
+
+        {/* Group 2 */}
+        <View style={[styles.group, { borderColor: colors.border }]}>
+          <Row
+            icon="🧩"
+            title={labels.utilities}
+            right={<AntDesign name="right" size={18} color={colors.subtleText} />}
+            onPress={() => handlePress("utilities")}
+          />
+          <View style={[styles.rowDivider, { backgroundColor: colors.subtleText }]} />
+
+          <Row
+            icon="💾"
+            title={labels.dataManagement}
+            right={<AntDesign name="right" size={18} color={colors.subtleText} />}
+            onPress={() => handlePress("dataManagement")}
           />
         </View>
 
-        <AppearanceSettings
-          visible={showAppearance}
-          onClose={() => setShowAppearance(false)}
-        />
-        <LanguageSettings
-          visible={showLanguage}
-          onClose={() => setShowLanguage(false)}
-        />
+        {/* Group 3 */}
+        <View style={[styles.group, { borderColor: colors.border }]}>
+          <Row
+            icon="❓"
+            title={labels.help}
+            right={<AntDesign name="right" size={18} color={colors.subtleText} />}
+            onPress={() => handlePress("help")}
+          />
+          <View style={[styles.rowDivider, { backgroundColor: colors.subtleText }]} />
+
+          <Row
+            icon="🔗"
+            title={labels.contactSupport}
+            right={<AntDesign name="right" size={18} color={colors.subtleText} />}
+            onPress={() => handlePress("contact")}
+          />
+        </View>
+
+        {/* Group 4 */}
+        <View style={[styles.group, { borderColor: colors.border }]}>
+          <Row
+            icon="📝"
+            title={labels.joinSurvey}
+            right={<AntDesign name="right" size={18} color={colors.subtleText} />}
+            onPress={() => handlePress("joinSurvey")}
+          />
+          <View style={[styles.rowDivider, { backgroundColor: colors.subtleText }]} />
+
+          <Row
+            icon="❤️"
+            title={labels.rateApp}
+            right={<AntDesign name="right" size={18} color={colors.subtleText} />}
+            onPress={() => handlePress("rateApp")}
+          />
+          <View style={[styles.rowDivider, { backgroundColor: colors.subtleText }]} />
+
+          <Row
+            icon="👥"
+            title={labels.inviteFriends}
+            right={<AntDesign name="right" size={18} color={colors.subtleText} />}
+            onPress={() => handlePress("inviteFriends")}
+          />
+        </View>
+
+        {/* Group 5 */}
+        <View style={[styles.group, { borderColor: colors.border }]}>
+          <Row
+            icon="📄"
+            title={labels.termsOfUse}
+            right={<AntDesign name="right" size={18} color={colors.subtleText} />}
+            onPress={() => handlePress("termsOfUse")}
+          />
+          <View style={[styles.rowDivider, { backgroundColor: colors.subtleText }]} />
+
+          <Row
+            icon="🛡️"
+            title={labels.privacyPolicy}
+            right={<AntDesign name="right" size={18} color={colors.subtleText} />}
+            onPress={() => handlePress("privacyPolicy")}
+          />
+        </View>
+
+        <AppearanceSettings visible={showAppearance} onClose={() => setShowAppearance(false)} />
+        <LanguageSettings visible={showLanguage} onClose={() => setShowLanguage(false)} />
       </ScrollView>
     </View>
   );
@@ -166,12 +287,12 @@ const styles = StyleSheet.create({
   closeText: { fontSize: 16, fontWeight: "600" },
   headerTitle: { fontSize: 20, fontWeight: "700" },
 
-  content: { paddingVertical: 16 },
+  content: { paddingVertical: 16, paddingHorizontal: 16 },
   group: {
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 12,
-    marginHorizontal: 16,
     overflow: "hidden",
+    marginBottom: 16,
   },
 
   row: {
@@ -180,19 +301,32 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 14,
     paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    height: 52,
+    height: 55,
   },
-  icon: { fontSize: 18, width: 28, textAlign: "center" },
-  title: { flex: 1, fontSize: 16, marginLeft: 6 },
+  icon: {
+    fontSize: 20,
+    width: 32,
+    textAlign: "center",
+  },
+  title: {
+    flex: 1,
+    fontSize: 16,
+    marginLeft: 10,
+  },
   right: {
-    minWidth: 40,
+    minWidth: 20,
     alignItems: "flex-end",
     justifyContent: "center",
   },
   switchWrap: {
-    transform: [{ scale: 0.85 }],
+    transform: [{ scale: 0.9 }],
     justifyContent: "center",
     alignItems: "center",
+    right: -6,
+  },
+
+  rowDivider: {
+    height: StyleSheet.hairlineWidth,
+    width: "100%",
   },
 });
