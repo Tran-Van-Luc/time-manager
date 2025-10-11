@@ -562,16 +562,42 @@ export default function StatsScreen() {
         const total =
           done.length + doing.length + overdue.length + upcoming.length;
         if (!cancelled) {
-          setDoneList(done);
-          setDoingList(doing);
-          setOverdueList(overdue);
-          setUpcomingList(upcoming);
-          setComputedCounts({
-            total,
-            done: done.length,
-            doing: doing.length,
-            overdue: overdue.length,
-            upcoming: upcoming.length,
+          // Only update state when contents actually changed to avoid
+          // causing unnecessary re-renders (which can lead to max update depth).
+          const sameIds = (a: any[], b: any[]) => {
+            if (a === b) return true;
+            if (!a || !b) return false;
+            if (a.length !== b.length) return false;
+            for (let i = 0; i < a.length; i++) {
+              if ((a[i] && a[i].id) !== (b[i] && b[i].id)) return false;
+            }
+            return true;
+          };
+
+          setDoneList((prev) => (sameIds(prev, done) ? prev : done));
+          setDoingList((prev) => (sameIds(prev, doing) ? prev : doing));
+          setOverdueList((prev) => (sameIds(prev, overdue) ? prev : overdue));
+          setUpcomingList((prev) => (sameIds(prev, upcoming) ? prev : upcoming));
+
+          setComputedCounts((prev) => {
+            const next = {
+              total,
+              done: done.length,
+              doing: doing.length,
+              overdue: overdue.length,
+              upcoming: upcoming.length,
+            };
+            // shallow compare
+            if (
+              prev.total === next.total &&
+              prev.done === next.done &&
+              prev.doing === next.doing &&
+              prev.overdue === next.overdue &&
+              (prev.upcoming || 0) === (next.upcoming || 0)
+            ) {
+              return prev;
+            }
+            return next;
           });
         }
       } catch (e) {
