@@ -8,5 +8,6 @@ export interface Recurrence {
 	end_date?: number;   // timestamp (ms)
 	auto_complete_expired?: number; // 0|1
 	merge_streak?: number; // 0|1
+	auto_complete_enabled_at?: number; // timestamp (ms)
 	created_at?: number; // timestamp (ms)
 }

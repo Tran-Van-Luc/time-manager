@@ -167,7 +167,22 @@ db.$client.execSync(`
 // Bổ sung cột mới cho recurrences nếu nâng cấp từ DB cũ
 try { db.$client.execSync(`ALTER TABLE recurrences ADD COLUMN auto_complete_expired INTEGER DEFAULT 0`); } catch(e) {}
 try { db.$client.execSync(`ALTER TABLE recurrences ADD COLUMN merge_streak INTEGER DEFAULT 0`); } catch(e) {}
-// Nếu DB cũ có cột recurrence_type thì giữ nguyên, không dùng nữa
+// THÊM MỚI: Cột để lưu thời điểm bật auto-complete
+try { db.$client.execSync(`ALTER TABLE recurrences ADD COLUMN auto_complete_enabled_at INTEGER`); } catch(e) {}
+
+// ------------------ BẢNG HABIT_COMPLETIONS (MỚI) ------------------
+db.$client.execSync(`
+  CREATE TABLE IF NOT EXISTS habit_completions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recurrence_id INTEGER NOT NULL,
+    completion_date TEXT NOT NULL,
+    completion_timestamp INTEGER NOT NULL,
+    FOREIGN KEY (recurrence_id) REFERENCES recurrences(id) ON DELETE CASCADE,
+    UNIQUE(recurrence_id, completion_date)
+  );
+`);
+
+
 // ------------------ BẢNG SCHEDULED_NOTIFICATIONS ------------------
 db.$client.execSync(`
   CREATE TABLE IF NOT EXISTS scheduled_notifications (

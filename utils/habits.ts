@@ -1,11 +1,11 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+// utils/habits.ts
 import type { Recurrence } from '../types/Recurrence';
 import type { Task } from '../types/Task';
 import { generateOccurrences } from './taskValidation';
 
-const habitKey = (recurrenceId: number) => `habit:recurrence:${recurrenceId}`;
-const habitMetaKey = (recurrenceId: number) => `habit:recurrence:${recurrenceId}:meta`;
-const habitTimesKey = (recurrenceId: number) => `habit:recurrence:${recurrenceId}:times`;
+// Import các hàm DB mới
+import { getHabitData, setHabitData } from '../database/habit';
+import { getRecurrenceById, updateRecurrence } from '../database/recurrence';
 
 export type HabitMeta = {
   auto?: boolean;
@@ -13,18 +13,48 @@ export type HabitMeta = {
   enabledAt?: number; // epoch ms when auto-complete was enabled; used to avoid retroactive marking
 };
 
+// Hàm setHabitMeta thay thế AsyncStorage.setItem
 export async function setHabitMeta(recurrenceId: number, meta: HabitMeta) {
-  try { await AsyncStorage.setItem(habitMetaKey(recurrenceId), JSON.stringify(meta)); } catch {}
-}
-export async function getHabitMeta(recurrenceId: number): Promise<HabitMeta | null> {
-  try { const raw = await AsyncStorage.getItem(habitMetaKey(recurrenceId)); return raw ? JSON.parse(raw) : null; } catch { return null; }
+  try {
+    const updates: any = {
+      auto_complete_expired: meta.auto ? 1 : 0,
+      merge_streak: meta.merge ? 1 : 0,
+    };
+    if (meta.enabledAt !== undefined) updates.auto_complete_enabled_at = meta.enabledAt;
+    await updateRecurrence(recurrenceId, updates);
+  } catch {}
 }
 
+// Hàm getHabitMeta thay thế AsyncStorage.getItem
+export async function getHabitMeta(recurrenceId: number): Promise<HabitMeta | null> {
+  try {
+    const rec = await getRecurrenceById(recurrenceId);
+    if (!rec) return null;
+    const raw = rec.auto_complete_enabled_at;
+    let enabledAt: number | undefined;
+    if (raw != null) {
+      if (raw instanceof Date) {
+        enabledAt = raw.getTime();
+      } else {
+        const n = Number(raw);
+        enabledAt = Number.isNaN(n) ? undefined : n;
+      }
+    }
+    return {
+      auto: rec.auto_complete_expired === 1,
+      merge: rec.merge_streak === 1,
+      enabledAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Các hàm get/set completions và times bây giờ sẽ gọi chung vào getHabitData
 export async function getHabitCompletions(recurrenceId: number): Promise<Set<string>> {
   try {
-    const raw = await AsyncStorage.getItem(habitKey(recurrenceId));
-    const arr = raw ? (JSON.parse(raw) as string[]) : [];
-    return new Set(arr);
+    const { completions } = await getHabitData(recurrenceId);
+    return completions;
   } catch {
     return new Set();
   }
@@ -32,22 +62,28 @@ export async function getHabitCompletions(recurrenceId: number): Promise<Set<str
 
 export async function setHabitCompletions(recurrenceId: number, dates: Set<string>) {
   try {
-    await AsyncStorage.setItem(habitKey(recurrenceId), JSON.stringify(Array.from(dates)));
+    // Phải lấy times hiện tại để không làm mất dữ liệu khi set
+    const { times } = await getHabitData(recurrenceId);
+    await setHabitData(recurrenceId, dates, times);
   } catch {}
 }
 
 export type HabitTimes = Record<string, number>; // ymd -> completion timestamp (ms)
+
 export async function getHabitCompletionTimes(recurrenceId: number): Promise<HabitTimes> {
   try {
-    const raw = await AsyncStorage.getItem(habitTimesKey(recurrenceId));
-    return raw ? (JSON.parse(raw) as HabitTimes) : {};
+    const { times } = await getHabitData(recurrenceId);
+    return times;
   } catch {
     return {};
   }
 }
+
 export async function setHabitCompletionTimes(recurrenceId: number, times: HabitTimes) {
   try {
-    await AsyncStorage.setItem(habitTimesKey(recurrenceId), JSON.stringify(times));
+    // Phải lấy completions hiện tại để không làm mất dữ liệu khi set
+    const { completions } = await getHabitData(recurrenceId);
+    await setHabitData(recurrenceId, completions, times);
   } catch {}
 }
 
@@ -58,38 +94,34 @@ export function fmtYMD(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+// Các hàm logic bên dưới gần như không thay đổi, chỉ thay cách chúng đọc/ghi dữ liệu
 export async function markHabitToday(recurrenceId: number, date?: Date) {
   const d = date || new Date();
   const key = fmtYMD(d);
-  const set = await getHabitCompletions(recurrenceId);
-  set.add(key);
-  await setHabitCompletions(recurrenceId, set);
-  const times = await getHabitCompletionTimes(recurrenceId);
-  // Always store the actual completion moment
+  const { completions, times } = await getHabitData(recurrenceId); // Đọc từ DB
+  completions.add(key);
   times[key] = Date.now();
-  await setHabitCompletionTimes(recurrenceId, times);
+  await setHabitData(recurrenceId, completions, times); // Ghi lại vào DB
 }
 
 export async function unmarkHabitToday(recurrenceId: number, date?: Date) {
   const d = date || new Date();
   const key = fmtYMD(d);
-  const set = await getHabitCompletions(recurrenceId);
-  if (set.has(key)) {
-    set.delete(key);
-    await setHabitCompletions(recurrenceId, set);
+  const { completions, times } = await getHabitData(recurrenceId); // Đọc từ DB
+  if (completions.has(key)) {
+    completions.delete(key);
   }
-  const times = await getHabitCompletionTimes(recurrenceId);
   if (times[key] != null) {
     delete times[key];
-    await setHabitCompletionTimes(recurrenceId, times);
   }
+  await setHabitData(recurrenceId, completions, times); // Ghi lại vào DB
 }
 
 export async function isHabitDoneOnDate(recurrenceId: number, date?: Date): Promise<boolean> {
   const d = date || new Date();
   const key = fmtYMD(d);
-  const set = await getHabitCompletions(recurrenceId);
-  return set.has(key);
+  const { completions } = await getHabitData(recurrenceId); // Đọc từ DB
+  return completions.has(key);
 }
 
 export async function markHabitRange(
@@ -99,13 +131,12 @@ export async function markHabitRange(
   task?: Task,
   rec?: Recurrence
 ) {
-  const set = await getHabitCompletions(recurrenceId);
-  const times = await getHabitCompletionTimes(recurrenceId);
+  const { completions, times } = await getHabitData(recurrenceId); // Đọc từ DB
   const cur = new Date(from);
   cur.setHours(0,0,0,0);
   const end = new Date(to);
   end.setHours(0,0,0,0);
-  // Build a map of ymd -> occEndAt when context is available
+
   let occEndMap: Record<string, number> | null = null;
   if (task && rec) {
     occEndMap = {};
@@ -115,46 +146,130 @@ export async function markHabitRange(
       occEndMap[fmtYMD(d)] = occ.endAt;
     }
   }
+
   const now = Date.now();
   while (cur.getTime() <= end.getTime()) {
     const ymd = fmtYMD(cur);
-    set.add(ymd);
-    // Assign a sensible completion timestamp for each day
+    completions.add(ymd);
     if (occEndMap && occEndMap[ymd] != null) {
       const occEnd = occEndMap[ymd]!;
-      times[ymd] = occEnd <= now ? occEnd : now; // on-time for past/completed days, 'now' for future (early)
+      times[ymd] = occEnd <= now ? occEnd : now;
     } else {
-      // Fallback: record 'now' to indicate manual completion
       times[ymd] = now;
     }
     cur.setDate(cur.getDate() + 1);
   }
-  await setHabitCompletions(recurrenceId, set);
-  await setHabitCompletionTimes(recurrenceId, times);
+
+  await setHabitData(recurrenceId, completions, times); // Ghi lại vào DB
 }
 
-// Remove completion marks for all days in [from, to]
 export async function unmarkHabitRange(
   recurrenceId: number,
   from: Date,
   to: Date
 ) {
-  const set = await getHabitCompletions(recurrenceId);
-  const times = await getHabitCompletionTimes(recurrenceId);
+  const { completions, times } = await getHabitData(recurrenceId); // Đọc từ DB
   const cur = new Date(from);
   cur.setHours(0, 0, 0, 0);
   const end = new Date(to);
   end.setHours(0, 0, 0, 0);
+
   while (cur.getTime() <= end.getTime()) {
     const ymd = fmtYMD(cur);
-    if (set.has(ymd)) set.delete(ymd);
+    if (completions.has(ymd)) completions.delete(ymd);
     if (times[ymd] != null) delete times[ymd];
     cur.setDate(cur.getDate() + 1);
   }
-  await setHabitCompletions(recurrenceId, set);
-  await setHabitCompletionTimes(recurrenceId, times);
+
+  await setHabitData(recurrenceId, completions, times); // Ghi lại vào DB
 }
 
+
+// ... các hàm plannedHabitDays, plannedHabitOccurrences, computeHabitProgress không thay đổi ...
+// ...
+// ...
+
+// Chỉ sửa hàm autoCompletePastIfEnabled và getTodayCompletionDelta để chúng lấy dữ liệu đúng cách
+export async function autoCompletePastIfEnabled(task: Task, rec: Recurrence) {
+  if (!rec.id) return;
+
+  const meta = await getHabitMeta(rec.id);
+  const enabledAt = meta?.enabledAt;
+
+  // FIX 1: Nếu tính năng chưa bao giờ được bật, không làm gì cả.
+  if (!enabledAt) {
+    return;
+  }
+
+  const now = Date.now();
+  const occs = plannedHabitOccurrences(task, rec);
+  if (occs.length === 0) return;
+
+  if (rec.merge_streak === 1) {
+    const last = occs[occs.length - 1];
+    // Chỉ áp dụng nếu toàn bộ chuỗi streak kết thúc sau khi bật tính năng
+    if (last.endAt <= now && last.endAt >= enabledAt) {
+      const from = new Date(occs[0].startAt);
+      const to = new Date(last.endAt);
+      await markHabitRange(rec.id, from, to, task, rec);
+    }
+    return;
+  }
+
+  const { completions, times } = await getHabitData(rec.id);
+  let changed = false;
+  for (const occ of occs) {
+    if (occ.endAt <= now && occ.endAt >= enabledAt) {
+      const d = new Date(occ.startAt);
+      d.setHours(0, 0, 0, 0);
+      const ymd = fmtYMD(d);
+      if (!completions.has(ymd)) {
+        completions.add(ymd);
+        changed = true;
+      }
+      if (!times[ymd]) {
+        times[ymd] = occ.endAt;
+        changed = true;
+      }
+    }
+  }
+
+  if (changed) {
+    await setHabitData(rec.id, completions, times);
+  }
+}
+
+export async function getTodayCompletionDelta(
+  task: Task,
+  rec: Recurrence,
+  forDate?: Date
+): Promise<{ status: 'early' | 'late' | 'on_time' | null; diffMinutes: number | null }> {
+  if (!rec.id) return { status: null, diffMinutes: null };
+  const occs = plannedHabitOccurrences(task, rec);
+  if (!occs.length) return { status: null, diffMinutes: null };
+  
+  const base = forDate ? new Date(forDate) : new Date();
+  const startDay = new Date(base); startDay.setHours(0,0,0,0);
+  const endDay = new Date(startDay); endDay.setDate(endDay.getDate() + 1);
+  const todaysOcc = occs.find(o => o.startAt >= startDay.getTime() && o.startAt < endDay.getTime());
+  
+  if (!todaysOcc) return { status: null, diffMinutes: null };
+  
+  const ymd = fmtYMD(base);
+  const { times } = await getHabitData(rec.id); // Đọc từ DB
+  const t = times[ymd];
+  
+  if (!t) return { status: null, diffMinutes: null };
+  
+  const diffMinutes = Math.round((t - todaysOcc.endAt) / 60000);
+  let status: 'early' | 'late' | 'on_time';
+  if (diffMinutes < -1) status = 'early';
+  else if (diffMinutes > 1) status = 'late';
+  else status = 'on_time';
+  return { status, diffMinutes };
+}
+
+// Các hàm còn lại giữ nguyên
 export function plannedHabitDays(task: Task, rec: Recurrence): number[] {
   if (!task.start_at) return [];
   const baseStart = new Date(task.start_at).getTime();
@@ -200,101 +315,24 @@ export function plannedHabitOccurrences(task: Task, rec: Recurrence): Array<{ st
 export async function computeHabitProgress(task: Task, rec: Recurrence): Promise<{ completed: number; total: number; percent: number; todayDone: boolean; }>{
   const planned = plannedHabitDays(task, rec);
   const totalDays = planned.length;
-  const set = await getHabitCompletions(rec.id!);
+  const { completions } = await getHabitData(rec.id!); // Đọc từ DB
   let completedDays = 0;
   let todayDone = false;
   for (const ms of planned) {
     const d = new Date(ms);
     const ymd = fmtYMD(d);
-    if (set.has(ymd)) completedDays++;
+    if (completions.has(ymd)) completedDays++;
     const today = fmtYMD(new Date());
-    if (ymd === today && set.has(ymd)) todayDone = true;
+    if (ymd === today && completions.has(ymd)) todayDone = true;
   }
   const percentDays = totalDays > 0 ? Math.round((completedDays / totalDays) * 100) : 0;
 
-  // If merge_streak enabled: show as cycles (0/1 or 1/1), while percent reflects day progress
   if (rec.merge_streak === 1) {
     const totalCycles = totalDays > 0 ? 1 : 0;
     const completedCycles = totalDays > 0 && completedDays === totalDays ? 1 : 0;
-    // In merge mode, progress should be binary 0% or 100% matching 0/1 or 1/1
     const percent = completedCycles === 1 ? 100 : 0;
     return { completed: completedCycles, total: totalCycles, percent, todayDone };
   }
 
-  // Default: day-based progress
   return { completed: completedDays, total: totalDays, percent: percentDays, todayDone };
-}
-
-export async function autoCompletePastIfEnabled(task: Task, rec: Recurrence) {
-  if (!rec.id) return;
-  const now = Date.now();
-  // Read habit meta to determine when auto was enabled. If enabledAt exists,
-  // only auto-complete occurrences that end after enabledAt (i.e. do not touch
-  // occurrences that fully ended before enabledAt). This prevents retroactive
-  // marking of past occurrences when a user turns on auto-complete during an edit.
-  const meta = await getHabitMeta(rec.id);
-  const enabledAt = meta && (meta as any).enabledAt ? Number((meta as any).enabledAt) : undefined;
-  const occs = plannedHabitOccurrences(task, rec);
-  if (occs.length === 0) return;
-
-  // If merge on: only auto-complete when the final occurrence has ended
-  if (rec.merge_streak === 1) {
-    const last = occs[occs.length - 1];
-    if (last.endAt <= now) {
-      // mark entire cycle as done (all days in range)
-      const from = new Date(occs[0].startAt);
-      const to = new Date(last.endAt);
-      await markHabitRange(rec.id, from, to, task, rec);
-    }
-    return;
-  }
-
-  // Merge off: auto-complete each occurrence whose end has passed
-  const set = await getHabitCompletions(rec.id);
-  const times = await getHabitCompletionTimes(rec.id);
-  let changed = false;
-  for (const occ of occs) {
-    // Only auto-complete occurrences that finished in the past and
-    // (if enabledAt is set) that finished at or after enabledAt. This
-    // prevents retroactive marking of occurrences that fully completed
-    // before the user enabled auto-complete.
-    if (occ.endAt <= now && (!enabledAt || occ.endAt >= enabledAt)) {
-      const d = new Date(occ.startAt);
-      d.setHours(0,0,0,0);
-      const ymd = fmtYMD(d);
-      if (!set.has(ymd)) { set.add(ymd); changed = true; }
-      // Record completion time as the end of the occurrence, so delta computes to ~on time
-      if (!times[ymd]) { times[ymd] = occ.endAt; changed = true; }
-    }
-  }
-  if (changed) {
-    await setHabitCompletions(rec.id, set);
-    await setHabitCompletionTimes(rec.id, times);
-  }
-}
-
-// Compute today's completion delta relative to today's scheduled occurrence end time
-export async function getTodayCompletionDelta(
-  task: Task,
-  rec: Recurrence,
-  forDate?: Date
-): Promise<{ status: 'early' | 'late' | 'on_time' | null; diffMinutes: number | null }> {
-  if (!rec.id) return { status: null, diffMinutes: null };
-  const occs = plannedHabitOccurrences(task, rec);
-  if (!occs.length) return { status: null, diffMinutes: null };
-  const base = forDate ? new Date(forDate) : new Date();
-  const startDay = new Date(base); startDay.setHours(0,0,0,0);
-  const endDay = new Date(startDay); endDay.setDate(endDay.getDate() + 1);
-  const todaysOcc = occs.find(o => o.startAt >= startDay.getTime() && o.startAt < endDay.getTime());
-  if (!todaysOcc) return { status: null, diffMinutes: null };
-  const ymd = fmtYMD(base);
-  const times = await getHabitCompletionTimes(rec.id);
-  const t = times[ymd];
-  if (!t) return { status: null, diffMinutes: null };
-  const diffMinutes = Math.round((t - todaysOcc.endAt) / 60000);
-  let status: 'early' | 'late' | 'on_time';
-  if (diffMinutes < -1) status = 'early';
-  else if (diffMinutes > 1) status = 'late';
-  else status = 'on_time';
-  return { status, diffMinutes };
 }

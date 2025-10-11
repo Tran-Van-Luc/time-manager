@@ -100,8 +100,19 @@ export const recurrences = sqliteTable("recurrences", {
   end_date: integer("end_date", { mode: "timestamp" }),
   auto_complete_expired: integer("auto_complete_expired").default(0), // 1 = tự đánh hoàn thành nếu hết hạn
   merge_streak: integer("merge_streak").default(0), // 1 = gộp nhiều ngày thành 1 chu kỳ
+  auto_complete_enabled_at: integer("auto_complete_enabled_at", { mode: "timestamp_ms" }),
   created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
 });
+
+// Bảng habit_completions - BẢNG MỚI
+// Bảng này sẽ thay thế AsyncStorage để lưu trữ ngày hoàn thành và thời điểm hoàn thành
+export const habit_completions = sqliteTable("habit_completions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  recurrence_id: integer("recurrence_id").notNull().references(() => recurrences.id),
+  completion_date: text("completion_date").notNull(), // Lưu dưới dạng 'YYYY-MM-DD'
+  completion_timestamp: integer("completion_timestamp", { mode: "timestamp_ms" }).notNull(), // Thời điểm hoàn thành thực tế (epoch ms)
+});
+
 
 // Bảng scheduled_notifications: lưu tất cả notification đã lập lịch (task reminders)
 export const scheduled_notifications = sqliteTable("scheduled_notifications", {
