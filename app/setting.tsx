@@ -17,6 +17,8 @@ import { useTheme } from "../context/ThemeContext";
 import AppearanceSettings from "../components/settings/AppearanceSettings";
 import LanguageSettings from "../components/settings/LanguageSettings";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Notifications from 'expo-notifications';
+import { refreshNotifications } from '../utils/notificationScheduler';
 
 const STORAGE_KEY_LANG = "appLanguage";
 
@@ -95,6 +97,38 @@ export default function SettingsScreen() {
       }
     })();
   }, [showLanguage]);
+
+  // Load persisted notification setting on mount
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const s = await AsyncStorage.getItem('notificationsEnabled');
+        if (mounted && s !== null) {
+          setNotifEnabled(s === '1');
+        }
+      } catch {}
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  // Persist and apply when toggled
+  useEffect(() => {
+    (async () => {
+      try {
+        await AsyncStorage.setItem('notificationsEnabled', notifEnabled ? '1' : '0');
+        if (!notifEnabled) {
+          try {
+            await Notifications.cancelAllScheduledNotificationsAsync();
+          } catch (e) {}
+        } else {
+          try {
+            await refreshNotifications();
+          } catch (e) {}
+        }
+      } catch (e) {}
+    })();
+  }, [notifEnabled]);
 
   const colors = {
     background: isDark ? "#121212" : "#f6f7fb",
