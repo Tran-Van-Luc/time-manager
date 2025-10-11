@@ -11,21 +11,24 @@ import {
   Vibration,
   Platform,
   AppState,
+  StatusBar,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useTheme } from "../context/ThemeContext";
 
 type Mode = "work" | "short_break" | "long_break";
 
 const STORAGE_KEY_END = "@pomodoro_endTimestamp";
 const STORAGE_KEY_REMAIN = "@pomodoro_remaining";
 const STORAGE_KEY_PAUSED = "@pomodoro_paused_flag";
+const STORAGE_KEY_LANG = "appLanguage";
 
 function pad(n: number) {
   return String(n).padStart(2, "0");
 }
 
 export default function PomodoroScreen() {
-  // mặc định (Pomodoro tiêu chuẩn)
+  // defaults
   const [workMin, setWorkMin] = useState<number>(25);
   const [shortBreakMin, setShortBreakMin] = useState<number>(5);
   const [longBreakMin, setLongBreakMin] = useState<number>(15);
@@ -34,19 +37,75 @@ export default function PomodoroScreen() {
   const [mode, setMode] = useState<Mode>("work");
   const [remainingSec, setRemainingSec] = useState<number>(workMin * 60);
   const [running, setRunning] = useState<boolean>(false);
-  const [isPaused, setIsPaused] = useState<boolean>(false); // người dùng chủ động tạm dừng
+  const [isPaused, setIsPaused] = useState<boolean>(false);
 
-  // khả năng chịu đựng khi vào nền (background resilience)
-  const [endTimestamp, setEndTimestamp] = useState<number | null>(null); // thời điểm kết thúc (ms)
+  const [endTimestamp, setEndTimestamp] = useState<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appStateRef = useRef(AppState.currentState);
 
   const [completedToday, setCompletedToday] = useState<number>(0);
   const [consecutiveWorkCount, setConsecutiveWorkCount] = useState<number>(0);
 
-  // Khôi phục khi mount: ưu tiên deadline đang hoạt động, nếu không có thì khôi phục remaining khi đang paused
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+
+  // language labels
+  const [lang, setLang] = useState<"vi" | "en">("vi");
+  const [L, setL] = useState(() => ({
+    pageTitle: "Chế độ tập trung Pomodoro",
+    mode_work: "Làm việc",
+    mode_short: "Nghỉ ngắn",
+    mode_long: "Nghỉ dài",
+    start: "Bắt đầu",
+    running: "Đang chạy",
+    resume: "Tiếp tục",
+    pause: "Tạm dừng",
+    reset: "Đặt lại",
+    settingsTitle: "Cài đặt (phút)",
+    noteTitle: "Ghi chú",
+    noteBody:
+      "• Bắt đầu / Tiếp tục: Khởi chạy hoặc tiếp tục bộ đếm từ thời gian hiện tại.\n" +
+      "• Tạm dừng: Dừng bộ đếm và lưu số giây còn lại.\n" +
+      "• Đặt lại: Xóa trạng thái hiện tại và trả về thời lượng mặc định của chế độ.",
+    completedToday: "Phiên làm việc hoàn thành hôm nay",
+    consecutive: "Phiên làm việc liên tiếp hiện tại",
+    placeholder: "Nhập",
+    alertEmptyTitle: "Khoảng thời gian rỗng",
+    alertEmptyMsg:
+      "Vui lòng đặt thời lượng lớn hơn 0 trước khi bắt đầu.",
+    setting_labels: {
+      work: "Làm việc",
+      short: "Nghỉ ngắn",
+      long: "Nghỉ dài",
+      sessionsBeforeLong: "Phiên trước nghỉ dài",
+    },
+  }));
+
+  // colors based on theme
+  const colors = {
+    background: isDark ? "#071226" : "#fff",
+    surface: isDark ? "#0b1220" : "#F8FAFF",
+    cardBorder: isDark ? "#0f1724" : "#EFF6FF",
+    text: isDark ? "#E6EEF8" : "#111827",
+    muted: isDark ? "#9AA4B2" : "#374151",
+    inputBg: isDark ? "#071226" : "#fff",
+    controlGreen: "#10B981",
+    controlOrange: "#F59E0B",
+    controlRed: "#EF4444",
+    runningGray: "#6B7280",
+  };
+
+  // load language + restore state on mount
   useEffect(() => {
     (async () => {
+      try {
+        const l = (await AsyncStorage.getItem(STORAGE_KEY_LANG)) as "vi" | "en" | null;
+        if (l) {
+          setLang(l);
+          applyLang(l);
+        }
+      } catch {}
+      // restore timer state
       try {
         const vEnd = await AsyncStorage.getItem(STORAGE_KEY_END);
         if (vEnd) {
@@ -74,7 +133,6 @@ export default function PomodoroScreen() {
           }
         }
 
-        // khởi tạo mặc định
         setRemainingSec(workMin * 60);
         setIsPaused(false);
       } catch (e) {
@@ -86,9 +144,71 @@ export default function PomodoroScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // AppState: khi app chuyển sang active, tính lại remaining từ deadline hoặc thử khôi phục remaining khi paused
+  function applyLang(l: "vi" | "en") {
+    if (l === "en") {
+      setL({
+        pageTitle: "Pomodoro Focus Mode",
+        mode_work: "Work",
+        mode_short: "Short break",
+        mode_long: "Long break",
+        start: "Start",
+        running: "Running",
+        resume: "Resume",
+        pause: "Pause",
+        reset: "Reset",
+        settingsTitle: "Settings (minutes)",
+        noteTitle: "Notes",
+        noteBody:
+          "• Start / Resume: Start or resume the timer from the current time.\n" +
+          "• Pause: Pause the timer and save remaining seconds.\n" +
+          "• Reset: Clear current state and restore default durations for the mode.",
+        completedToday: "Work sessions completed today",
+        consecutive: "Current consecutive work sessions",
+        placeholder: "Enter",
+        alertEmptyTitle: "Empty duration",
+        alertEmptyMsg: "Please set a duration greater than 0 before starting.",
+        setting_labels: {
+          work: "Work",
+          short: "Short break",
+          long: "Long break",
+          sessionsBeforeLong: "Sessions before long break",
+        },
+      });
+    } else {
+      setL({
+        pageTitle: "Chế độ tập trung Pomodoro",
+        mode_work: "Làm việc",
+        mode_short: "Nghỉ ngắn",
+        mode_long: "Nghỉ dài",
+        start: "Bắt đầu",
+        running: "Đang chạy",
+        resume: "Tiếp tục",
+        pause: "Tạm dừng",
+        reset: "Đặt lại",
+        settingsTitle: "Cài đặt (phút)",
+        noteTitle: "Ghi chú",
+        noteBody:
+          "• Bắt đầu / Tiếp tục: Khởi chạy hoặc tiếp tục bộ đếm từ thời gian hiện tại.\n" +
+          "• Tạm dừng: Dừng bộ đếm và lưu số giây còn lại.\n" +
+          "• Đặt lại: Xóa trạng thái hiện tại và trả về thời lượng mặc định của chế độ.",
+        completedToday: "Phiên làm việc hoàn thành hôm nay",
+        consecutive: "Phiên làm việc liên tiếp hiện tại",
+        placeholder: "Nhập",
+        alertEmptyTitle: "Khoảng thời gian rỗng",
+        alertEmptyMsg: "Vui lòng đặt thời lượng lớn hơn 0 trước khi bắt đầu.",
+        setting_labels: {
+          work: "Làm việc",
+          short: "Nghỉ ngắn",
+          long: "Nghỉ dài",
+          sessionsBeforeLong: "Phiên trước nghỉ dài",
+        },
+      });
+    }
+  }
+
+  // AppState listener
   useEffect(() => {
-    const sub = AppState.addEventListener("change", next => {
+    const sub = AppState.addEventListener("change", (next) => {
       if (next === "active") {
         if (endTimestamp) {
           const rem = Math.max(0, Math.round((endTimestamp - Date.now()) / 1000));
@@ -133,33 +253,31 @@ export default function PomodoroScreen() {
     return () => sub.remove();
   }, [endTimestamp]);
 
-  // Đồng bộ remaining khi mode/độ dài thay đổi
+  // sync remaining when durations/mode change
   useEffect(() => {
-    // Nếu đang paused giữ nguyên remaining
     if (isPaused) return;
-
-    // Nếu không chạy và không có deadline, đặt lại remaining theo mode mặc định
     if (!running && !endTimestamp) {
       if (mode === "work") setRemainingSec(workMin * 60);
       if (mode === "short_break") setRemainingSec(shortBreakMin * 60);
       if (mode === "long_break") setRemainingSec(longBreakMin * 60);
       return;
     }
-
-    // Nếu có deadline, tính remaining từ đó
     if (endTimestamp) {
       setRemainingSec(Math.max(0, Math.round((endTimestamp - Date.now()) / 1000)));
     }
   }, [workMin, shortBreakMin, longBreakMin, mode, running, endTimestamp, isPaused]);
 
-  // Vòng lặp timer (cập nhật UI khi foreground và đang chạy)
+  // timer loop
   useEffect(() => {
     if (running) {
       if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
-        setRemainingSec(prev => {
+        setRemainingSec((prev) => {
           if (prev <= 1) {
-            if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+            if (timerRef.current) {
+              clearInterval(timerRef.current);
+              timerRef.current = null;
+            }
             handleFinishInterval();
             return 0;
           }
@@ -167,12 +285,20 @@ export default function PomodoroScreen() {
         });
       }, 1000);
     } else {
-      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
     }
-    return () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
   }, [running]);
 
-  // hàm lưu trạng thái
+  // persist helpers
   async function persistEndTimestamp(ts: number | null) {
     try {
       if (ts === null) await AsyncStorage.removeItem(STORAGE_KEY_END);
@@ -198,10 +324,10 @@ export default function PomodoroScreen() {
     }
   }
 
-  // BẮT ĐẦU / TIẾP TỤC
+  // START
   function start() {
     if (remainingSec <= 0) {
-      Alert.alert("Khoảng thời gian rỗng", "Vui lòng đặt thời lượng lớn hơn 0 trước khi bắt đầu.");
+      Alert.alert(L.alertEmptyTitle, L.alertEmptyMsg);
       return;
     }
     const endAt = Date.now() + remainingSec * 1000;
@@ -213,16 +339,11 @@ export default function PomodoroScreen() {
     setRunning(true);
   }
 
-  // TẠM DỪNG: đóng băng (đặt isPaused ngay lập tức rồi lưu)
+  // PAUSE
   async function pause() {
-    // đặt cờ paused ngay lập tức để tránh các effect khác ghi đè remaining
     setIsPaused(true);
-
-    // dừng chạy và xoá deadline
     setRunning(false);
     setEndTimestamp(null);
-
-    // lưu trạng thái paused và remaining
     try {
       await persistEndTimestamp(null);
       await persistRemaining(remainingSec);
@@ -232,7 +353,7 @@ export default function PomodoroScreen() {
     }
   }
 
-  // ĐẶT LẠI: xoá trạng thái đã lưu và reset remaining về mặc định của mode hiện tại
+  // RESET
   async function reset() {
     setRunning(false);
     setEndTimestamp(null);
@@ -245,7 +366,7 @@ export default function PomodoroScreen() {
     if (mode === "long_break") setRemainingSec(longBreakMin * 60);
   }
 
-  // KẾT THÚC: khi remaining về 0
+  // FINISH
   async function handleFinishInterval() {
     setRunning(false);
     setEndTimestamp(null);
@@ -259,9 +380,9 @@ export default function PomodoroScreen() {
     } catch {}
 
     if (mode === "work") {
-      setConsecutiveWorkCount(prev => {
+      setConsecutiveWorkCount((prev) => {
         const next = prev + 1;
-        setCompletedToday(ct => ct + 1);
+        setCompletedToday((ct) => ct + 1);
         if (next >= sessionsBeforeLong) {
           setMode("long_break");
           setRemainingSec(longBreakMin * 60);
@@ -282,110 +403,121 @@ export default function PomodoroScreen() {
   const seconds = remainingSec % 60;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
-      <Text style={styles.pageTitle}>Chế độ tập trung Pomodoro</Text>
+    <ScrollView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      contentContainerStyle={{ paddingBottom: 40 }}
+    >
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={colors.background} />
+      <Text style={[styles.pageTitle, { color: colors.text }]}>{L.pageTitle}</Text>
 
-      <View style={styles.timerCard}>
-        <View style={styles.timerCircle}>
-          <Text style={styles.timerText}>{pad(minutes)}:{pad(seconds)}</Text>
-          <Text style={styles.modeText}>
-            {mode === "work" ? "Làm việc" : mode === "short_break" ? "Nghỉ ngắn" : "Nghỉ dài"}
+      <View style={[styles.timerCard, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
+        <View style={[styles.timerCircle, { backgroundColor: colors.inputBg, borderColor: colors.cardBorder }]}>
+          <Text style={[styles.timerText, { color: colors.text }]}>{pad(minutes)}:{pad(seconds)}</Text>
+          <Text style={[styles.modeText, { color: colors.muted }]}>
+            {mode === "work" ? L.mode_work : mode === "short_break" ? L.mode_short : L.mode_long}
           </Text>
         </View>
 
         <View style={styles.controlsRow}>
           <TouchableOpacity
             onPress={start}
-            style={[styles.controlBtn, { backgroundColor: running ? "#6B7280" : "#10B981" }]}
+            style={[styles.controlBtn, { backgroundColor: running ? colors.runningGray : colors.controlGreen }]}
             disabled={running}
           >
             <Text style={styles.controlText}>
-              {running ? "Đang chạy" : isPaused ? "Tiếp tục" : "Bắt đầu"}
+              {running ? L.running : isPaused ? L.resume : L.start}
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             onPress={pause}
-            style={[styles.controlBtn, { backgroundColor: running ? "#F59E0B" : "#D97706" }]}
+            style={[styles.controlBtn, { backgroundColor: running ? colors.controlOrange : "#D97706" }]}
             disabled={!running}
           >
-            <Text style={styles.controlText}>Tạm dừng</Text>
+            <Text style={styles.controlText}>{L.pause}</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={reset} style={[styles.controlBtn, { backgroundColor: "#EF4444" }]}>
-            <Text style={styles.controlText}>Đặt lại</Text>
+          <TouchableOpacity onPress={reset} style={[styles.controlBtn, { backgroundColor: colors.controlRed }]}>
+            <Text style={styles.controlText}>{L.reset}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Cài đặt (phút)</Text>
+      <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
+        <Text style={[styles.sectionTitle, { color: colors.muted }]}>{L.settingsTitle}</Text>
 
         {[
-          { label: "Làm việc", value: workMin, setter: setWorkMin, min: 1 },
-          { label: "Nghỉ ngắn", value: shortBreakMin, setter: setShortBreakMin, min: 0 },
-          { label: "Nghỉ dài", value: longBreakMin, setter: setLongBreakMin, min: 0 },
-          { label: "Phiên trước nghỉ dài", value: sessionsBeforeLong, setter: setSessionsBeforeLong, min: 1 },
+          { label: L.setting_labels.work, value: workMin, setter: setWorkMin, min: 1 },
+          { label: L.setting_labels.short, value: shortBreakMin, setter: setShortBreakMin, min: 0 },
+          { label: L.setting_labels.long, value: longBreakMin, setter: setLongBreakMin, min: 0 },
+          { label: L.setting_labels.sessionsBeforeLong, value: sessionsBeforeLong, setter: setSessionsBeforeLong, min: 1 },
         ].map((item, idx) => (
           <View key={idx} style={styles.inputRow}>
-            <Text style={styles.label}>{item.label}</Text>
+            <Text style={[styles.label, { color: colors.text }]}>{item.label}</Text>
             <View pointerEvents={running || isPaused ? "none" : "auto"}>
               <TextInput
                 keyboardType="number-pad"
                 value={String(item.value)}
-                onChangeText={t => item.setter(Math.max(item.min || 0, parseInt(t || "0") || 0))}
-                style={[styles.input, (running || isPaused) && styles.inputDisabled]}
+                onChangeText={(t) => item.setter(Math.max(item.min || 0, parseInt(t || "0") || 0))}
+                style={[
+                  styles.input,
+                  (running || isPaused) && styles.inputDisabled,
+                  { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.cardBorder },
+                ]}
                 editable={!running && !isPaused}
+                placeholderTextColor={isDark ? "#7E8D99" : "#9CA3AF"}
               />
             </View>
           </View>
         ))}
       </View>
 
-      <View style={styles.stats}>
-        <Text style={styles.statText}>Phiên làm việc hoàn thành hôm nay: <Text style={{ fontWeight: "700" }}>{completedToday}</Text></Text>
-        <Text style={styles.statText}>Phiên làm việc liên tiếp hiện tại: <Text style={{ fontWeight: "700" }}>{consecutiveWorkCount}</Text></Text>
+      <View style={[styles.stats, { backgroundColor: isDark ? "#071226" : "#F3F4F6" }]}>
+        <Text style={[styles.statText, { color: colors.text }]}>
+          {L.completedToday}: <Text style={{ fontWeight: "700", color: colors.text }}>{completedToday}</Text>
+        </Text>
+        <Text style={[styles.statText, { color: colors.text }]}>
+          {L.consecutive}: <Text style={{ fontWeight: "700", color: colors.text }}>{consecutiveWorkCount}</Text>
+        </Text>
       </View>
 
       <View style={{ height: 24 }} />
 
-      <View style={styles.helpCard}>
-        <Text style={styles.helpTitle}>Ghi chú</Text>
-        <Text style={styles.helpText}>
-          • Bắt đầu / Tiếp tục: Khởi chạy hoặc tiếp tục bộ đếm từ thời gian hiện tại.{"\n"}
-          • Tạm dừng: Dừng bộ đếm và lưu số giây còn lại.{"\n"}
-          • Đặt lại: Xóa trạng thái hiện tại và trả về thời lượng mặc định của chế độ.
-        </Text>
+      <View style={[styles.helpCard, { backgroundColor: isDark ? "#1F2937" : "#FEF3C7" }]}>
+        <Text style={[styles.helpTitle, { color: colors.text }]}>{L.noteTitle}</Text>
+        <Text style={[styles.helpText, { color: colors.text }]}>{L.noteBody}</Text>
       </View>
+
+      <View style={{ height: 40 }} />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", padding: 16 },
-  pageTitle: { fontSize: 20, fontWeight: "700", color: "#111827", marginBottom: 12 },
+  container: { flex: 1, padding: 16 },
+  pageTitle: { fontSize: 20, fontWeight: "700", marginBottom: 12 },
 
-  timerCard: { backgroundColor: "#F8FAFF", borderRadius: 12, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: "#EFF6FF" },
-  timerCircle: { alignSelf: "center", width: 200, height: 200, borderRadius: 100, borderWidth: 8, borderColor: "#EFF6FF", alignItems: "center", justifyContent: "center", backgroundColor: "#fff", marginBottom: 12 },
-  timerText: { fontSize: 44, fontWeight: "800", color: "#111827" },
-  modeText: { marginTop: 6, fontSize: 16, color: "#374151" },
+  timerCard: { borderRadius: 12, padding: 14, marginBottom: 12, borderWidth: 1 },
+  timerCircle: { alignSelf: "center", width: 200, height: 200, borderRadius: 100, borderWidth: 8, alignItems: "center", justifyContent: "center", marginBottom: 12 },
+  timerText: { fontSize: 44, fontWeight: "800" },
+  modeText: { marginTop: 6, fontSize: 16 },
 
   controlsRow: { flexDirection: "row", justifyContent: "space-between" },
   controlBtn: { flex: 1, marginHorizontal: 6, paddingVertical: 12, borderRadius: 8, alignItems: "center" },
   controlText: { color: "#fff", fontWeight: "700" },
 
-  section: { marginTop: 12, backgroundColor: "#fff", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "#EFF6FF" },
-  sectionTitle: { fontSize: 14, fontWeight: "700", color: "#374151", marginBottom: 8 },
+  section: { marginTop: 12, borderRadius: 10, padding: 12, borderWidth: 1 },
+  sectionTitle: { fontSize: 14, fontWeight: "700", marginBottom: 8 },
 
   inputRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
-  label: { color: "#374151" },
-  input: { width: 88, height: 36, borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 8, paddingHorizontal: 8, textAlign: "center", backgroundColor: "#fff" },
-  inputDisabled: { opacity: 0.5, backgroundColor: "#F3F4F6" },
+  label: {},
+  input: { width: 88, height: 36, borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, textAlign: "center" },
+  inputDisabled: { opacity: 0.5 },
 
-  stats: { marginTop: 12, padding: 12, borderRadius: 8, backgroundColor: "#F3F4F6" },
-  statText: { color: "#374151", marginBottom: 6 },
+  stats: { marginTop: 12, padding: 12, borderRadius: 8 },
+  statText: { marginBottom: 6 },
 
-  helpCard: { marginTop: 10, padding: 12, borderRadius: 8, backgroundColor: "#FEF3C7" },
+  helpCard: { marginTop: 10, padding: 12, borderRadius: 8 },
   helpTitle: { fontWeight: "700", marginBottom: 6 },
-  helpText: { color: "#374151" },
+  helpText: {},
 });
