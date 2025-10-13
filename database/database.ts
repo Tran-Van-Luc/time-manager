@@ -212,7 +212,7 @@ db.$client.execSync(`
     short_break_minutes INTEGER NOT NULL DEFAULT 5,
     long_break_minutes INTEGER NOT NULL DEFAULT 15,
     sessions_before_long_break INTEGER NOT NULL DEFAULT 4,
-    mute_notifications INTEGER NOT NULL DEFAULT 1, -- 1 = khi bật Pomodoro ứng dụng tắt noti
+    mute_notifications INTEGER NOT NULL DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id),
@@ -225,9 +225,9 @@ db.$client.execSync(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     type TEXT NOT NULL CHECK(type IN ('work','short_break','long_break')),
-    started_at DATETIME NOT NULL,
-    ended_at DATETIME,
-    completed INTEGER DEFAULT 0, -- 0 = không hoàn thành, 1 = hoàn thành
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER,
+    completed INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id)
   );

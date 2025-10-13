@@ -16,6 +16,7 @@ import { AntDesign } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
 import AppearanceSettings from "../components/settings/AppearanceSettings";
 import LanguageSettings from "../components/settings/LanguageSettings";
+import WidgetSettings from "../components/settings/WidgetSettings";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from 'expo-notifications';
 import { refreshNotifications } from '../utils/notificationScheduler';
@@ -32,6 +33,9 @@ export default function SettingsScreen() {
   const [notifEnabled, setNotifEnabled] = useState(true);
   const [showAppearance, setShowAppearance] = useState(false);
   const [showLanguage, setShowLanguage] = useState(false);
+  const [showWidget, setShowWidget] = useState(false);
+  const [showSurvey, setShowSurvey] = useState(false);
+
 
   const [labels, setLabels] = useState({
     close: "Đóng",
@@ -154,7 +158,21 @@ export default function SettingsScreen() {
   const handlePress = (action: string) => {
     console.log(`Pressed: ${action}`);
     if (action === "contact") {
-      Linking.openURL("mailto:support@example.com");
+      const email = "tuannguyen12a22k3@gmail.com";
+      const subject = encodeURIComponent("Hỗ trợ ứng dụng Quản lý thời gian");
+      const body = encodeURIComponent(
+        "Xin chào đội hỗ trợ,\n\nTôi gặp sự cố hoặc có góp ý như sau:\n\n..."
+      );
+      const mailtoURL = `mailto:${email}?subject=${subject}&body=${body}`;
+      Linking.openURL(mailtoURL).catch((err) =>
+        console.error("Không thể mở ứng dụng email:", err)
+      );
+    }
+    else if (action === "survey") {
+      const formURL = "https://forms.gle/zJiHDCMRr3ffAgbv6";
+      Linking.openURL(formURL).catch((err) =>
+        console.error("Không thể mở link khảo sát:", err)
+      );
     }
   };
 
@@ -226,7 +244,7 @@ export default function SettingsScreen() {
             icon="🧩"
             title={labels.utilities}
             right={<AntDesign name="right" size={18} color={colors.subtleText} />}
-            onPress={() => handlePress("utilities")}
+            onPress={() => setShowWidget(true)}
           />
           <View style={[styles.rowDivider, { backgroundColor: colors.subtleText }]} />
 
@@ -262,15 +280,7 @@ export default function SettingsScreen() {
             icon="📝"
             title={labels.joinSurvey}
             right={<AntDesign name="right" size={18} color={colors.subtleText} />}
-            onPress={() => handlePress("joinSurvey")}
-          />
-          <View style={[styles.rowDivider, { backgroundColor: colors.subtleText }]} />
-
-          <Row
-            icon="❤️"
-            title={labels.rateApp}
-            right={<AntDesign name="right" size={18} color={colors.subtleText} />}
-            onPress={() => handlePress("rateApp")}
+            onPress={() => handlePress("survey")}
           />
           <View style={[styles.rowDivider, { backgroundColor: colors.subtleText }]} />
 
@@ -302,6 +312,8 @@ export default function SettingsScreen() {
 
         <AppearanceSettings visible={showAppearance} onClose={() => setShowAppearance(false)} />
         <LanguageSettings visible={showLanguage} onClose={() => setShowLanguage(false)} />
+        <WidgetSettings visible={showWidget} onClose={() => setShowWidget(false)} />
+    
       </ScrollView>
     </View>
   );

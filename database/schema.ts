@@ -132,7 +132,7 @@ export const scheduled_notifications = sqliteTable("scheduled_notifications", {
 // pomodoro_settings
 export const pomodoro_settings = sqliteTable("pomodoro_settings", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  user_id: integer("user_id"),
+  user_id: integer("user_id").notNull(),
   work_minutes: integer("work_minutes").default(25),
   short_break_minutes: integer("short_break_minutes").default(5),
   long_break_minutes: integer("long_break_minutes").default(15),
@@ -145,7 +145,7 @@ export const pomodoro_settings = sqliteTable("pomodoro_settings", {
 // pomodoro_sessions
 export const pomodoro_sessions = sqliteTable("pomodoro_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  user_id: integer("user_id"),
+  user_id: integer("user_id").notNull(),
   type: text("type"), // 'work'|'short_break'|'long_break'
   started_at: integer("started_at", { mode: "timestamp" }).notNull(),
   ended_at: integer("ended_at", { mode: "timestamp" }),

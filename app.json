@@ -1,5 +1,6 @@
 {
   "expo": {
+    "owner": "tipro3201a",
     "name": "time-manager",
     "slug": "time-manager",
     "scheme": "timemanager",
@@ -29,7 +30,29 @@
       "bundler": "metro"
     },
     "plugins": [
-      "expo-sqlite"
-    ]
+      "expo-sqlite",
+      [
+        "expo-widget",
+        {
+          "widgetName": "ScheduleWidget",
+          "icon": "./assets/icon.png",
+          "layout": "./widgets/schedule-widget.js",
+          "minWidth": 250,
+          "minHeight": 100
+        }
+      ],
+      "expo-router"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2c68a586-5568-43ea-b941-bb0c08e2f8e5"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/2c68a586-5568-43ea-b941-bb0c08e2f8e5"
+    }
   }
 }
