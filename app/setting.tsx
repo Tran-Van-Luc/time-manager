@@ -20,6 +20,7 @@ import WidgetSettings from "../components/settings/WidgetSettings";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from 'expo-notifications';
 import { refreshNotifications } from '../utils/notificationScheduler';
+import DataManagementSettings from "../components/settings/DataManagementSettings";
 
 const STORAGE_KEY_LANG = "appLanguage";
 
@@ -35,6 +36,7 @@ export default function SettingsScreen() {
   const [showLanguage, setShowLanguage] = useState(false);
   const [showWidget, setShowWidget] = useState(false);
   const [showSurvey, setShowSurvey] = useState(false);
+  const [showDataManagement, setShowDataManagement] = useState(false);
 
 
   const [labels, setLabels] = useState({
@@ -252,7 +254,7 @@ export default function SettingsScreen() {
             icon="💾"
             title={labels.dataManagement}
             right={<AntDesign name="right" size={18} color={colors.subtleText} />}
-            onPress={() => handlePress("dataManagement")}
+            onPress={() => setShowDataManagement(true)}
           />
         </View>
 
@@ -313,6 +315,7 @@ export default function SettingsScreen() {
         <AppearanceSettings visible={showAppearance} onClose={() => setShowAppearance(false)} />
         <LanguageSettings visible={showLanguage} onClose={() => setShowLanguage(false)} />
         <WidgetSettings visible={showWidget} onClose={() => setShowWidget(false)} />
+        <DataManagementSettings visible={showDataManagement} onClose={() => setShowDataManagement(false)} />
     
       </ScrollView>
     </View>

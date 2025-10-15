@@ -1,6 +1,5 @@
 {
   "expo": {
-    "owner": "tipro3201a",
     "name": "time-manager",
     "slug": "time-manager",
     "scheme": "timemanager",
@@ -41,18 +40,22 @@
           "minHeight": 100
         }
       ],
-      "expo-router"
+      "expo-router",
+      "expo-web-browser",
+      "expo-secure-store"
     ],
-    "extra": {
-      "eas": {
-        "projectId": "2c68a586-5568-43ea-b941-bb0c08e2f8e5"
-      }
-    },
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "updates": {
       "url": "https://u.expo.dev/2c68a586-5568-43ea-b941-bb0c08e2f8e5"
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0ebd20c6-4682-4a41-bc67-974d73af5ff9"
+      }
+    },
+    "owner": "tranvanluc"
   }
 }
