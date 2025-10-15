@@ -1,4 +1,3 @@
-// screens/ScheduleScreen.tsx
 import React, { useEffect, useState, useMemo } from "react";
 import {
   View,
@@ -9,15 +8,13 @@ import {
   Modal,
   Alert,
   Platform,
-  PermissionsAndroid,
-  ActivityIndicator,
 } from "react-native";
 import { AntDesign } from "@expo/vector-icons";
-import AddScheduleForm from "./AddScheduleForm";
+import AddScheduleForm from "../components/schedules/AddScheduleForm";
 import { useSchedules, ScheduleItem } from "../hooks/useSchedules";
-import DayView from "../components/DayView";
-import WeekView from "../components/WeekView";
-import ScheduleDetailModal from "../components/ScheduleDetailModal";
+import DayView from "../components/schedules/DayView";
+import WeekView from "../components/schedules/WeekView";
+import ScheduleDetailModal from "../components/schedules/ScheduleDetailModal";
 
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -26,10 +23,11 @@ import { CreateScheduleParams, ScheduleType } from "../database/schedule";
 
 
 const TYPE_STYLE: Record<string, { color: string; emoji: string; pillBg: string }> = {
-  "Lịch học thường xuyên": { color: "#1D4ED8", emoji: "📚", pillBg: "#DBEAFE" },
+  "Lịch học lý thuyết": { color: "#1D4ED8", emoji: "📚", pillBg: "#DBEAFE" },
+  "Lịch học thực hành": { color: "#047857", emoji: "🧪", pillBg: "#BBF7D0" },
   "Lịch thi": { color: "#DC2626", emoji: "📝", pillBg: "#FECACA" },
   "Lịch tạm ngưng": { color: "#D97706", emoji: "⏸", pillBg: "#FDE68A" },
-  "Lịch học bù": { color: "#047857", emoji: "📅", pillBg: "#BBF7D0" },
+  "Lịch học bù": { color: "#7C3AED", emoji: "📅", pillBg: "#EDE9FE" },
 };
 
 const DAY_NAMES = ["Chủ nhật","Thứ 2","Thứ 3","Thứ 4","Thứ 5","Thứ 6","Thứ 7"];
@@ -117,7 +115,7 @@ export default function ScheduleScreen() {
   function handleDetailDelete(item: ScheduleItem) {
     Alert.alert(
       "Xác nhận xóa",
-      "Bạn có chắc muốn xóa toàn bộ lịch của môn này?",
+      "Bạn có chắc muốn xóa của môn này?",
       [
         { text: "Hủy", style: "cancel" },
         {
@@ -135,7 +133,6 @@ export default function ScheduleScreen() {
   async function handleImportExcel() {
     if (importing) return;
     setImporting(true);
-    console.log("▶️ handleImportExcel bắt đầu");
 
     try {
       // 1) Mở file picker
@@ -146,11 +143,10 @@ export default function ScheduleScreen() {
         ],
       });
       if (res.canceled) {
-        console.log("⏭ User canceled");
+        setImporting(false);
         return;
       }
       const uri = res.assets[0].uri;
-      console.log("📄 Chosen URI:", uri);
 
       // 2) Đọc base64
       const b64 = await FileSystem.readAsStringAsync(uri, { encoding: "base64" });
@@ -163,7 +159,6 @@ export default function ScheduleScreen() {
         blankrows: false,
         raw: true,
       });
-      console.log("🔥 raw row count:", raw.length);
 
       // 4) Find header row
       const headerRowIndex = raw.findIndex(row =>
@@ -171,10 +166,10 @@ export default function ScheduleScreen() {
       );
       if (headerRowIndex < 0) {
         Alert.alert("Lỗi import", "Không tìm thấy header “Tên môn học”");
+        setImporting(false);
         return;
       }
       const header = raw[headerRowIndex].map(c => String(c).trim());
-      console.log("✅ Detected header:", header);
 
       // 5) Column indexes
       const findIdx = (name: string) => {
@@ -195,7 +190,6 @@ export default function ScheduleScreen() {
 
       // 6) Data rows
       const rows = raw.slice(headerRowIndex + 1);
-      console.log("🛠️ Data rows to import:", rows.length);
 
       // Helpers để parse Excel cells
       const pad2 = (n: number) => String(n).padStart(2, "0");
@@ -207,10 +201,15 @@ export default function ScheduleScreen() {
         }
         const s = String(v).trim();
         if (s.includes("/")) {
-          const [dd, mm, yyyy] = s.split("/").map(Number);
-          return [yyyy, mm, dd];
+          const parts = s.split("/").map(Number);
+          if (parts.length === 3) {
+            const [dd, mm, yyyy] = parts;
+            return [yyyy, mm, dd];
+          }
         }
-        return s.split("-").map(Number) as [number, number, number];
+        const parts = s.split("-").map(Number);
+        if (parts.length === 3) return parts as [number, number, number];
+        throw new Error("Không parse được ngày: " + s);
       }
       function toTimeParts(v: any): [number, number] {
         if (v instanceof Date) return [v.getHours(), v.getMinutes()];
@@ -218,34 +217,50 @@ export default function ScheduleScreen() {
           const total = Math.round(v * 24 * 60);
           return [Math.floor(total / 60), total % 60];
         }
-        return String(v).trim().split(":").map(Number) as [number, number];
+        const s = String(v).trim();
+        const parts = s.split(":").map(Number);
+        if (parts.length >= 2) return [parts[0], parts[1]];
+        throw new Error("Không parse được giờ: " + s);
       }
 
       // 7) Duyệt rows, import và collect conflict
       let addedCount = 0;
       const conflictMessages: string[] = [];
       const validTypes: ScheduleType[] = [
-        "Lịch học thường xuyên",
+        "Lịch học lý thuyết",
+        "Lịch học thực hành",
         "Lịch thi",
         "Lịch học bù",
         "Lịch tạm ngưng",
       ];
 
       for (let i = 0; i < rows.length; i++) {
-        const row         = rows[i];
-        const rawName     = String(row[idx.courseName] ?? "").trim();
-        const rawType     = String(row[idx.type]       ?? "").trim();
+        const row = rows[i];
+        const rawName = String(row[idx.courseName] ?? "").trim();
+        const rawType = String(row[idx.type] ?? "").trim();
+        const excelRowNumber = headerRowIndex + 2 + i; // for clearer error messages in original sheet numbering
+
         if (!rawName || !rawType) {
-          console.warn(`Dòng ${i+2} bỏ qua: thiếu môn hoặc loại.`);
           continue;
         }
 
-        // Validate and cast type
-        if (!validTypes.includes(rawType as ScheduleType)) {
-          console.warn(`Dòng ${i+2} bỏ qua: Loại lịch không hợp lệ "${rawType}".`);
+        // Nếu ô Loại lịch chứa nhiều giá trị (phân tách bằng ',' hoặc ';'), tách ra
+        const rawTypes = rawType
+          .split(/\s*[;,]\s*/)
+          .map((t: string) => t.trim())
+          .filter(Boolean);
+
+        // Normalize legacy type "Lịch học thường xuyên" -> "Lịch học lý thuyết"
+        const normTypes = rawTypes.map((t: string) =>
+          t === "Lịch học thường xuyên" ? "Lịch học lý thuyết" : t
+        );
+
+        // Lọc chỉ giữ các type hợp lệ
+        const validTypesArr = normTypes.filter((t: string) => validTypes.includes(t as ScheduleType));
+
+        if (validTypesArr.length === 0) {
           continue;
         }
-        const scheduleType = rawType as ScheduleType;
 
         // Raw date/time
         const sdRaw = row[idx.startDate];
@@ -253,56 +268,92 @@ export default function ScheduleScreen() {
         const stRaw = row[idx.startTime];
         const etRaw = row[idx.endTime];
         if (!sdRaw || !stRaw || !etRaw) {
-          console.warn(`Dòng ${i+2} bỏ qua: thiếu ngày/giờ.`);
           continue;
         }
 
         // Parse thành string
-        const [y, m, d]    = toDateParts(sdRaw);
-        const [sh, sm]     = toTimeParts(stRaw);
-        const [eh, em]     = toTimeParts(etRaw);
-        const startDate    = `${y}-${pad2(m)}-${pad2(d)}`;
-        const startTime    = `${pad2(sh)}:${pad2(sm)}`;
-        const endTime      = `${pad2(eh)}:${pad2(em)}`;
-
-        let params: CreateScheduleParams;
-        if (scheduleType === "Lịch học thường xuyên") {
-          const [ey, emn, eday] = edRaw
-            ? toDateParts(edRaw)
-            : [y, m, d];
-          const endDate = `${ey}-${pad2(emn)}-${pad2(eday)}`;
-          params = {
-            courseName:     rawName,
-            type:           scheduleType,
-            instructorName: row[idx.instructor]?.trim(),
-            location:       row[idx.location]?.trim(),
-            startDate,
-            endDate,
-            startTime,
-            endTime,
-          };
-        } else {
-          params = {
-            courseName:     rawName,
-            type:           scheduleType,
-            instructorName: row[idx.instructor]?.trim(),
-            location:       row[idx.location]?.trim(),
-            singleDate:     startDate,
-            startTime,
-            endTime,
-          };
+        let y: number, m: number, d: number;
+        let sh: number, sm: number, eh: number, em: number;
+        try {
+          [y, m, d] = toDateParts(sdRaw);
+          [sh, sm] = toTimeParts(stRaw);
+          [eh, em] = toTimeParts(etRaw);
+        } catch (ex: any) {
+          conflictMessages.push(`Dòng ${excelRowNumber}: Lỗi parse ngày/giờ (${ex?.message ?? ex})`);
+          continue;
         }
 
-        console.log(`→ import dòng ${i+2}:`, params);
-        try {
-          await addSchedule(params);
-          addedCount++;
-        } catch (e: any) {
-          const msg = e.message.includes("Xung đột")
-            ? `Dòng ${i+2}: ${e.message}`
-            : `Dòng ${i+2}: Không thể thêm (${e.message})`;
-          conflictMessages.push(msg);
-          console.warn(msg);
+        const startDate = `${y}-${pad2(m)}-${pad2(d)}`;
+        const startTime = `${pad2(sh)}:${pad2(sm)}`;
+        const endTime = `${pad2(eh)}:${pad2(em)}`;
+
+        // Tạo params cho từng loại hợp lệ
+        for (const scheduleTypeRaw of validTypesArr) {
+          const scheduleType = scheduleTypeRaw as ScheduleType;
+          let params: CreateScheduleParams;
+
+          if (scheduleType === "Lịch học lý thuyết") {
+            const [ey, emn, eday] = edRaw ? toDateParts(edRaw) : [y, m, d];
+            const endDate = `${ey}-${pad2(emn)}-${pad2(eday)}`;
+            params = {
+              courseName: rawName,
+              type: scheduleType,
+              instructorName: row[idx.instructor]?.trim(),
+              location: row[idx.location]?.trim(),
+              startDate,
+              endDate,
+              startTime,
+              endTime,
+            };
+          } else if (scheduleType === "Lịch học thực hành") {
+            // Nếu thực hành có endDate, xử lý như recurring; nếu không, coi là singleDate
+            if (edRaw) {
+              const [ey, emn, eday] = toDateParts(edRaw);
+              const endDate = `${ey}-${pad2(emn)}-${pad2(eday)}`;
+              params = {
+                courseName: rawName,
+                type: scheduleType,
+                instructorName: row[idx.instructor]?.trim(),
+                location: row[idx.location]?.trim(),
+                startDate,
+                endDate,
+                startTime,
+                endTime,
+              };
+            } else {
+              params = {
+                courseName: rawName,
+                type: scheduleType,
+                instructorName: row[idx.instructor]?.trim(),
+                location: row[idx.location]?.trim(),
+                singleDate: startDate,
+                startTime,
+                endTime,
+              };
+            }
+          } else {
+            // Lịch thi, Lịch học bù, Lịch tạm ngưng: dùng singleDate
+            params = {
+              courseName: rawName,
+              type: scheduleType,
+              instructorName: row[idx.instructor]?.trim(),
+              location: row[idx.location]?.trim(),
+              singleDate: startDate,
+              startTime,
+              endTime,
+            };
+          }
+
+          try {
+            await addSchedule(params);
+            addedCount++;
+          } catch (e: any) {
+            const msg = e?.message && String(e.message).includes("Xung đột")
+              ? `Dòng ${excelRowNumber}: ${e.message}`
+              : `Dòng ${excelRowNumber}: Không thể thêm (${e?.message ?? e})`;
+            conflictMessages.push(msg);
+            console.warn(msg);
+          }
         }
       }
 
@@ -310,14 +361,14 @@ export default function ScheduleScreen() {
       await loadSchedules();
       let alertMsg = `Đã thêm ${addedCount} buổi.`;
       if (conflictMessages.length) {
-        alertMsg += `\nKhông thêm được ${conflictMessages.length} buổi do trùng:\n`
+        alertMsg += `\nKhông thêm được ${conflictMessages.length} buổi do trùng hoặc lỗi:\n`
                   + conflictMessages.join("\n");
       }
       Alert.alert("Kết quả import", alertMsg);
 
     } catch (err: any) {
       console.error("❌ handleImportExcel error:", err);
-      Alert.alert("Lỗi import Excel", err.message);
+      Alert.alert("Lỗi import Excel", err?.message ?? String(err));
     } finally {
       setImporting(false);
     }
@@ -416,7 +467,7 @@ export default function ScheduleScreen() {
             style={styles.importButton}
             onPress={handleImportExcel}
           >
-            <AntDesign name="upload" size={20} color="#1D4ED8" />
+            <AntDesign name="download" size={20} color="#1D4ED8" />
             <Text style={styles.importText}>Import</Text>
           </TouchableOpacity>
         
@@ -564,7 +615,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   subjectText: { flex: 1, fontWeight: "bold", fontSize: 16, color: "#111" },
-  typeTag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, height: 22 },
+  typeTag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, height: 25 },
   infoText: { fontSize: 14, color: "#374151", marginTop: 2 },
   bottomRow: {
     flexDirection: "row",

@@ -1,4 +1,4 @@
-// components/AnimatedToggle.tsx
+// components/schedules/AnimatedToggle.tsx
 import React, { useRef, useEffect } from "react";
 import {
   View,
@@ -14,9 +14,21 @@ type Props = {
   value: "day" | "week" | "month";
   onChange: (v: "day" | "week" | "month") => void;
   style?: ViewStyle;
+  accentColor?: string;
+  surfaceColor?: string;
+  textColor?: string;
+  activeTextColor?: string;
 };
 
-export function AnimatedToggle({ value, onChange }: Props) {
+export function AnimatedToggle({
+  value,
+  onChange,
+  style,
+  accentColor = "#2563EB",
+  surfaceColor = "#f3f4f6",
+  textColor = "#374151",
+  activeTextColor = "#ffffff",
+}: Props) {
   const progress = useRef(
     new Animated.Value(value === "day" ? 0 : value === "week" ? 1 : 2)
   ).current;
@@ -31,33 +43,34 @@ export function AnimatedToggle({ value, onChange }: Props) {
     }).start();
   }, [value, progress]);
 
-  // translateX tính theo phần trăm của container cố định (width: 240)
+  // translateX tính theo phần trăm của container (width cố định 240)
   const translateX = progress.interpolate({
     inputRange: [0, 2],
     outputRange: ["0%", "200%"],
   });
 
+  // animated background and text color interpolation per index, but we fallback to props
   const bgInterp = (index: number) =>
     progress.interpolate({
       inputRange: [index - 0.6, index, index + 0.6],
-      outputRange: ["#f3f4f6", "#2563EB", "#f3f4f6"],
+      outputRange: [surfaceColor, accentColor, surfaceColor],
       extrapolate: "clamp",
     });
 
   const colorInterp = (index: number) =>
     progress.interpolate({
       inputRange: [index - 0.6, index, index + 0.6],
-      outputRange: ["#374151", "#ffffff", "#374151"],
+      outputRange: [textColor, activeTextColor, textColor],
       extrapolate: "clamp",
     });
 
   return (
-    <View style={atStyles.container}>
-      <View style={atStyles.row}>
+    <View style={[atStyles.container, style]}>
+      <View style={[atStyles.row, { backgroundColor: surfaceColor }]}>
         <Animated.View
           style={[
             atStyles.highlight,
-            { transform: [{ translateX }], backgroundColor: "#2563EB" },
+            { transform: [{ translateX }], backgroundColor: accentColor },
           ]}
         />
         {["day", "week", "month"].map((k, i) => (
@@ -85,7 +98,6 @@ const atStyles = StyleSheet.create({
     width: 240,
     height: 36,
     borderRadius: 10,
-    backgroundColor: "#f3f4f6",
     overflow: "hidden",
     flexDirection: "row",
     position: "relative",

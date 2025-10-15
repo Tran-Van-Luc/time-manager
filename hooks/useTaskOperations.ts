@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { refreshNotifications } from '../utils/notificationScheduler';
 import { Alert } from "react-native";
 import { useTasks } from "./useTasks";
 import { useReminders } from "./useReminders";
@@ -12,6 +13,8 @@ import {
 } from "../utils/taskValidation";
 import type { Recurrence } from "../types/Recurrence";
 import type { Task } from "../types/Task";
+import { setHabitMeta } from "../utils/habits";
+import { getRecurrenceById } from "../database/recurrence";
 type ScheduleLike = { startAt: Date; endAt: Date; subject?: string };
 
 interface NewTaskData {
@@ -69,20 +72,38 @@ const parseConflictMessage = (msg: string): ConflictBlock[] => {
   return blocks;
 };
 
-export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], options?: UseTaskOpsOptions) => {
+// Allow injecting existing reminders context to avoid duplicate state (fixes issue when adding reminder while editing)
+interface RemindersContext {
+  reminders: any[];
+  addReminder: (...args: any[]) => Promise<any>;
+  editReminder: (...args: any[]) => Promise<any>;
+  removeReminder: (...args: any[]) => Promise<any>;
+  loadReminders: () => Promise<any>;
+}
+
+export const useTaskOperations = (
+  tasks: Task[],
+  schedules: ScheduleLike[],
+  options?: UseTaskOpsOptions,
+  injectedReminders?: RemindersContext
+) => {
   const { addTask, editTask: updateTask, removeTask } = useTasks();
-  const {
-    reminders,
-    addReminder,
-    editReminder,
-    removeReminder,
-    loadReminders,
-  } = useReminders();
+
+  // If parent supplies reminders context, reuse it; else create internal (backward compatible)
+  const internalReminders = useReminders();
+  const remindersCtx = injectedReminders || internalReminders;
+  const { reminders, addReminder, editReminder, removeReminder, loadReminders } = remindersCtx as RemindersContext & { reminders: any[] };
+
   const { addRecurrence, editRecurrence, removeRecurrence, recurrences, loadRecurrences } = useRecurrences();
 
-  // Load recurrences once so we can compare with existing recurring tasks
+  // Load recurrences (and reminders if using internal) once
   useEffect(() => {
     if (loadRecurrences) loadRecurrences();
+    if (!injectedReminders && loadReminders) {
+      // Only auto-load reminders if we're using the internal context
+      loadReminders();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const parseJsonArray = (val?: string): string[] => {
@@ -102,6 +123,10 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
     recurrences.forEach(r => { if (r.id != null) recMap[r.id] = r; });
     for (const t of tasks) {
       if (!t.recurrence_id) continue;
+      // If the base task is already completed, ignore its recurring occurrences
+      // when building existing occurrences for conflict checks. This prevents
+      // completed recurring tasks from triggering conflicts when adding new tasks.
+      if ((t as any).status === 'completed') continue;
       if (excludeTaskId && t.id === excludeTaskId) continue;
       const rec = recMap[t.recurrence_id];
       if (!rec) continue;
@@ -120,7 +145,7 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
         interval: rec.interval || 1,
         daysOfWeek: parseJsonArray(rec.days_of_week),
         daysOfMonth: parseJsonArray(rec.day_of_month),
-        endDate: rec.end_date,
+        endDate: rec.end_date ? (() => { const d = new Date(rec.end_date); d.setHours(23,59,59,999); return d.getTime(); })() : undefined,
       } as any;
       let occs: Array<{ startAt: number; endAt: number }> = [];
       try {
@@ -304,19 +329,27 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
         return false;
       }
 
-      // Recurrence must have end date (yêu cầu: bắt buộc người dùng chọn ngày kết thúc)
+      // Recurrence end date requirement: always require user input
       if (recurrenceConfig?.enabled && !recurrenceConfig.endDate) {
         if (options?.onNotify) options.onNotify({ tone:'warning', title:'Thiếu thông tin', message:'Vui lòng chọn ngày kết thúc cho lặp lại' }); else Alert.alert("Lỗi", "Vui lòng chọn ngày kết thúc cho lặp lại");
         return false;
       }
 
-      // Check conflicts (single / recurring) với cách trình bày gom block
+      // Check conflicts (single / recurring) với cách trình bày gom block. Với task KHÔNG lặp cũng phải kiểm tra giao với các task lặp khác.
       if (startAt && endAt) {
         let conflictRes: { hasConflict: boolean; conflictMessage: string };
         if (recurrenceConfig?.enabled) {
           conflictRes = buildRecurringConflictMessage(startAt, endAt, recurrenceConfig);
         } else {
           conflictRes = checkTimeConflicts(startAt, endAt, tasks, (schedules as unknown as any));
+          // Bổ sung kiểm tra giao với các lần lặp của task khác (recurring) – trước đây chỉ làm khi chính task là recurring
+          const recurringConflicts = checkConflictsWithExistingRecurring([{ start: startAt, end: endAt }]);
+          if (recurringConflicts.length) {
+            const extraMsg = recurringConflicts.join('\n');
+            conflictRes = conflictRes.hasConflict
+              ? { hasConflict: true, conflictMessage: `${conflictRes.conflictMessage}\n\n${extraMsg}` }
+              : { hasConflict: true, conflictMessage: extraMsg };
+          }
         }
         if (conflictRes.hasConflict) {
           const formatted = compressSameDayRanges(conflictRes.conflictMessage);
@@ -360,7 +393,18 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
             : undefined,
           start_date: startAt,
           end_date: recurrenceConfig.endDate,
+          auto_complete_expired: (global as any).__habitFlags?.auto ? 1 : 0,
+          merge_streak: (global as any).__habitFlags?.merge ? 1 : 0,
         });
+        // Persist habit meta to record when auto-complete was enabled for
+        // newly created recurrence. If auto flag is true, set enabledAt to now.
+        try {
+          if (recurrence_id && (global as any).__habitFlags?.auto) {
+            await setHabitMeta(recurrence_id, { auto: true, merge: !!(global as any).__habitFlags?.merge, enabledAt: Date.now() } as any);
+          } else if (recurrence_id) {
+            await setHabitMeta(recurrence_id, { auto: !!(global as any).__habitFlags?.auto, merge: !!(global as any).__habitFlags?.merge } as any);
+          }
+        } catch {}
       }
 
       // Add task
@@ -389,7 +433,9 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
         }
       }
 
-      if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã thêm công việc!' }); else Alert.alert("Thành công", "Đã thêm công việc!");
+  // Lập lịch lại thông báo sau khi thêm
+  try { await refreshNotifications(); } catch {}
+  if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã thêm công việc!' }); else Alert.alert("Thành công", "Đã thêm công việc!");
       return true;
     } catch (error) {
       if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Không thể thêm công việc' }); else Alert.alert("Lỗi", "Không thể thêm công việc");
@@ -481,25 +527,27 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
         return false;
       }
 
-      // Recurrence must have end date when enabled
+      // Recurrence end date requirement (edit): if user didn't set, default softly to end-of-day of startAt
       if (recurrenceConfig?.enabled && !recurrenceConfig.endDate) {
-        if (options?.onNotify) options.onNotify({ tone:'warning', title:'Thiếu thông tin', message:'Vui lòng chọn ngày kết thúc cho lặp lại' }); else Alert.alert("Lỗi", "Vui lòng chọn ngày kết thúc cho lặp lại");
-        return false;
+        const tmp = new Date(startAt!);
+        tmp.setHours(23,59,59,999);
+        recurrenceConfig.endDate = tmp.getTime();
       }
 
-      // Conflicts (exclude itself) — dùng builder gom block như lúc thêm
+      // Conflicts (exclude itself) — dùng builder gom block như lúc thêm. Với task không lặp vẫn phải xét các occurrence của task lặp khác.
       if (startAt && endAt) {
         let conflictRes: { hasConflict: boolean; conflictMessage: string };
         if (recurrenceConfig?.enabled) {
           conflictRes = buildRecurringConflictMessage(startAt, endAt, recurrenceConfig, taskId);
         } else {
-          conflictRes = checkTimeConflicts(
-            startAt,
-            endAt,
-            tasks,
-            (schedules as unknown as any),
-            taskId
-          );
+          conflictRes = checkTimeConflicts(startAt, endAt, tasks, (schedules as unknown as any), taskId);
+          const recurringConflicts = checkConflictsWithExistingRecurring([{ start: startAt, end: endAt }], taskId);
+          if (recurringConflicts.length) {
+            const extraMsg = recurringConflicts.join('\n');
+            conflictRes = conflictRes.hasConflict
+              ? { hasConflict: true, conflictMessage: `${conflictRes.conflictMessage}\n\n${extraMsg}` }
+              : { hasConflict: true, conflictMessage: extraMsg };
+          }
         }
         if (conflictRes.hasConflict) {
           const formatted = compressSameDayRanges(conflictRes.conflictMessage);
@@ -542,16 +590,47 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
             : undefined,
           start_date: startAt,
           end_date: recurrenceConfig.endDate,
+          auto_complete_expired: (global as any).__habitFlags?.auto ? 1 : 0,
+          merge_streak: (global as any).__habitFlags?.merge ? 1 : 0,
         };
 
         if (recurrence_id) {
-          await editRecurrence(recurrence_id, payload);
+          try {
+            await editRecurrence(recurrence_id, payload);
+            // Verify that the recurrence still exists (update may be a no-op if row was deleted)
+            try {
+              const exists = await getRecurrenceById(recurrence_id);
+              if (!exists) {
+                recurrence_id = await addRecurrence(payload);
+              }
+            } catch {
+              // On any fetch error, fallback to creating a new recurrence
+              recurrence_id = await addRecurrence(payload);
+            }
+          } catch {
+            // If the old recurrence was removed or stale, create a new one and re-link
+            recurrence_id = await addRecurrence(payload);
+          }
         } else {
           recurrence_id = await addRecurrence(payload);
         }
+        try { if (loadRecurrences) await loadRecurrences(); } catch {}
+        // Persist habit meta to record when auto-complete was enabled. This
+        // prevents retroactive marking of past occurrences when the user turns
+        // on auto-complete during an edit. Only set enabledAt when auto flag is true.
+        try {
+          if (recurrence_id && (global as any).__habitFlags?.auto) {
+            // store epoch ms of now as enabledAt
+            await setHabitMeta(recurrence_id, { auto: true, merge: !!(global as any).__habitFlags?.merge, enabledAt: Date.now() } as any);
+          } else if (recurrence_id) {
+            // ensure meta reflects current flags (clear enabledAt when auto disabled)
+            await setHabitMeta(recurrence_id, { auto: !!(global as any).__habitFlags?.auto, merge: !!(global as any).__habitFlags?.merge } as any);
+          }
+        } catch {}
       } else if (recurrence_id) {
         await removeRecurrence(recurrence_id);
         recurrence_id = undefined;
+        try { if (loadRecurrences) await loadRecurrences(); } catch {}
       }
 
       // Update task
@@ -595,7 +674,9 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
         await loadReminders();
       }
 
-      if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã cập nhật công việc!' }); else Alert.alert("Thành công", "Đã cập nhật công việc!");
+  // Lập lịch lại thông báo sau khi sửa
+  try { await refreshNotifications(); } catch {}
+  if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã cập nhật công việc!' }); else Alert.alert("Thành công", "Đã cập nhật công việc!");
       return true;
     } catch (error) {
       if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Không thể cập nhật công việc' }); else Alert.alert("Lỗi", "Không thể cập nhật công việc");
@@ -619,6 +700,7 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
             }
           await loadReminders();
           await removeTask(taskId);
+          try { await refreshNotifications(); } catch {}
           if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã xóa công việc!' }); else Alert.alert("Thành công", "Đã xóa công việc!");
           resolve(true);
         } catch (error) {
