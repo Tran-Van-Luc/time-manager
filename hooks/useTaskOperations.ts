@@ -551,21 +551,21 @@ export const useTaskOperations = (
         }
         if (conflictRes.hasConflict) {
           const formatted = compressSameDayRanges(conflictRes.conflictMessage);
-            const proceed = await new Promise<boolean>((resolve)=>{
-              if (options?.onConflict) {
-                options.onConflict({ raw: formatted, blocks: parseConflictMessage(formatted), resolve });
-              } else {
-                Alert.alert(
-                  'Trùng thời gian ⛔',
-                  `${formatted}\nBạn có muốn tiếp tục lưu không?`,
-                  [
-                    { text: 'Hủy', style: 'cancel', onPress: () => resolve(false) },
-                    { text: 'Tiếp tục', style: 'destructive', onPress: () => resolve(true) },
-                  ]
-                );
-              }
-            });
-            if (!proceed) return false;
+          const proceed = await new Promise<boolean>((resolve)=>{
+            if (options?.onConflict) {
+              options.onConflict({ raw: formatted, blocks: parseConflictMessage(formatted), resolve });
+            } else {
+              Alert.alert(
+                'Trùng thời gian ⛔',
+                `${formatted}\nBạn có muốn tiếp tục lưu không?`,
+                [
+                  { text: 'Hủy', style: 'cancel', onPress: () => resolve(false) },
+                  { text: 'Tiếp tục', style: 'destructive', onPress: () => resolve(true) },
+                ]
+              );
+            }
+          });
+          if (!proceed) return false;
         }
       }
 

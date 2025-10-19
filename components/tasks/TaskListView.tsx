@@ -224,6 +224,11 @@ export default function TaskListView({
             <Text style={{ fontWeight: '600', fontSize: 16 }}>{dateLabel}</Text>
           </TouchableOpacity>
         )}
+        {!showAll && (
+          <TouchableOpacity onPress={goNextDay} style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}>
+            <Text style={{ fontSize: 18 }}>{'>'}</Text>
+          </TouchableOpacity>
+        )}
         <View style={{ position: 'relative', marginHorizontal: 6 }}>
           <TouchableOpacity onLayout={(e) => setTodayBtnWidth(e.nativeEvent.layout.width)} onPress={onPressToday} style={{ paddingVertical: 6, paddingHorizontal: 16, paddingRight: 40, borderWidth: 1, borderColor: (isTodaySelected && !showAll) ? '#007AFF' : (showAll ? '#007AFF' : '#ddd'), borderRadius: 20, backgroundColor: (isTodaySelected && !showAll) ? '#007AFF' : '#f5f5f5' }}>
             <Text style={{ fontSize: 16, fontWeight: '600', color: (isTodaySelected && !showAll) ? '#fff' : '#000' }}>{showAll ? 'Toàn bộ' : 'Hôm nay'}</Text>
@@ -251,11 +256,6 @@ export default function TaskListView({
             />
           </View>
         </View>
-        {!showAll && (
-          <TouchableOpacity onPress={goNextDay} style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}>
-            <Text style={{ fontSize: 18 }}>{'>'}</Text>
-          </TouchableOpacity>
-        )}
       </View>
       {showDatePicker && (
         <DateTimePicker

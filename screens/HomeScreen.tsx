@@ -212,7 +212,18 @@ export default function HomeScreen() {
           try { occs = generateOccurrences(baseStart, endMs, recConfig); } catch { occs = [{ startAt: baseStart, endAt: endMs }]; }
 
           for (const occ of occs) {
-            if (occ.endAt < monthStart.getTime() || occ.startAt > monthEnd.getTime()) continue;
+                if (occ.endAt < monthStart.getTime() || occ.startAt > monthEnd.getTime()) continue;
+                // If the base task recorded a completion_diff_minutes < 0 (completed early)
+                // compute the original end and hide occurrences that fall in the interval
+                // (completed_at, originalEnd] because those were effectively completed early.
+                const completedAtStr = (t as any).completed_at;
+                const completionDiffMin = (t as any).completion_diff_minutes;
+                if (completedAtStr && typeof completionDiffMin === 'number' && completionDiffMin < 0) {
+                  const completedMs = Date.parse(completedAtStr);
+                  const originalEndMs = completedMs - completionDiffMin * 60 * 1000; // completionDiffMin is negative
+                  // hide occurrences strictly after completedAt and up to original end
+                  if (occ.startAt > completedMs && occ.startAt <= originalEndMs) continue;
+                }
             const occStart = new Date(occ.startAt);
             const occEnd = new Date(occ.endAt);
             for (let d = new Date(startOfDay(occStart)); d <= endOfDay(occEnd); d.setDate(d.getDate() + 1)) {

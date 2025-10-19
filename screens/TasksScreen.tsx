@@ -6,7 +6,7 @@ import {
   TextInput,
   TouchableOpacity,
   Modal,
-  ScrollView,
+  ActivityIndicator, // Thêm ActivityIndicator
 } from "react-native";
 import { useTasks } from "../hooks/useTasks";
 import { useReminders } from "../hooks/useReminders";
@@ -14,10 +14,7 @@ import { useRecurrences } from "../hooks/useRecurrences";
 import { useSchedules } from "../hooks/useSchedules";
 import { useTaskOperations } from "../hooks/useTaskOperations";
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as XLSX from 'xlsx';
-import * as Sharing from 'expo-sharing';
-import { Buffer } from 'buffer';
+import { parseFile, exportTemplate, ParsedRow, ParseResult } from '../components/tasks/importHelpers';
 import { checkRecurringConflicts, checkTimeConflicts } from "../utils/taskValidation";
 import ConflictModal from "../components/tasks/ConflictModal";
 import TaskAlertModal from "../components/tasks/TaskAlertModal";
@@ -26,6 +23,7 @@ import TaskModal from "../components/tasks/TaskModal";
 import TaskDetailModal from "../components/tasks/TaskDetailModal";
 import TaskListView from "../components/tasks/TaskListView";
 import TaskWeekView from "../components/tasks/TaskWeekView";
+import ImportDialog from "../components/tasks/ImportDialog"; // Tách dialog ra riêng
 import type { Task } from "../types/Task";
 import {
   PRIORITY_OPTIONS,
@@ -386,55 +384,13 @@ export default function TasksScreen() {
     return () => clearInterval(interval);
   }, [tasks]);
 
-  // Helpers for import/export template (Vietnamese time format)
-  const parseViDateTime = (s: string): number => {
-    if (!s) return NaN;
-    const m = s.trim().match(/^(\d{1,2}):(\d{2})-(\d{2})\/(\d{2})\/(\d{4})$/);
-    if (!m) return NaN;
-    const [, hh, mm, dd, MM, yyyy] = m;
-    const d = new Date(
-      Number(yyyy),
-      Number(MM) - 1,
-      Number(dd),
-      Number(hh),
-      Number(mm),
-      0,
-      0
-    );
-    return d.getTime();
-  };
-
-  // ===== Excel import/export state & helpers =====
-  type ParsedRow = {
-    title: string;
-    description?: string;
-    start_at?: number;
-    end_at?: number;
-    priority?: 'low'|'medium'|'high';
-    status?: 'pending'|'in-progress'|'completed';
-    reminderEnabled?: boolean;
-    reminderTime?: number;
-    reminderMethod?: 'notification'|'alarm';
-    repeatEnabled?: boolean;
-    repeatFrequency?: 'daily'|'weekly'|'monthly'|'yearly';
-    repeatInterval?: number;
-    repeatDaysOfWeek?: string[];
-    repeatDaysOfMonth?: string[];
-    repeatEndDate?: number;
-    yearlyCount?: number;
-    habitAuto?: boolean;
-    habitMerge?: boolean;
-    meta?: {
-      usedCombined?: boolean;
-      validStartDate?: boolean;
-      validStartTime?: boolean;
-      validEndTime?: boolean;
-    };
-  };
-
   const [importMode, setImportMode] = useState(false);
   const [importRows, setImportRows] = useState<ParsedRow[]>([]);
   const [importIndex, setImportIndex] = useState(0);
+  const [showAddChoice, setShowAddChoice] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importDialogPath, setImportDialogPath] = useState<string>('');
+  const [importCandidateUri, setImportCandidateUri] = useState<string | null>(null);
 
   const parseBooleanVi = (s: any): boolean => {
     if (typeof s === 'boolean') return s;
@@ -486,121 +442,6 @@ export default function TasksScreen() {
     const mm = parseInt(m[2], 10);
     if (isNaN(h) || isNaN(mm) || h < 0 || h > 23 || mm < 0 || mm > 59) return undefined;
     return { h, m: mm };
-  };
-
-  const combineDateTimeMs = (dateMs?: number, time?: { h: number; m: number }): number | undefined => {
-    if (dateMs == null || !time) return undefined;
-    const d = new Date(dateMs);
-    d.setHours(time.h, time.m, 0, 0);
-    return d.getTime();
-  };
-  const mapDowVi = (token: string): string | null => {
-    const t = token.trim().toLowerCase();
-    if (t === 't2' || t.includes('thứ 2') || t.includes('thu 2')) return 'Mon';
-    if (t === 't3' || t.includes('thứ 3') || t.includes('thu 3')) return 'Tue';
-    if (t === 't4' || t.includes('thứ 4') || t.includes('thu 4')) return 'Wed';
-    if (t === 't5' || t.includes('thứ 5') || t.includes('thu 5')) return 'Thu';
-    if (t === 't6' || t.includes('thứ 6') || t.includes('thu 6')) return 'Fri';
-    if (t === 't7' || t.includes('thứ 7') || t.includes('thu 7')) return 'Sat';
-    if (t === 'cn' || t.includes('chủ nhật') || t.includes('chu nhat')) return 'Sun';
-    return null;
-  };
-  const parseDowsVi = (s: any): string[] => {
-    if (!s) return [];
-    return String(s).split(',').map(x=>mapDowVi(x)).filter((x): x is string => !!x);
-  };
-  const parseDomList = (s: any): string[] => {
-    if (!s) return [];
-    return String(s).split(',').map(t=> t.trim()).filter(Boolean);
-  };
-
-  // Normalize header: remove diacritics & parentheses notes
-  const normalize = (s: string) => s
-    .toLowerCase()
-    .normalize('NFD').replace(/\p{Diacritic}/gu, '')
-    .replace(/\([^)]*\)/g, '')
-    .replace(/[:]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const getCell = (row: any, primary: string, aliases: string[] = []): any => {
-    const target = normalize(primary);
-    const keys = Object.keys(row);
-    for (const k of keys) {
-      const nk = normalize(String(k));
-      if (nk === target || aliases.some(a => normalize(a) === nk)) return row[k];
-    }
-    return undefined;
-  };
-
-  const mapRow = (row: any): ParsedRow => {
-    const title = getCell(row, 'Tiêu đề', ['Tieu de','Title']) || '';
-    const description = getCell(row, 'Mô tả', ['Mo ta','Description']) || '';
-    // New columns
-    const startDateMs = parseDateOnlyVi(getCell(row, 'Ngày bắt đầu', ['Ngay bat dau']));
-    const startTimeObj = parseTimeVi(getCell(row, 'Giờ bắt đầu', ['Gio bat dau']));
-    const endTimeObj = parseTimeVi(getCell(row, 'Giờ kết thúc', ['Gio ket thuc']));
-  let start_at = combineDateTimeMs(startDateMs, startTimeObj);
-  let end_at = combineDateTimeMs(startDateMs, endTimeObj);
-    const meta = {
-      hasStartDate: getCell(row, 'Ngày bắt đầu', ['Ngay bat dau']) != null && String(getCell(row, 'Ngày bắt đầu', ['Ngay bat dau']) || '').trim() !== '',
-      hasStartTime: getCell(row, 'Giờ bắt đầu', ['Gio bat dau']) != null && String(getCell(row, 'Giờ bắt đầu', ['Gio bat dau']) || '').trim() !== '',
-      hasEndTime: getCell(row, 'Giờ kết thúc', ['Gio ket thuc']) != null && String(getCell(row, 'Giờ kết thúc', ['Gio ket thuc']) || '').trim() !== '',
-      validStartDate: startDateMs != null,
-      validStartTime: !!startTimeObj,
-      validEndTime: !!endTimeObj,
-      usedCombined: false,
-    };
-    // Fallback to old combined columns if new ones missing/invalid
-    if ((start_at == null || end_at == null) && (!meta.hasStartDate || !meta.hasStartTime || !meta.hasEndTime)) {
-      const combinedStart = getCell(row, 'Bắt đầu', ['Bat dau','Start']);
-      const combinedEnd = getCell(row, 'Kết thúc', ['Ket thuc','End']);
-      const s = parseViDateTime(String(combinedStart || ''));
-      const e = parseViDateTime(String(combinedEnd || ''));
-      if (!isNaN(s)) start_at = s;
-      if (!isNaN(e)) end_at = e;
-      if (!isNaN(s) || !isNaN(e)) meta.usedCombined = true;
-    }
-  const priority = mapPriorityVi(getCell(row, 'Mức độ', ['Muc do','Priority']));
-    const reminderEnabled = parseBooleanVi(getCell(row, 'Bật nhắc nhở', ['Bat nhac nho','Reminder']));
-    const reminderTime = parseLeadVi(getCell(row, 'Nhắc trước', ['Nhac truoc','Reminder time']));
-    const reminderMethod = ((): 'notification'|'alarm' => {
-      const v = String(getCell(row, 'Phương thức nhắc', ['Phuong thuc nhac','Reminder method']) || '').toLowerCase();
-      if (v.includes('chuông') || v.includes('chuong') || v.includes('alarm')) return 'alarm';
-      return 'notification';
-    })();
-    const repeatEnabled = parseBooleanVi(getCell(row, 'Bật lặp lại', ['Lap lai','Repeat']));
-    const repeatFrequency = mapFrequencyVi(getCell(row, 'Lặp theo', ['Lap theo','Frequency']));
-  const repeatInterval = 1; // fixed default, no column needed
-    const repeatDaysOfWeek = parseDowsVi(getCell(row, 'Ngày trong tuần', ['Ngay trong tuan','DOW']));
-    const repeatDaysOfMonth = parseDomList(getCell(row, 'Ngày trong tháng', ['Ngay trong thang','DOM']));
-    const yearlyCountRaw = getCell(row, 'Số lần lặp', ['So lan lap','Yearly count']);
-    const yearlyCount = yearlyCountRaw ? Math.max(1, Math.min(100, parseInt(String(yearlyCountRaw),10) || 1)) : undefined;
-    const repeatEndDate = parseDateOnlyVi(getCell(row, 'Ngày kết thúc lặp', ['Ngay ket thuc lap','Repeat end']));
-    const habitAuto = parseBooleanVi(getCell(row, 'Tự động hoàn thành khi hết hạn', ['Tu dong hoan thanh khi het han','Auto complete expired']));
-    const habitMerge = parseBooleanVi(getCell(row, 'Gộp nhiều ngày', ['Gop nhieu ngay','Merge streak']));
-
-    const startNum = typeof start_at === 'number' ? start_at : undefined;
-    const endNum = typeof end_at === 'number' ? end_at : undefined;
-    return {
-      title: String(title),
-      description: String(description),
-      start_at: startNum,
-      end_at: endNum,
-  priority,
-      reminderEnabled,
-      reminderTime,
-      reminderMethod,
-      repeatEnabled,
-      repeatFrequency,
-      repeatInterval,
-      repeatDaysOfWeek,
-      repeatDaysOfMonth,
-      repeatEndDate,
-      yearlyCount,
-      habitAuto,
-      habitMerge,
-      meta,
-    };
   };
 
   const hydrateFromRow = (r: ParsedRow) => {
@@ -703,28 +544,162 @@ export default function TasksScreen() {
     } catch {}
     return errs;
   };
-
   const handlePickExcel = async () => {
+    // Open document picker and import selected file
     try {
       const res = await DocumentPicker.getDocumentAsync({ type: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.ms-excel'] });
       if (res.canceled) return;
       const file = res.assets[0];
-      const base64 = await FileSystem.readAsStringAsync(file.uri, { encoding: 'base64' as any });
-      const wb = XLSX.read(base64, { type: 'base64' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
-      const mapped = (rows as any[]).map(mapRow);
-      if (!mapped.length) {
+      await handleImportFromUri(file.uri);
+    } catch (e) {
+      setAlertState({ visible:true, tone:'error', title:'Lỗi nhập tệp', message: 'Không thể đọc tệp Excel. Vui lòng kiểm tra định dạng.', buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
+    }
+  };
+
+  const handleImportFromUri = async (uri: string) => {
+    try {
+      const parsed = await parseFile(uri);
+      if (!parsed) {
         setAlertState({ visible:true, tone:'warning', title:'Tệp rỗng', message:'Không tìm thấy dữ liệu trong file Excel.', buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
         return;
       }
-      setImportRows(mapped);
-      setImportIndex(0);
-      setImportMode(true);
-      hydrateFromRow(mapped[0]);
-      setShowModal(true);
-    } catch (e) {
-      setAlertState({ visible:true, tone:'error', title:'Lỗi nhập tệp', message: 'Không thể đọc tệp Excel. Vui lòng kiểm tra định dạng.', buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
+      if (parsed.errors && parsed.errors.length > 0) {
+        setAlertState({ visible:true, tone:'error', title:'Lỗi nhập tệp', message: parsed.errors.join('\n'), buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
+        return;
+      }
+      const mapped = parsed.rows;
+      if (!mapped || mapped.length === 0) {
+        setAlertState({ visible:true, tone:'warning', title:'Tệp rỗng', message:'Không tìm thấy dữ liệu trong file Excel.', buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
+        return;
+      }
+
+      // Batch-validate rows first (no partial adds). Collect per-row errors keyed by original Excel row number.
+      const rowErrors: { row: number; errors: string[] }[] = [];
+      const syntheticTasks: any[] = [];
+  // Set global flag so handleAddTask runs in non-interactive (batch) mode
+  (global as any).__skipTaskPrompts = true;
+  for (const r of mapped) {
+        const errs: string[] = [];
+        if (!r.title || !r.title.trim()) errs.push('Thiếu tiêu đề công việc');
+        // basic time checks
+        if (!r.start_at) errs.push('Thiếu hoặc sai định dạng Ngày/Giờ bắt đầu');
+        if (!r.end_at) errs.push('Thiếu hoặc sai định dạng Giờ kết thúc');
+        if (r.start_at && r.end_at && r.end_at <= r.start_at) errs.push('Ngày giờ kết thúc phải sau ngày giờ bắt đầu');
+
+        // Repeat adjustments and checks similar to computeImportErrors
+        if (r.repeatEnabled) {
+          if (r.repeatFrequency === 'weekly' && (!r.repeatDaysOfWeek || r.repeatDaysOfWeek.length === 0) && r.start_at) {
+            const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(r.start_at).getDay()];
+            r.repeatDaysOfWeek = [dow];
+          }
+          if (r.repeatFrequency === 'monthly' && (!r.repeatDaysOfMonth || r.repeatDaysOfMonth.length === 0) && r.start_at) {
+            r.repeatDaysOfMonth = [String(new Date(r.start_at).getDate())];
+          }
+          const endBoundary = ((): number | undefined => {
+            if (r.repeatFrequency === 'yearly' && r.yearlyCount && r.start_at) {
+              const base = new Date(r.start_at);
+              const end = new Date(base);
+              end.setFullYear(end.getFullYear() + (r.yearlyCount - 1));
+              end.setHours(23,59,0,0);
+              return end.getTime();
+            }
+            return r.repeatEndDate;
+          })();
+          if (r.start_at && endBoundary && r.start_at > endBoundary) errs.push('Ngày bắt đầu không thể sau ngày kết thúc lặp');
+        }
+
+        // Conflict checks against existing tasks + already-validated new rows
+        try {
+          if (r.start_at && r.end_at) {
+            const tasksForCheck = [...tasks, ...syntheticTasks];
+            if (r.repeatEnabled) {
+              const rec = {
+                enabled: true,
+                frequency: r.repeatFrequency,
+                interval: r.repeatInterval || 1,
+                daysOfWeek: r.repeatDaysOfWeek,
+                daysOfMonth: r.repeatDaysOfMonth,
+                endDate: ((): number | undefined => {
+                  if (r.repeatFrequency === 'yearly' && r.yearlyCount && r.start_at) {
+                    const base = new Date(r.start_at); const end = new Date(base); end.setFullYear(end.getFullYear() + (r.yearlyCount - 1)); end.setHours(23,59,0,0); return end.getTime();
+                  }
+                  return r.repeatEndDate;
+                })(),
+              } as any;
+              const { hasConflict, conflictMessage } = checkRecurringConflicts(r.start_at, r.end_at, tasksForCheck as any, schedules as any, rec as any);
+              if (hasConflict) errs.push(`Xung đột: ${conflictMessage}`);
+            } else {
+              const { hasConflict, conflictMessage } = checkTimeConflicts(r.start_at, r.end_at, tasksForCheck as any, schedules as any);
+              if (hasConflict) errs.push(`Xung đột: ${conflictMessage}`);
+            }
+          }
+        } catch (err) {
+          // ignore check errors
+        }
+
+        if (errs.length) {
+          rowErrors.push({ row: (r.meta && (r.meta as any).originalRow) || 0, errors: errs });
+        } else {
+          // add synthetic task for future conflict checks
+          syntheticTasks.push({ id: -1000 - syntheticTasks.length, title: r.title, start_at: r.start_at, end_at: r.end_at, priority: r.priority || 'medium', status: r.status || 'pending' });
+        }
+      }
+
+      if (rowErrors.length) {
+        // Build message grouped by row
+        const lines = rowErrors.map(re => `Dòng ${re.row}: ${re.errors.join('; ')}`);
+        setAlertState({ visible:true, tone:'error', title:'Lỗi nhập từng dòng', message: lines.join('\n'), buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
+        return;
+      }
+
+      // All rows validated -> add them sequentially (no per-row modal). If any add fails, stop and report.
+      const failedAdds: { row: number; reason: string }[] = [];
+      for (const r of mapped) {
+        // set habit flags for recurrence creation
+        (global as any).__habitFlags = { auto: !!r.habitAuto, merge: !!r.habitMerge };
+        const newTaskPayload: any = {
+          title: r.title,
+          description: r.description || '',
+          start_at: r.start_at,
+          end_at: r.end_at,
+          priority: r.priority || 'medium',
+          status: r.status || 'pending',
+        };
+        const reminderCfg = r.reminderEnabled
+          ? { enabled: true, time: r.reminderTime || 0, method: r.reminderMethod || 'notification' }
+          : { enabled: false, time: 0, method: 'notification' };
+        const recurCfg = r.repeatEnabled
+          ? { enabled: true, frequency: r.repeatFrequency || 'daily', interval: r.repeatInterval || 1, daysOfWeek: r.repeatDaysOfWeek || [], daysOfMonth: r.repeatDaysOfMonth || [], endDate: r.repeatEndDate }
+          : { enabled: false, frequency: 'daily', interval: 1 };
+
+        const ok = await handleAddTask(newTaskPayload, reminderCfg as any, recurCfg as any);
+        if (!ok) {
+          failedAdds.push({ row: (r.meta && (r.meta as any).originalRow) || 0, reason: `Không thể thêm dòng` });
+          break;
+        }
+      }
+
+      // Clear global flag
+      delete (global as any).__skipTaskPrompts;
+
+      if (failedAdds.length) {
+        const lines = failedAdds.map(f => `Dòng ${f.row}: ${f.reason}`);
+        setAlertState({ visible:true, tone:'error', title:'Lỗi khi thêm', message: lines.join('\n'), buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
+        return;
+      }
+
+      // Success: reload data
+      await loadTasks();
+      await loadReminders();
+      await loadRecurrences();
+      setAlertState({ visible:true, tone:'success', title:'Hoàn tất', message:`Đã thêm ${mapped.length} công việc.`, buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
+      setShowImportDialog(false);
+      setImportDialogPath('');
+      setImportCandidateUri(null);
+    } catch (e: any) {
+      console.warn('importFromUri failed', e);
+      const message = e && e.message ? String(e.message) : 'Không thể đọc tệp Excel. Vui lòng kiểm tra định dạng.';
+      setAlertState({ visible:true, tone:'error', title:'Lỗi nhập tệp', message, buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
     }
   };
 
@@ -738,193 +713,7 @@ export default function TasksScreen() {
 
   const handleExportTemplate = async () => {
     try {
-      const headers = [
-        'Tiêu đề',
-        'Mô tả',
-        'Ngày bắt đầu (dd/MM/yyyy)',
-        'Giờ bắt đầu (HH:MM)',
-        'Giờ kết thúc (HH:MM)',
-        'Mức độ (Thấp/Trung bình/Cao)',
-        'Bật nhắc nhở (Có/Không)',
-        'Nhắc trước (vd: 15 phút, 2 giờ, 1 ngày)',
-        'Phương thức nhắc (Thông báo/Chuông báo)',
-        'Bật lặp lại (Có/Không)',
-        'Lặp theo (Ngày/Tuần/Tháng/Năm)',
-        'Ngày trong tuần (T2,T3,...,CN)',
-        'Ngày trong tháng (1..31)',
-        'Ngày kết thúc lặp (dd/MM/yyyy)',
-        'Số lần lặp (1..100, dùng khi Lặp theo=Năm)',
-        'Tự động hoàn thành khi hết hạn (Có/Không)',
-        'Gộp nhiều ngày (Có/Không)',
-      ];
-      // Create Excel workbook with headers only (no sample rows)
-      const ws = XLSX.utils.aoa_to_sheet([headers]);
-      (ws as any)['!cols'] = headers.map(() => ({ wch: 28 }));
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Mau');
-      const wbout = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
-
-      // Prepare an HTML-backed .doc (Word can open HTML files) with UTF-8 encoding to avoid RTF encoding issues
-      const htmlParts: string[] = [];
-      htmlParts.push('<!doctype html>');
-      htmlParts.push('<html><head><meta charset="utf-8"><title>Hướng dẫn nhập file Excel</title>');
-      htmlParts.push('<style>body{font-family:Arial,helvetica,sans-serif;font-size:14px;line-height:1.4;color:#111}</style>');
-      htmlParts.push('</head><body>');
-      htmlParts.push('<h1>Hướng dẫn sử dụng file Excel - Mẫu nhập công việc</h1>');
-      htmlParts.push('<h2>Các cột (vui lòng giữ nguyên tiêu đề cột)</h2>');
-      htmlParts.push('<ul>');
-      headers.forEach(h => {
-        htmlParts.push(`<li><strong>${h}</strong><br/>`);
-        switch (h) {
-          case 'Tiêu đề':
-            htmlParts.push('Bắt buộc. Chuỗi text, mô tả ngắn cho công việc.');
-            break;
-          case 'Mô tả':
-            htmlParts.push('Tùy chọn. Mô tả chi tiết hơn.');
-            break;
-          case 'Ngày bắt đầu (dd/MM/yyyy)':
-            htmlParts.push('Bắt buộc khi có giờ bắt đầu; định dạng dd/MM/yyyy, ví dụ: 10/10/2025.');
-            break;
-          case 'Giờ bắt đầu (HH:MM)':
-            htmlParts.push('Định dạng 24h HH:MM, ví dụ: 08:00. Nếu không có giờ, để trống.');
-            break;
-          case 'Giờ kết thúc (HH:MM)':
-            htmlParts.push('Định dạng 24h HH:MM, phải lớn hơn giờ bắt đầu cùng ngày.');
-            break;
-          case 'Mức độ (Thấp/Trung bình/Cao)':
-            htmlParts.push('Giá trị: Thấp, Trung bình hoặc Cao (không phân biệt hoa thường).');
-            break;
-          case 'Bật nhắc nhở (Có/Không)':
-            htmlParts.push('Có hoặc Không. Nếu Có, hãy chỉ định cột "Nhắc trước".');
-            break;
-          case 'Nhắc trước (vd: 15 phút, 2 giờ, 1 ngày)':
-            htmlParts.push('Khoảng cách trước thời gian bắt đầu. Hỗ trợ đơn vị: phút, giờ, ngày. Ví dụ: "15 phút", "2 giờ", "1 ngày".');
-            break;
-          case 'Phương thức nhắc (Thông báo/Chuông báo)':
-            htmlParts.push('Chọn "Thông báo" hoặc "Chuông báo".');
-            break;
-          case 'Bật lặp lại (Có/Không)':
-            htmlParts.push('Có hoặc Không. Nếu Có, vui lòng cung cấp các cột lặp theo bên dưới.');
-            break;
-          case 'Lặp theo (Ngày/Tuần/Tháng/Năm)':
-            htmlParts.push('Giá trị: Ngày, Tuần, Tháng hoặc Năm.');
-            break;
-          case 'Ngày trong tuần (T2,T3,...,CN)':
-            htmlParts.push('Dùng khi lặp theo Tuần. Liệt kê các ngày, ví dụ: T2,T4,T6.');
-            break;
-          case 'Ngày trong tháng (1..31)':
-            htmlParts.push('Dùng khi lặp theo Tháng. Liệt kê các ngày ví dụ: 1,15,28.');
-            break;
-          case 'Ngày kết thúc lặp (dd/MM/yyyy)':
-            htmlParts.push('Không được để trống');
-            break;
-          case 'Số lần lặp (1..100, dùng khi Lặp theo=Năm)':
-            htmlParts.push('Chỉ dùng khi Lặp theo = Năm. Số nguyên 1..100.');
-            break;
-          case 'Tự động hoàn thành khi hết hạn (Có/Không)':
-            htmlParts.push('Có: khoá hoàn thành tự động khi chu kỳ kết thúc. Không: người dùng phải đánh dấu thủ công. Không thể bật cùng lúc với gộp nhiều ngảy');
-            break;
-          case 'Gộp nhiều ngày (Có/Không)':
-            htmlParts.push('Có: các ngày lặp trong một công việc tính là 1 đơn vị hoàn thành (merge streak).');
-            break;
-          default:
-            htmlParts.push('');
-        }
-        htmlParts.push('</li>');
-      });
-      htmlParts.push('</ul>');
-      htmlParts.push('<h3>Một số lưu ý và quy tắc</h3>');
-      htmlParts.push('<ul>');
-      htmlParts.push('<li>Nếu dùng cột Ngày bắt đầu, hãy chắc chắn định dạng dd/MM/yyyy.</li>');
-      htmlParts.push('<li>Giờ kết thúc phải sau giờ bắt đầu; nếu không, hệ thống sẽ báo lỗi khi nhập.</li>');
-      htmlParts.push('<li>Giá trị lặp hàng năm phải nhập Số lần lặp thay vì ngày kết thúc.</li>');
-      htmlParts.push('<li>Ngày kết thúc lặp không được trước ngày bắt đầu.</li>');
-      htmlParts.push('<li>Trường Tiêu đề là bắt buộc; những dòng thiếu tiêu đề sẽ bị xem là lỗi.</li>');
-      htmlParts.push('<li>Để không tạo nhắc, đặt Bật nhắc nhở = Không.</li>');
-      htmlParts.push('</ul>');
-      htmlParts.push('<h3>Ví dụ hợp lệ</h3>');
-      // Render examples as two stacked HTML tables. Ensure the split happens so that
-      // the 'Lặp theo' column starts the second table (so it "xuống hàng tiếp").
-      // Fallback to splitting at 'Mức độ' or in half if neither is found.
-      const idxRepeat = headers.findIndex(h => String(h).toLowerCase().includes('lặp theo') || String(h).toLowerCase().includes('lap theo'));
-      let leftHeaders: string[] = [];
-      let rightHeaders: string[] = [];
-      if (idxRepeat > 0) {
-        // put columns before 'Lặp theo' on the left; 'Lặp theo' and after on the right
-        leftHeaders = headers.slice(0, idxRepeat);
-        rightHeaders = headers.slice(idxRepeat);
-      } else {
-        // fallback: look for 'Mức độ' split point
-        const splitIndex = Math.max(0, headers.findIndex(h => String(h).toLowerCase().includes('mức độ') || String(h).toLowerCase().includes('muc do')));
-        const mid = splitIndex > 0 ? splitIndex : Math.floor(headers.length / 2);
-        leftHeaders = headers.slice(0, mid + 1); // include the 'Mức độ' column on the left table
-        rightHeaders = headers.slice(mid + 1);
-      }
-
-      const sample1 = ['Ôn tập Toán','Chương 1: Hàm số','10/10/2025','08:00','09:00','Trung bình','Có','15 phút','Thông báo','Có','Ngày','','','31/10/2025','','Có','Không'];
-      const sample2 = ['Chạy bộ buổi sáng','5km trong khuôn viên','11/10/2025','06:00','06:45','Cao','Có','10 phút','Chuông báo','Có','Tuần','T2,T4,T6','','30/11/2025','','Không','Có'];
-      const rows = [sample1, sample2];
-
-      const renderTable = (tblHeaders: string[], tblRows: any[][]) => {
-        const cnt = tblHeaders.length || 1;
-        const w = Math.floor(100 / cnt);
-  // center table within Word margins and leave small side gutters
-  htmlParts.push('<div style="max-width:100%;overflow:hidden;margin:8px auto">');
-  htmlParts.push('<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:95%;margin:0 auto;table-layout:fixed">');
-        htmlParts.push('<thead style="background:#f3f4f6"><tr>');
-  tblHeaders.forEach(h => htmlParts.push(`<th style="text-align:center;padding:6px;vertical-align:middle;width:${w}%;word-wrap:break-word;overflow-wrap:break-word;white-space:normal">${h}</th>`));
-        htmlParts.push('</tr></thead>');
-        htmlParts.push('<tbody>');
-        tblRows.forEach((r: any[]) => {
-          htmlParts.push('<tr>');
-          r.forEach((cell: any) => htmlParts.push(`<td style="padding:6px;vertical-align:middle;text-align:center;word-wrap:break-word;overflow-wrap:break-word;white-space:normal">${cell || ''}</td>`));
-          htmlParts.push('</tr>');
-        });
-        htmlParts.push('</tbody></table></div>');
-      };
-
-      // Build left table rows (first N columns)
-      const leftRows = rows.map(r => r.slice(0, leftHeaders.length));
-      renderTable(leftHeaders, leftRows);
-      // If right side exists, render a second stacked table with remaining columns
-      if (rightHeaders.length > 0) {
-        const rightRows = rows.map(r => r.slice(leftHeaders.length));
-        renderTable(rightHeaders, rightRows);
-      }
-      htmlParts.push('</body></html>');
-      const htmlContent = htmlParts.join('\n');
-
-      const dir = FileSystem.documentDirectory || FileSystem.cacheDirectory || '';
-      const excelUri = dir + 'mau-cong-viec.xlsx';
-      const instrUri = dir + 'huongDanNhap.doc';
-
-      await FileSystem.writeAsStringAsync(excelUri, wbout, { encoding: (FileSystem as any).EncodingType.Base64 });
-      await FileSystem.writeAsStringAsync(instrUri, htmlContent, { encoding: (FileSystem as any).EncodingType.UTF8 });
-
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        // Try sharing Excel first, then instructions. The share UI will appear twice.
-        await Sharing.shareAsync(excelUri, {
-          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          dialogTitle: 'Chia sẻ mẫu Excel',
-          UTI: 'org.openxmlformats.spreadsheetml.sheet',
-        } as any);
-        // Small delay to ensure share sheet finishes on some platforms
-        await new Promise((res) => setTimeout(res, 400));
-        await Sharing.shareAsync(instrUri, {
-          mimeType: 'application/msword',
-          dialogTitle: 'Chia sẻ hướng dẫn (Word)',
-          UTI: 'com.microsoft.word.doc',
-        } as any);
-      } else {
-        setAlertState({
-          visible: true,
-          tone: 'info',
-          title: 'Đã tạo file mẫu và hướng dẫn',
-          message: `Files đã được lưu tại:\nExcel: ${excelUri}\nHướng dẫn: ${instrUri}`,
-          buttons: [{ text: 'Đóng', onPress: () => {}, tone: 'cancel' }],
-        });
-      }
+      await exportTemplate();
     } catch (e) {
       setAlertState({
         visible: true,
@@ -956,12 +745,6 @@ export default function TasksScreen() {
       <View className="flex-row items-center justify-between mb-4">
         <Text className="text-lg font-bold">Công việc của tôi</Text>
         <View className="flex-row items-center">
-          <TouchableOpacity onPress={handleExportTemplate} className="px-3 py-2 bg-blue-200 rounded mr-2">
-            <Text>Xuất mẫu</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handlePickExcel} className="px-3 py-2 bg-green-200 rounded mr-2">
-            <Text>Nhập Excel</Text>
-          </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setViewMode(viewMode === "list" ? "week" : "list")}
             className="px-3 py-2 bg-gray-200 rounded"
@@ -1108,10 +891,77 @@ export default function TasksScreen() {
         }}
       />
 
+      {/* Add choice modal (thêm thủ công / nhập bằng file) */}
+      <Modal visible={showAddChoice} transparent animationType="fade">
+        <View style={{ flex:1, backgroundColor:'rgba(0,0,0,0.4)', justifyContent:'center', alignItems:'center' }}>
+          <View style={{ width:320, backgroundColor:'#fff', borderRadius:8, padding:16 }}>
+            <Text style={{ fontSize:18, fontWeight:'600', marginBottom:12 }}>Thêm công việc</Text>
+            <TouchableOpacity onPress={() => { setShowAddChoice(false); openAddModal(); }} style={{ padding:12, backgroundColor:'#eef2ff', borderRadius:6, marginBottom:8 }}>
+              <Text>Thêm thủ công</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => { setShowAddChoice(false); setShowImportDialog(true); }} style={{ padding:12, backgroundColor:'#ecfdf5', borderRadius:6, marginBottom:8 }}>
+              <Text>Nhập bằng file</Text>
+            </TouchableOpacity>
+            <View style={{ flexDirection:'row', justifyContent:'flex-end', marginTop:8 }}>
+              <TouchableOpacity onPress={() => setShowAddChoice(false)} style={{ padding:8 }}>
+                <Text>Đóng</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Import dialog modal (path + browse + actions) */}
+      <Modal visible={showImportDialog} transparent animationType="fade">
+        <View style={{ flex:1, backgroundColor:'rgba(0,0,0,0.4)', justifyContent:'center', alignItems:'center' }}>
+          <View style={{ width:680, maxWidth:'95%', backgroundColor:'#fff', borderRadius:8, padding:18 }}>
+            <Text style={{ fontSize:18, fontWeight:'600', marginBottom:12 }}>Nhập dữ liệu từ Excel</Text>
+            <Text style={{ marginBottom:6 }}>Đường dẫn</Text>
+            <View style={{ flexDirection:'row', alignItems:'center', marginBottom:12 }}>
+              <TextInput value={importDialogPath} onChangeText={setImportDialogPath} placeholder="Đường dẫn tệp" style={{ flex:1, borderWidth:1, borderColor:'#ddd', padding:8, borderRadius:4, marginRight:8 }} />
+              <TouchableOpacity onPress={async ()=>{
+                try {
+                  const res = await DocumentPicker.getDocumentAsync({ type: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.ms-excel'] });
+                  if (!res.canceled) {
+                    const file = res.assets[0];
+                    setImportDialogPath(file.uri);
+                    setImportCandidateUri(file.uri);
+                  }
+                } catch (e) {
+                  console.warn('picker fail', e);
+                }
+              }} style={{ width:44, height:44, backgroundColor:'#eee', borderRadius:4, alignItems:'center', justifyContent:'center' }}>
+                <Text>...</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={{ height:1, backgroundColor:'#eee', marginVertical:8 }} />
+            <View style={{ flexDirection:'row', justifyContent:'flex-end' }}>
+              <TouchableOpacity onPress={handleExportTemplate} style={{ paddingVertical:10, paddingHorizontal:14, marginRight:8, backgroundColor:'#e5e7eb', borderRadius:6 }}>
+                <Text>Tải mẫu</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={async ()=>{
+                // If user picked a file via browse, prefer that; otherwise use typed path
+                const uri = importCandidateUri || importDialogPath;
+                if (!uri) {
+                  setAlertState({ visible:true, tone:'warning', title:'Không có tệp', message: 'Vui lòng chọn tệp để nhập.', buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
+                  return;
+                }
+                await handleImportFromUri(uri);
+              }} style={{ paddingVertical:10, paddingHorizontal:14, marginRight:8, backgroundColor:'#60a5fa', borderRadius:6 }}>
+                <Text style={{ color:'#fff' }}>Đồng ý</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => { setShowImportDialog(false); setImportDialogPath(''); setImportCandidateUri(null); }} style={{ paddingVertical:10, paddingHorizontal:14, backgroundColor:'#ef4444', borderRadius:6 }}>
+                <Text style={{ color:'#fff' }}>Hủy bỏ</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Nút thêm nhanh */}
       <View className="absolute bottom-10 right-12 z-10">
         <TouchableOpacity
-          onPress={openAddModal}
+          onPress={() => setShowAddChoice(true)}
           className="bg-blue-600 w-14 h-14 rounded-full items-center justify-center shadow-lg"
           activeOpacity={0.7}
         >

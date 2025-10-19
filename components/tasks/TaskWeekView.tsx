@@ -126,6 +126,14 @@ export default function TaskWeekView({
 
       const pushDay = (d: Date) => {
         const s = new Date(d.getFullYear(), d.getMonth(), d.getDate(), timeH, timeM, timeS, timeMs).getTime();
+        // If task has completion_diff_minutes < 0 (completed early), hide occurrences between
+        // completed_at and the original end time derived from the diff.
+        const completedAt = (t as any).completed_at ? (typeof (t as any).completed_at === 'string' ? Date.parse((t as any).completed_at) : (t as any).completed_at) : null;
+        const completionDiffMin = (t as any).completion_diff_minutes;
+        if (completedAt && typeof completionDiffMin === 'number' && completionDiffMin < 0) {
+          const originalEnd = completedAt - completionDiffMin * 60 * 1000; // diffMin negative
+          if (s > completedAt && s <= originalEnd) return;
+        }
         pushOcc(t, s, duration);
       };
 
@@ -243,6 +251,13 @@ export default function TaskWeekView({
 
         {/* Nút "Tuần hiện tại" styled như nút Hôm nay */}
         <TouchableOpacity
+          onPress={() => setCurrentWeekStart((prev) => prev + 7 * 24 * 60 * 60 * 1000)}
+          style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}
+        >
+          <Text style={{ fontSize: 18 }}>{'>'}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
           onPress={() => {
             const t = new Date();
             const dow = t.getDay() || 7;
@@ -254,13 +269,6 @@ export default function TaskWeekView({
           style={{ paddingVertical: 6, paddingHorizontal: 16, borderWidth: 1, borderColor: isCurrentWeek ? '#007AFF' : '#ddd', borderRadius: 20, backgroundColor: isCurrentWeek ? '#007AFF' : '#f5f5f5' }}
         >
           <Text style={{ fontSize: 16, fontWeight: '600', color: isCurrentWeek ? '#fff' : '#000' }}>Tuần hiện tại</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => setCurrentWeekStart((prev) => prev + 7 * 24 * 60 * 60 * 1000)}
-          style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}
-        >
-          <Text style={{ fontSize: 18 }}>{'>'}</Text>
         </TouchableOpacity>
       </View>
 
