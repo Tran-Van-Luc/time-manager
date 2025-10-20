@@ -715,6 +715,7 @@ export default function StatsScreen() {
     thường: "#2563EB",
   };
 
+  // --- per-course stats with taken counts up to today ---
   const perCourseStats = useMemo(() => {
     const map: Record<
       string,
@@ -727,8 +728,13 @@ export default function StatsScreen() {
         bu: number;
         thi: number;
         sessions: any[];
+        takenLyThuyet: number; // buổi LT đã học tới hôm nay
+        takenThucHanh: number; // buổi TH đã học tới hôm nay
       }
     > = {};
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
     mappedSchedules.forEach((s: any) => {
       const key = (s.subject || s.title || "Không tên").trim();
       if (!map[key])
@@ -741,6 +747,8 @@ export default function StatsScreen() {
           bu: 0,
           thi: 0,
           sessions: [],
+          takenLyThuyet: 0,
+          takenThucHanh: 0,
         };
       map[key].sessions.push(s);
       switch (s.typeNormalized) {
@@ -761,6 +769,52 @@ export default function StatsScreen() {
           break;
         default:
           break;
+      }
+
+      // count taken occurrences up to today (best-effort):
+      // - if session has a start date (s.start) use it
+      // - if session has singleDate or startDate string, try to parse
+      const occDate = s.start ?? s.singleDate ?? s.startDate ?? null;
+      let occ: Date | null = null;
+      if (occDate instanceof Date) occ = occDate;
+      else if (typeof occDate === "string" && occDate.length > 0) {
+        const d = new Date(occDate);
+        if (!isNaN(d.getTime())) occ = d;
+        else {
+          // try yyyy-MM-dd
+          const m = occDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (m) occ = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        }
+      }
+
+      if (occ) {
+        // treat sessions with endAt if available
+        const end = s.end ?? s.endAt ?? occ;
+        const endDate = end instanceof Date ? end : new Date(end);
+        if (endDate.getTime() <= todayEnd.getTime()) {
+          if (s.typeNormalized === "lý thuyết") map[key].takenLyThuyet += 1;
+          else if (s.typeNormalized === "thực hành") map[key].takenThucHanh += 1;
+        }
+      } else {
+        // If no explicit date but there is an explicit date range (startDate & endDate),
+        // try approximate counting: if endDate <= today, count number of sessions in range.
+        if (s.startDate && s.endDate) {
+          const sd = new Date(s.startDate);
+          const ed = new Date(s.endDate);
+          if (!isNaN(sd.getTime()) && !isNaN(ed.getTime())) {
+            if (ed.getTime() <= todayEnd.getTime()) {
+              // crude approximation: count days in range as sessions
+              const days = Math.max(1, Math.floor((ed.getTime() - sd.getTime()) / (24 * 3600 * 1000)) + 1);
+              if (s.typeNormalized === "lý thuyết") map[key].takenLyThuyet += days;
+              else if (s.typeNormalized === "thực hành") map[key].takenThucHanh += days;
+            } else if (sd.getTime() <= todayEnd.getTime() && ed.getTime() > todayEnd.getTime()) {
+              // partially happened up to today
+              const days = Math.max(1, Math.floor((todayEnd.getTime() - sd.getTime()) / (24 * 3600 * 1000)) + 1);
+              if (s.typeNormalized === "lý thuyết") map[key].takenLyThuyet += days;
+              else if (s.typeNormalized === "thực hành") map[key].takenThucHanh += days;
+            }
+          }
+        }
       }
     });
     const result = Object.values(map).map((v) => ({
@@ -1470,20 +1524,25 @@ export default function StatsScreen() {
                   <Text style={{ fontWeight: "700", color: colors.text }}>
                     {c.subject}
                   </Text>
-                  <Text style={{ color: colors.muted }}>{c.total} buổi</Text>
+                  <Text style={{ color: colors.muted }}>
+                    <Text style={{ fontWeight: "700" }}>LT: </Text>{c.lyThuyet}{"  "}
+                    <Text style={{ fontWeight: "700" }}>TH: </Text>{c.thucHanh}
+                  </Text>
                 </View>
+
                 <View
                   style={{
                     flexDirection: "row",
                     marginTop: 8,
                     justifyContent: "space-between",
+                    alignItems: "center",
                   }}
                 >
                   <Text style={{ color: "#06b6d4" }}>
-                    Lý thuyết: {c.lyThuyet}
+                    Lý thuyết: Buổi {c.takenLyThuyet || 0}
                   </Text>
                   <Text style={{ color: "#16a34a" }}>
-                    Thực hành: {c.thucHanh}
+                    Thực hành: Buổi {c.takenThucHanh || 0}
                   </Text>
                   <Text style={{ color: "#f97316" }}>
                     Tạm ngưng: {c.tamNgung}
