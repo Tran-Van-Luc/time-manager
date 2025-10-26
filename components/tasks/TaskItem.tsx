@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, TouchableOpacity, Modal } from "react-native";
 import type { Task } from "../../types/Task";
 import type { Recurrence } from "../../types/Recurrence";
-import { autoCompletePastIfEnabled, computeHabitProgress, markHabitRange, markHabitToday, getTodayCompletionDelta, plannedHabitOccurrences, unmarkHabitToday, isHabitDoneOnDate, unmarkHabitRange } from "../../utils/habits";
+import { computeHabitProgress, markHabitRange, markHabitToday, getTodayCompletionDelta, plannedHabitOccurrences, unmarkHabitToday, isHabitDoneOnDate, unmarkHabitRange } from "../../utils/habits";
 
 type RepeatOption = { label: string; value: string };
 
@@ -43,9 +43,112 @@ export default function TaskItem({
   const [habitProgress, setHabitProgress] = useState<{ completed: number; total: number; percent: number; todayDone: boolean } | null>(null);
   const [showHabitPopup, setShowHabitPopup] = useState(false);
   const [todayDelta, setTodayDelta] = useState<{ status: 'early' | 'late' | 'on_time' | null; diffMinutes: number | null } | null>(null);
+  const [todayDisplayLabel, setTodayDisplayLabel] = useState<string | null>(null);
   const mergeStreak = !!rec && (rec as any).merge_streak === 1;
-  const autoExpired = !!rec && (rec as any).auto_complete_expired === 1;
   const autoCompletingRef = useRef(false);
+
+  // End-of-day cutoff key and helpers (same key used in Completed screen)
+  const CUT_OFF_KEY = 'endOfDayCutoff';
+  const CUT_OFF_ENABLED_KEY = 'endOfDayCutoffEnabled';
+  const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+
+  const isSameLocalDate = (ms1?: number | null, ms2?: number | null) => {
+    if (!ms1 || !ms2) return false;
+    const a = new Date(ms1);
+    const b = new Date(ms2);
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  };
+
+  const cutoffForDateFromString = (dateMs: number, cutoffString?: string | null) => {
+    try {
+      const s = cutoffString || '23:00';
+      const parts = s.split(':');
+      const h = parseInt(parts[0] || '23', 10);
+      const m = parseInt(parts[1] || '0', 10);
+      if (Number.isNaN(h) || Number.isNaN(m)) return null as number | null;
+      const d = new Date(dateMs);
+      d.setHours(h, m, 0, 0);
+      return d.getTime();
+    } catch {
+      return null;
+    }
+  };
+
+  const buildShortFromMinutes = (abs: number) => {
+    const d = Math.floor(abs / 1440);
+    const h = Math.floor((abs % 1440) / 60);
+    const m = abs % 60;
+    let short = '';
+    if (d) short += `${d}n`;
+    if (h) short += `${h}g`;
+    if (m || (!d && !h)) short += `${m}p`;
+    return short;
+  };
+
+  const findOccurrenceForDate = (item: Task, rec?: Recurrence, date?: Date) => {
+    if (!rec || !date) return null as any;
+    try {
+      const occs = plannedHabitOccurrences(item, rec) || [];
+      const target = date.getTime();
+      const found = occs.find((o: any) => isSameLocalDate(o.endAt, target) || isSameLocalDate(o.startAt, target));
+      return found || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const computeAndSetTodayDisplayLabel = async (dateCtx: Date) => {
+    try {
+      // try to find a planned occurrence for this date to obtain a sensible dueMs
+      const occ: any = findOccurrenceForDate(item, rec, dateCtx);
+      let dueMs: number | undefined = undefined;
+      if (occ) dueMs = occ.endAt ?? occ.startAt;
+      if (!dueMs && item.end_at) dueMs = new Date(item.end_at).getTime();
+      const now = Date.now();
+      if (!dueMs) {
+        // fallback to todayDelta if available
+        if (todayDelta && todayDelta.status) {
+          const abs = Math.abs(todayDelta.diffMinutes ?? 0);
+          const short = buildShortFromMinutes(abs);
+          const label = todayDelta.status === 'on_time' ? 'đúng hạn' : `${todayDelta.status === 'early' ? 'sớm' : 'trễ'} ${short}`;
+          setTodayDisplayLabel(label);
+        }
+        return;
+      }
+
+      const enabledVal = await AsyncStorage.getItem(CUT_OFF_ENABLED_KEY);
+      const cutoffEnabled = enabledVal === 'true';
+      const cutoffString = cutoffEnabled ? await AsyncStorage.getItem(CUT_OFF_KEY) : null;
+      const cutoffMs = cutoffString ? cutoffForDateFromString(dueMs, cutoffString) : null;
+      const effective = (cutoffEnabled && cutoffMs != null && cutoffMs > dueMs && isSameLocalDate(dueMs, Date.now()))
+        ? Math.max(dueMs, cutoffMs)
+        : dueMs;
+
+      const diffEffective = Math.round((now - effective) / 60000);
+      let status: 'early' | 'on_time' | 'late' = 'on_time';
+      if (cutoffEnabled && cutoffMs != null && cutoffMs > dueMs && isSameLocalDate(dueMs, Date.now())) {
+        const diffDue = Math.round((now - dueMs) / 60000);
+        if (diffDue < -1) status = 'early';
+        else if (diffEffective > 1) status = 'late';
+        else status = 'on_time';
+      } else {
+        if (diffEffective < -1) status = 'early';
+        else if (diffEffective > 1) status = 'late';
+        else status = 'on_time';
+      }
+      const abs = Math.abs(diffEffective);
+      const short = buildShortFromMinutes(abs);
+      const label = status === 'on_time' ? 'đúng hạn' : `${status === 'early' ? 'sớm' : 'trễ'} ${short}`;
+      setTodayDisplayLabel(label);
+    } catch {
+      if (todayDelta && todayDelta.status) {
+        const abs = Math.abs(todayDelta.diffMinutes ?? 0);
+        const short = buildShortFromMinutes(abs);
+        const label = todayDelta.status === 'on_time' ? 'đúng hạn' : `${todayDelta.status === 'early' ? 'sớm' : 'trễ'} ${short}`;
+        setTodayDisplayLabel(label);
+      }
+    }
+  };
 
   // Build a lightweight dependency signature from recurrence fields that affect occurrences
   const recDeps = useMemo(() => {
@@ -59,7 +162,6 @@ export default function TaskItem({
       rec.start_date ? new Date(rec.start_date).getTime() : 0,
       rec.end_date ? new Date(rec.end_date).getTime() : 0,
       rec.merge_streak,
-      rec.auto_complete_expired,
     ];
     return JSON.stringify(parts);
   }, [rec]);
@@ -69,7 +171,6 @@ export default function TaskItem({
     const load = async () => {
       if (rec?.id) {
         try {
-          if (autoExpired) await autoCompletePastIfEnabled(item, rec);
           const p = await computeHabitProgress(item, rec);
           if (!cancelled) setHabitProgress(p);
           if (!cancelled) {
@@ -84,28 +185,9 @@ export default function TaskItem({
     };
     load();
     return () => { cancelled = true; };
-  }, [item.id, item.start_at, item.end_at, recDeps, mergeStreak, autoExpired, selectedDate?.getTime()]);
+    }, [item.id, item.start_at, item.end_at, recDeps, mergeStreak, selectedDate?.getTime()]);
 
-  // Periodically refresh auto-completion and progress while auto is enabled
-  useEffect(() => {
-    if (!rec?.id || !autoExpired) return;
-    let stopped = false;
-    const tick = async () => {
-      try {
-        await autoCompletePastIfEnabled(item, rec);
-        const p = await computeHabitProgress(item, rec);
-        if (!stopped) setHabitProgress(p);
-        if (!stopped) {
-          const d = await getTodayCompletionDelta(item, rec, selectedDate);
-          setTodayDelta(d);
-        }
-      } catch {}
-    };
-    const id = setInterval(tick, 30000); // 30s cadence
-    // run once immediately to catch boundary
-    tick();
-    return () => { stopped = true; clearInterval(id); };
-  }, [autoExpired, recDeps, mergeStreak, item.id, item.start_at, item.end_at, selectedDate?.getTime()]);
+  
 
   // If all habit progress is completed, auto-mark task as completed (only for recurring tasks)
   useEffect(() => {
@@ -128,20 +210,54 @@ export default function TaskItem({
     if (dueMs == null && item.end_at) dueMs = new Date(item.end_at).getTime();
     let diffMinutes: number | undefined;
     let completionStatus: 'early' | 'on_time' | 'late' | undefined;
-    if (dueMs) {
-      diffMinutes = Math.round((now - dueMs) / 60000);
-      if (diffMinutes < -1) completionStatus = 'early';
-      else if (diffMinutes > 1) completionStatus = 'late';
-      else completionStatus = 'on_time';
-    }
+    // We'll compute diffMinutes/completionStatus inside the async block because computing
+    // the effective deadline requires reading AsyncStorage (async).
     autoCompletingRef.current = true;
     (async () => {
       try {
+        let _diff: number | undefined;
+        let _status: 'early' | 'on_time' | 'late' | undefined;
+        if (dueMs) {
+          // read cutoff and decide status with special rule:
+          // if cutoff extends deadline (cutoffMs > dueMs for today's date),
+          // then completions between dueMs and cutoffMs are ON_TIME (not EARLY).
+              try {
+              const enabledVal = await AsyncStorage.getItem(CUT_OFF_ENABLED_KEY);
+              const cutoffEnabled = enabledVal === 'true';
+              const cutoffString = cutoffEnabled ? await AsyncStorage.getItem(CUT_OFF_KEY) : null;
+              const cutoffMs = cutoffString ? cutoffForDateFromString(dueMs, cutoffString) : null;
+              const effective = (cutoffEnabled && cutoffMs != null && cutoffMs > dueMs && isSameLocalDate(dueMs, Date.now()))
+                ? Math.max(dueMs, cutoffMs)
+                : dueMs;
+
+              const diffEffective = Math.round((now - effective) / 60000);
+
+              if (cutoffEnabled && cutoffMs != null && cutoffMs > dueMs && isSameLocalDate(dueMs, Date.now())) {
+                // If completion is before the original due time, it's EARLY.
+                const diffDue = Math.round((now - dueMs) / 60000);
+                if (diffDue < -1) _status = 'early';
+                else if (diffEffective > 1) _status = 'late';
+                else _status = 'on_time';
+                _diff = diffEffective;
+              } else {
+                _diff = diffEffective;
+                if (_diff < -1) _status = 'early';
+                else if (_diff > 1) _status = 'late';
+                else _status = 'on_time';
+              }
+            } catch {
+            // fallback to simple diff if cutoff read fails
+            _diff = Math.round((now - dueMs) / 60000);
+            if (_diff < -1) _status = 'early';
+            else if (_diff > 1) _status = 'late';
+            else _status = 'on_time';
+          }
+        }
         await editTask(item.id!, {
           status: 'completed',
           completed_at: new Date(now).toISOString(),
-          completion_diff_minutes: diffMinutes,
-          completion_status: completionStatus,
+          completion_diff_minutes: _diff,
+          completion_status: _status,
         });
       } finally {
         autoCompletingRef.current = false;
@@ -316,20 +432,24 @@ export default function TaskItem({
 
   {!!rec && habitProgress && (
           <View className="mt-1 mb-2">
-            {!mergeStreak && todayDelta?.status && todayDelta.diffMinutes !== null && (
-              <Text className="text-green-600 mb-1">
-                Đã hoàn thành {todayDelta.status === 'early' ? 'sớm' : todayDelta.status === 'late' ? 'trễ' : 'đúng hạn'} {(() => {
-                  const abs = Math.abs(todayDelta.diffMinutes!);
-                  const d = Math.floor(abs / 1440);
-                  const h = Math.floor((abs % 1440) / 60);
-                  const m = abs % 60;
-                  const parts: string[] = [];
-                  if (d) parts.push(`${d}n`);
-                  if (h) parts.push(`${h}g`);
-                  if (m || (!d && !h)) parts.push(`${m}p`);
-                  return parts.join('');
-                })()}
-              </Text>
+            {!mergeStreak && (
+              todayDisplayLabel ? (
+                <Text className="text-green-600 mb-1">Đã hoàn thành {todayDisplayLabel}</Text>
+              ) : (todayDelta?.status && todayDelta.diffMinutes !== null && (
+                <Text className="text-green-600 mb-1">
+                  Đã hoàn thành {todayDelta.status === 'early' ? 'sớm' : todayDelta.status === 'late' ? 'trễ' : 'đúng hạn'} {(() => {
+                    const abs = Math.abs(todayDelta.diffMinutes!);
+                    const d = Math.floor(abs / 1440);
+                    const h = Math.floor((abs % 1440) / 60);
+                    const m = abs % 60;
+                    const parts: string[] = [];
+                    if (d) parts.push(`${d}n`);
+                    if (h) parts.push(`${h}g`);
+                    if (m || (!d && !h)) parts.push(`${m}p`);
+                    return parts.join('');
+                  })()}
+                </Text>
+              ))
             )}
             <View className="flex-row items-center justify-between mb-1">
               <Text className="text-gray-700">Tiến độ</Text>
@@ -382,8 +502,13 @@ export default function TaskItem({
                 const alreadyDone = await isHabitDoneOnDate(rec.id, dateCtx);
                 if (alreadyDone) {
                   await unmarkHabitToday(rec.id, dateCtx);
+                  setTodayDisplayLabel(null);
                 } else {
                   await markHabitToday(rec.id, dateCtx);
+                  // compute a cutoff-aware display label once at mark-time
+                  try {
+                    await computeAndSetTodayDisplayLabel(dateCtx);
+                  } catch {}
                 }
               }
               const p = await computeHabitProgress(item, rec);
@@ -405,10 +530,34 @@ export default function TaskItem({
                 let diffMinutes: number | undefined;
                 let completionStatus: 'early' | 'on_time' | 'late' | undefined;
                 if (dueMs) {
-                  diffMinutes = Math.round((now - dueMs) / 60000);
-                  if (diffMinutes < -1) completionStatus = 'early';
-                  else if (diffMinutes > 1) completionStatus = 'late';
-                  else completionStatus = 'on_time';
+                  try {
+                    const enabledVal = await AsyncStorage.getItem(CUT_OFF_ENABLED_KEY);
+                    const cutoffEnabled = enabledVal === 'true';
+                    const cutoffString = cutoffEnabled ? await AsyncStorage.getItem(CUT_OFF_KEY) : null;
+                    const cutoffMs = cutoffString ? cutoffForDateFromString(dueMs, cutoffString) : null;
+                    const effective = (cutoffEnabled && cutoffMs != null && cutoffMs > dueMs && isSameLocalDate(dueMs, Date.now()))
+                      ? Math.max(dueMs, cutoffMs)
+                      : dueMs;
+
+                    const diffEffective = Math.round((now - effective) / 60000);
+                    if (cutoffEnabled && cutoffMs != null && cutoffMs > dueMs && isSameLocalDate(dueMs, Date.now())) {
+                      const diffDue = Math.round((now - dueMs) / 60000);
+                      if (diffDue < -1) completionStatus = 'early';
+                      else if (diffEffective > 1) completionStatus = 'late';
+                      else completionStatus = 'on_time';
+                      diffMinutes = diffEffective;
+                    } else {
+                      diffMinutes = diffEffective;
+                      if (diffMinutes < -1) completionStatus = 'early';
+                      else if (diffMinutes > 1) completionStatus = 'late';
+                      else completionStatus = 'on_time';
+                    }
+                  } catch {
+                    diffMinutes = Math.round((now - dueMs) / 60000);
+                    if (diffMinutes < -1) completionStatus = 'early';
+                    else if (diffMinutes > 1) completionStatus = 'late';
+                    else completionStatus = 'on_time';
+                  }
                 }
                 await editTask(item.id!, {
                   status: 'completed',
@@ -424,6 +573,7 @@ export default function TaskItem({
                   completion_diff_minutes: undefined,
                   completion_status: undefined,
                 });
+                setTodayDisplayLabel(null);
               }
               return;
             }
@@ -440,12 +590,36 @@ export default function TaskItem({
               if (item.end_at) dueMs = new Date(item.end_at).getTime();
               let diffMinutes: number | undefined;
               let completionStatus: 'early' | 'on_time' | 'late' | undefined;
-              if (dueMs) {
-                diffMinutes = Math.round((now - dueMs) / 60000);
-                if (diffMinutes < -1) completionStatus = 'early';
-                else if (diffMinutes > 1) completionStatus = 'late';
-                else completionStatus = 'on_time';
-              }
+                if (dueMs) {
+                  try {
+                    const enabledVal = await AsyncStorage.getItem(CUT_OFF_ENABLED_KEY);
+                    const cutoffEnabled = enabledVal === 'true';
+                    const cutoffString = cutoffEnabled ? await AsyncStorage.getItem(CUT_OFF_KEY) : null;
+                    const cutoffMs = cutoffString ? cutoffForDateFromString(dueMs, cutoffString) : null;
+                    const effective = (cutoffEnabled && cutoffMs != null && cutoffMs > dueMs && isSameLocalDate(dueMs, Date.now()))
+                      ? Math.max(dueMs, cutoffMs)
+                      : dueMs;
+
+                    const diffEffective = Math.round((now - effective) / 60000);
+                    if (cutoffEnabled && cutoffMs != null && cutoffMs > dueMs && isSameLocalDate(dueMs, Date.now())) {
+                      const diffDue = Math.round((now - dueMs) / 60000);
+                      if (diffDue < -1) completionStatus = 'early';
+                      else if (diffEffective > 1) completionStatus = 'late';
+                      else completionStatus = 'on_time';
+                      diffMinutes = diffEffective;
+                    } else {
+                      diffMinutes = diffEffective;
+                      if (diffMinutes < -1) completionStatus = 'early';
+                      else if (diffMinutes > 1) completionStatus = 'late';
+                      else completionStatus = 'on_time';
+                    }
+                  } catch {
+                    diffMinutes = Math.round((now - dueMs) / 60000);
+                    if (diffMinutes < -1) completionStatus = 'early';
+                    else if (diffMinutes > 1) completionStatus = 'late';
+                    else completionStatus = 'on_time';
+                  }
+                }
               await editTask(item.id!, {
                 status: nextStatus,
                 completed_at: new Date(now).toISOString(),
@@ -454,6 +628,7 @@ export default function TaskItem({
               });
             } else {
               await editTask(item.id!, { status: nextStatus, completed_at: undefined, completion_diff_minutes: undefined, completion_status: undefined });
+              setTodayDisplayLabel(null);
             }
           }}
         >

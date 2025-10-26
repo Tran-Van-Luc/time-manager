@@ -98,7 +98,11 @@ export default function TaskWeekView({
       return key in map ? map[key] : null;
     };
 
-    for (const t of filteredTasks) {
+    // Do not hide completed tasks — include all tasks so completed occurrences
+    // (non-recurring, recurring occurrences and merged ranges) are shown.
+    const filtered = filteredTasks;
+
+    for (const t of filtered) {
       const start = t.start_at ? new Date(t.start_at) : null;
       if (!start) continue;
       const duration = durationOf(t);
@@ -124,16 +128,9 @@ export default function TaskWeekView({
       const timeS = start.getSeconds();
       const timeMs = start.getMilliseconds();
 
+      // We always include occurrences — pushDay simply adds the occurrence.
       const pushDay = (d: Date) => {
         const s = new Date(d.getFullYear(), d.getMonth(), d.getDate(), timeH, timeM, timeS, timeMs).getTime();
-        // If task has completion_diff_minutes < 0 (completed early), hide occurrences between
-        // completed_at and the original end time derived from the diff.
-        const completedAt = (t as any).completed_at ? (typeof (t as any).completed_at === 'string' ? Date.parse((t as any).completed_at) : (t as any).completed_at) : null;
-        const completionDiffMin = (t as any).completion_diff_minutes;
-        if (completedAt && typeof completionDiffMin === 'number' && completionDiffMin < 0) {
-          const originalEnd = completedAt - completionDiffMin * 60 * 1000; // diffMin negative
-          if (s > completedAt && s <= originalEnd) return;
-        }
         pushOcc(t, s, duration);
       };
 
@@ -191,7 +188,7 @@ export default function TaskWeekView({
             const candidate = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), timeH, timeM, timeS, timeMs);
             const ms = candidate.getTime();
             if (ms >= baseStartAt && ms <= endBoundary) {
-              pushOcc(t, ms, duration);
+              pushDay(candidate);
             }
           }
           cursor.setDate(cursor.getDate() + 1);
@@ -207,7 +204,7 @@ export default function TaskWeekView({
             const candidate = new Date(cursor.getFullYear(), cursor.getMonth(), dom, timeH, timeM, timeS, timeMs);
             if (candidate.getMonth() !== cursor.getMonth()) continue;
             const ms = candidate.getTime();
-            if (ms >= baseStartAt && ms <= endBoundary) pushOcc(t, ms, duration);
+            if (ms >= baseStartAt && ms <= endBoundary) pushDay(candidate);
           }
           cursor.setDate(cursor.getDate() + 1);
         }

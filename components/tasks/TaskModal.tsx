@@ -70,22 +70,10 @@ export default function TaskModal({
   // Track previous repeat frequency to detect transitions (e.g., switching into 'yearly')
   const prevRepeatFrequencyRef = useRef<string | null>(null);
   // Habit options (apply to any recurrence)
-  const [habitAutoCompleteExpired, setHabitAutoCompleteExpired] = useState(false);
   const [habitMergeStreak, setHabitMergeStreak] = useState(false);
   // Controlled toggle helpers: prevent enabling auto when merge is enabled
-  const toggleHabitAuto = (val: boolean) => {
-    if (habitMergeStreak && val) {
-      onInlineAlert?.({ tone: 'warning', title: 'Không thể bật', message: 'Khi bật gộp các ngày lặp, chế độ tự động đánh hoàn thành sẽ bị tắt và không thể bật lại.' });
-      return;
-    }
-    setHabitAutoCompleteExpired(val);
-  };
   const toggleHabitMerge = (val: boolean) => {
     setHabitMergeStreak(val);
-    if (val) {
-      // If enabling merge, ensure auto is disabled
-      setHabitAutoCompleteExpired(false);
-    }
   };
   // Track the original start time to know if user changed it during edit
   const originalStartAtRef = useRef<number | undefined>(undefined);
@@ -218,7 +206,6 @@ export default function TaskModal({
   // Reset habit toggles when repeat off
   useEffect(() => {
     if (!repeat) {
-      setHabitAutoCompleteExpired(false);
       setHabitMergeStreak(false);
     }
   }, [repeat]);
@@ -226,9 +213,8 @@ export default function TaskModal({
   // When modal becomes visible, hydrate recurrence type from global (set by parent)
   useEffect(() => {
     if (visible) {
-      const flags = (global as any).__habitFlags as { auto?: boolean; merge?: boolean } | undefined;
+      const flags = (global as any).__habitFlags as { merge?: boolean } | undefined;
       if (flags) {
-        setHabitAutoCompleteExpired(!!flags.auto);
         setHabitMergeStreak(!!flags.merge);
       }
       // Capture current frequency on modal open to detect transitions later
@@ -520,7 +506,7 @@ export default function TaskModal({
                   className="border p-2 rounded mb-2 bg-gray-50 flex-row items-center justify-between"
                 >
                   <Text>
-                    Ngày bắt đầu: {newTask.start_at ? formatDate(new Date(newTask.start_at)) : "--"}
+                    Ngày bắt đầu* : {newTask.start_at ? formatDate(new Date(newTask.start_at)) : "--"}
                   </Text>
                 </TouchableOpacity>
                 {Platform.OS === "ios" && iosShowStartDate && (
@@ -609,7 +595,7 @@ export default function TaskModal({
                   }}
                   className="border p-2 rounded mb-2 bg-gray-50 flex-row items-center justify-between"
                 >
-                  <Text>Giờ bắt đầu: {newTask.start_at ? formatTime(new Date(newTask.start_at)) : "--"}</Text>
+                  <Text>Giờ bắt đầu* : {newTask.start_at ? formatTime(new Date(newTask.start_at)) : "--"}</Text>
                 </TouchableOpacity>
                 {Platform.OS === "ios" && iosShowStartTime && (
                   <DateTimePicker
@@ -680,7 +666,7 @@ export default function TaskModal({
                   className="border p-2 rounded mb-2 bg-gray-50"
                 >
                   <Text>
-                    Giờ kết thúc: {newTask.end_at ? formatTime(getEndDateObj()) : "--"}
+                    Giờ kết thúc* : {newTask.end_at ? formatTime(getEndDateObj()) : "--"}
                   </Text>
                 </TouchableOpacity>
                 {Platform.OS === "ios" && iosShowEndTime && (
@@ -862,19 +848,8 @@ export default function TaskModal({
                 </View>
                 {repeat ? (
                   <>
-                    <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2">
-                      <Text className="ml-1 mt-0.5 mb-1 font-medium">Tuỳ chọn hoàn thành</Text>
-                        <View className="mt-1 gap-2">
-                          <View className="flex-row items-center">
-                            <Switch value={habitAutoCompleteExpired} onValueChange={toggleHabitAuto} />
-                            <Text className="ml-2">Tự động đánh hoàn thành nếu hết hạn</Text>
-                          </View>
-                          <View className="flex-row items-center">
-                            <Switch value={habitMergeStreak} onValueChange={toggleHabitMerge} />
-                            <Text className="ml-2">Gộp các ngày lặp thành một lần hoàn thành</Text>
-                          </View>
-                        </View>
-                    </View>
+                    {/* "Tuỳ chọn hoàn thành" removed: auto-complete option deprecated.
+                        The merge toggle is moved down next to the repeat end date. */}
                     <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2">
                       <Text className="ml-1 mt-0.5 mb-1 font-medium">
                         Lặp theo
@@ -1072,6 +1047,13 @@ export default function TaskModal({
                             }}
                           />
                         )}
+                        {/* Move merge toggle next to repeat end date so user can choose to collapse cycle completion */}
+                        <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2 mt-2">
+                          <View className="flex-row items-center">
+                            <Switch value={habitMergeStreak} onValueChange={toggleHabitMerge} />
+                            <Text className="ml-2">Gộp các ngày lặp thành một lần hoàn thành</Text>
+                          </View>
+                        </View>
                       </View>
                     )}
                   </>
@@ -1080,7 +1062,7 @@ export default function TaskModal({
                   <TouchableOpacity
                     className={`bg-blue-600 p-3 rounded-lg mt-2 ${!newTask.title.trim() ? 'opacity-50' : ''}`}
                     onPress={() => {
-                      (global as any).__habitFlags = { auto: habitAutoCompleteExpired, merge: habitMergeStreak };
+                      (global as any).__habitFlags = { merge: habitMergeStreak };
                       handleAddWithConstraint();
                     }}
                     disabled={!newTask.title.trim()}
@@ -1091,7 +1073,7 @@ export default function TaskModal({
                   <TouchableOpacity
                     className={`bg-blue-600 p-3 rounded-lg mt-2 ${!newTask.title.trim() ? 'opacity-50' : ''}`}
                     onPress={() => {
-                      (global as any).__habitFlags = { auto: habitAutoCompleteExpired, merge: habitMergeStreak };
+                      (global as any).__habitFlags = { merge: habitMergeStreak };
                       handleEditWithConstraint();
                     }}
                     disabled={!newTask.title.trim()}

@@ -34,6 +34,7 @@ import {
   subMonths,
 } from "date-fns";
 import { useTheme } from "../context/ThemeContext";
+import AIChatModal from '../components/AIChatModal';
 
 const screenWidth = Dimensions.get("window").width;
 const WEEK_PICKER_COUNT = 12;
@@ -299,6 +300,55 @@ export default function StatsScreen() {
     upcoming?: number;
   }>({ total: 0, done: 0, doing: 0, overdue: 0, upcoming: 0 });
 
+  const [aiModalVisible, setAiModalVisible] = useState(false);
+
+  const buildAiPrompt = () => {
+    const header = `Tôi có ${computedCounts.total} công việc trong phạm vi này, trong đó ${computedCounts.done} đã hoàn thành, ${computedCounts.doing} đang thực hiện và ${computedCounts.overdue} trễ hạn. (Chờ thực hiện: ${computedCounts.upcoming || 0}).`;
+    const lines: string[] = [header, "\nChi tiết từng công việc (tên — thời gian lên lịch — trạng thái / chênh lệch so với hạn):"];
+
+    const allItems = [
+      ...doneList.map((i) => ({ ...i, __status: "done" })),
+      ...doingList.map((i) => ({ ...i, __status: "doing" })),
+      ...overdueList.map((i) => ({ ...i, __status: "overdue" })),
+      ...(upcomingList || []).map((i) => ({ ...i, __status: "upcoming" })),
+    ];
+
+    allItems.forEach((it, idx) => {
+      const title = it.title || "(không tên)";
+      const scheduled = (() => {
+        try {
+          if (it.start && it.end) {
+            const dateRange = `${format(it.start, "dd/MM")} - ${format(it.end, "dd/MM")}`;
+            const timeRange = `${format(it.start, "HH:mm")} - ${format(it.end, "HH:mm")}`;
+            return `${dateRange}, ${timeRange}`;
+          }
+          if (it.start) return `${format(it.start, "dd/MM")}, ${format(it.start, "HH:mm")}`;
+          if (it.end) return `${format(it.end, "dd/MM")}, ${format(it.end, "HH:mm")}`;
+        } catch (e) {}
+        return "(không có thời gian)";
+      })();
+      // best-effort: if completion diff is available on the item, use it; otherwise mark unknown
+      const diff = (it as any).completion_diff_minutes ?? (it.completed_at ? Math.round((new Date(it.completed_at).getTime() - (it.end ? it.end.getTime() : it.start ? it.start.getTime() : 0)) / 60000) : null);
+      let statusLabel = "";
+      if (it.__status === "done") {
+        if (diff == null) statusLabel = "Đã hoàn thành (không có dữ liệu chênh lệch)";
+        else if (diff <= 0) statusLabel = `Đã hoàn thành đúng hạn/ sớm ${Math.abs(diff)} phút`;
+        else statusLabel = `Đã hoàn thành trễ ${diff} phút`;
+      } else if (it.__status === "doing") {
+        statusLabel = "Đang thực hiện";
+      } else if (it.__status === "overdue") {
+        statusLabel = "Trễ hạn";
+      } else {
+        statusLabel = "Chờ thực hiện";
+      }
+      lines.push(`${idx + 1}. ${title} — ${scheduled} — ${statusLabel}`);
+    });
+
+    lines.push("\nDựa trên danh sách trên, vui lòng đưa ra:\n1) Hãy đánh giá thời gian biểu của tôi một cách chi tiết phù hợp hay không hợp lý gì không\n2) Đánh giá tỷ lệ hoàn thành, trễ hạn, đúng hạn\n3) Rút ra kết luận, đưa ra hướng khắc phục");
+    return lines.join("\n");
+  };
+  const aiPrompt = buildAiPrompt();
+
   const classifications = weekTasks.map((t) => {
     if (t.completedFlag) {
       if (t.completion_status === "late") return "overdue";
@@ -395,6 +445,46 @@ export default function StatsScreen() {
           (viewMode === "week" ? weekData.occsForBar : monthData.occsForBar) ||
           [];
 
+        // Load cutoff settings (treat explicit 'true' as enabled; missing -> disabled)
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        const CUT_OFF_KEY = 'endOfDayCutoff';
+        const CUT_OFF_ENABLED_KEY = 'endOfDayCutoffEnabled';
+        let cutoffEnabled = false;
+        let cutoffString = '23:00';
+        try {
+          const [cs, en] = await Promise.all([
+            AsyncStorage.getItem(CUT_OFF_KEY),
+            AsyncStorage.getItem(CUT_OFF_ENABLED_KEY),
+          ]);
+          if (cs) cutoffString = cs;
+          cutoffEnabled = en === 'true';
+        } catch (e) {
+          // ignore storage failures and use defaults
+        }
+
+        const parseCutoffMs = (msDate: number, cs: string) => {
+          try {
+            const d = new Date(msDate);
+            const [hStr, mStr] = (cs || '23:00').split(':');
+            const h = parseInt(hStr || '23', 10);
+            const m = parseInt(mStr || '0', 10);
+            if (Number.isNaN(h) || Number.isNaN(m)) return null;
+            return new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m).getTime();
+          } catch (e) {
+            return null;
+          }
+        };
+
+        const isSameLocalDate = (aMs: number, bMs: number) => {
+          const a = new Date(aMs);
+          const b = new Date(bMs);
+          return (
+            a.getFullYear() === b.getFullYear() &&
+            a.getMonth() === b.getMonth() &&
+            a.getDate() === b.getDate()
+          );
+        };
+
         // Group occurrences by recurrence id for optimized loading
         const nonMergeOccs: any[] = [];
         const mergeRecMap: Record<number, { task: any; rec: any }> = {};
@@ -423,9 +513,19 @@ export default function StatsScreen() {
         for (const o of nonRecOccs) {
           const t = o.baseTask;
           const isDone = !!t.completedFlag;
-          const isOverdue = !isDone && o.end.getTime() < nowMs;
+          // Apply cutoff: when enabled and the occurrence falls on today's local date,
+          // extend effective deadline to the cutoff time for that date.
+          let effectiveDeadline = o.end.getTime();
+          if (
+            cutoffEnabled &&
+            isSameLocalDate(o.end.getTime(), now)
+          ) {
+            const cutoffForDate = parseCutoffMs(o.end.getTime(), cutoffString);
+            if (cutoffForDate != null) effectiveDeadline = Math.max(effectiveDeadline, cutoffForDate);
+          }
+          const isOverdue = !isDone && effectiveDeadline < nowMs;
           const isStarted = o.start && o.start.getTime() <= nowMs;
-          const item = {
+          const item: any = {
             id: `task-${t.id}-${o.start.getTime()}`,
             title: t.title,
             description: t.description,
@@ -433,6 +533,10 @@ export default function StatsScreen() {
             end: o.end,
             priority: t.priority,
           };
+          // attach stored completion metadata if available from the base task
+          if (t.completed_at) item.completed_at = t.completed_at;
+          if (t.completion_diff_minutes != null) item.completion_diff_minutes = t.completion_diff_minutes;
+          if (t.completion_status) item.completion_status = t.completion_status;
           if (isDone) done.push(item);
           else if (isOverdue) overdue.push(item);
           else if (isStarted) doing.push(item);
@@ -441,7 +545,7 @@ export default function StatsScreen() {
         }
 
         // Non-merge recurring occurrences: check completions per ymd
-        // Load completions per recurrence id to avoid repeated async calls
+        // Load completions and completion times per recurrence id to avoid repeated async calls
         const recGroups: Record<number, any[]> = {};
         for (const o of nonMergeOccs) {
           const rid = o.baseTask.recurrence_id;
@@ -452,15 +556,23 @@ export default function StatsScreen() {
           const rid = Number(ridStr);
           const group = recGroups[rid];
           const completions = await getHabitCompletions(rid);
+          const times = await getHabitCompletionTimes(rid);
           for (const o of group) {
             const d = new Date(o.start);
             d.setHours(0, 0, 0, 0);
             const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
             const isDone = completions.has(ymd);
-            const isOverdue = !isDone && o.end.getTime() < nowMs;
+            // Apply cutoff same as non-recurring: extend today's deadline to cutoff when enabled
+            const dueMs = o.end.getTime();
+            let effectiveDeadlineRec = dueMs;
+            if (cutoffEnabled && isSameLocalDate(o.end.getTime(), now)) {
+              const cutoffForDate = parseCutoffMs(o.end.getTime(), cutoffString);
+              if (cutoffForDate != null) effectiveDeadlineRec = Math.max(effectiveDeadlineRec, cutoffForDate);
+            }
+            const isOverdue = !isDone && effectiveDeadlineRec < nowMs;
             const isStarted = o.start && o.start.getTime() <= nowMs;
             const t = o.baseTask;
-            const item = {
+            const item: any = {
               id: `rec-${rid}-${o.start.getTime()}`,
               title: t.title,
               description: t.description,
@@ -468,6 +580,33 @@ export default function StatsScreen() {
               end: o.end,
               priority: t.priority,
             };
+
+            // If we have a recorded completion time for this ymd, attach completed_at and compute minute diff & status
+            const completionTs = times && times[ymd] != null ? times[ymd] : null;
+            if (completionTs != null) {
+              const completionMs = typeof completionTs === 'number' ? completionTs : Date.parse(String(completionTs));
+              if (!isNaN(completionMs)) {
+                item.completed_at = new Date(completionMs).toISOString();
+                // Compute diff relative to effective deadline (cutoff-aware)
+                try {
+                  const diffEffective = Math.round((completionMs - effectiveDeadlineRec) / 60000);
+                  // If cutoff extended the deadline for today, use dual-check like TaskItem: completion vs due and vs effective
+                  if (cutoffEnabled && (() => { const c = parseCutoffMs(dueMs, cutoffString); return c != null && c > dueMs && isSameLocalDate(dueMs, now); })()) {
+                    const diffDue = Math.round((completionMs - dueMs) / 60000);
+                    if (diffDue < -1) item.completion_status = 'early';
+                    else if (diffEffective > 1) item.completion_status = 'late';
+                    else item.completion_status = 'on_time';
+                    item.completion_diff_minutes = diffEffective;
+                  } else {
+                    item.completion_diff_minutes = diffEffective;
+                    if (diffEffective < -1) item.completion_status = 'early';
+                    else if (diffEffective > 1) item.completion_status = 'late';
+                    else item.completion_status = 'on_time';
+                  }
+              } catch { /* ignore compute errors */ }
+              }
+            }
+
             if (isDone) done.push(item);
             else if (isOverdue) overdue.push(item);
             else if (isStarted) doing.push(item);
@@ -526,14 +665,37 @@ export default function StatsScreen() {
               completionTimestamp <=
                 (viewMode === "week" ? weekEnd.getTime() : monthEnd.getTime())
             ) {
-              const item = {
+              const dueMs = last.endAt;
+              // cutoff-aware effective deadline
+              let effectiveDeadline = dueMs;
+              if (cutoffEnabled && isSameLocalDate(dueMs, now)) {
+                const cutoffForDate = parseCutoffMs(dueMs, cutoffString);
+                if (cutoffForDate != null) effectiveDeadline = Math.max(effectiveDeadline, cutoffForDate);
+              }
+              const item: any = {
                 id: `merge-${rid}`,
                 title: baseTask.title,
                 description: baseTask.description,
                 start: new Date(occsAll[0].startAt),
                 end: new Date(last.endAt),
                 priority: baseTask.priority,
+                completed_at: new Date(completionTimestamp).toISOString(),
               };
+              try {
+                const diffEffective = Math.round((completionTimestamp - effectiveDeadline) / 60000);
+                if (cutoffEnabled && (() => { const c = parseCutoffMs(dueMs, cutoffString); return c != null && c > dueMs && isSameLocalDate(dueMs, now); })()) {
+                  const diffDue = Math.round((completionTimestamp - dueMs) / 60000);
+                  if (diffDue < -1) item.completion_status = 'early';
+                  else if (diffEffective > 1) item.completion_status = 'late';
+                  else item.completion_status = 'on_time';
+                  item.completion_diff_minutes = diffEffective;
+                } else {
+                  item.completion_diff_minutes = diffEffective;
+                  if (diffEffective < -1) item.completion_status = 'early';
+                  else if (diffEffective > 1) item.completion_status = 'late';
+                  else item.completion_status = 'on_time';
+                }
+              } catch {}
               done.push(item);
               continue;
             } else {
@@ -543,7 +705,12 @@ export default function StatsScreen() {
           }
 
           // Not fully completed within this week; determine overdue vs doing by last.endAt
-          const isOverdue = last.endAt < nowMs;
+          let effectiveDeadlineMerge = last.endAt;
+          if (cutoffEnabled && isSameLocalDate(last.endAt, now)) {
+            const cutoffForDate = parseCutoffMs(last.endAt, cutoffString);
+            if (cutoffForDate != null) effectiveDeadlineMerge = Math.max(effectiveDeadlineMerge, cutoffForDate);
+          }
+          const isOverdue = effectiveDeadlineMerge < nowMs;
           const isStarted = occsAll.some((o) => o.startAt <= nowMs);
           const item = {
             id: `merge-${rid}`,
@@ -651,6 +818,43 @@ export default function StatsScreen() {
       priorityLabel =
         priorityLabel.charAt(0).toUpperCase() + priorityLabel.slice(1);
 
+    // Compute minute delta / human-friendly minute label (prefer attached fields)
+    const computeMinuteLabel = () => {
+      // If we have an explicit completion diff (minutes), use it
+      const cDiff = (item as any).completion_diff_minutes;
+      const cStatus = (item as any).completion_status;
+      const completedAt = item.completed_at || (item.completed_at === null ? null : undefined);
+      if (cDiff != null) {
+        if (cStatus === 'on_time' || cDiff <= 0) return `đúng hạn / sớm ${Math.abs(cDiff)} phút`;
+        return `trễ ${cDiff} phút`;
+      }
+      // If we have a completed timestamp but no diff, compute best-effort
+      if (item.completed_at) {
+        try {
+          const compMs = new Date(item.completed_at).getTime();
+          const dueMs = item.end ? item.end.getTime() : item.start ? item.start.getTime() : null;
+          if (dueMs) {
+            const diff = Math.round((compMs - dueMs) / 60000);
+            if (diff <= 0) return `đúng hạn / sớm ${Math.abs(diff)} phút`;
+            return `trễ ${diff} phút`;
+          }
+        } catch {}
+      }
+      // If not completed, but has an end time, show how many minutes until/after due
+      if (item.end) {
+        try {
+          const nowMs = Date.now();
+          const dueMs = item.end.getTime();
+          const diffNow = Math.round((nowMs - dueMs) / 60000);
+          if (diffNow > 0) return `trễ ${diffNow} phút`;
+          return `còn ${Math.abs(diffNow)} phút`;
+        } catch {}
+      }
+      return null;
+    };
+
+    const minuteLabel = computeMinuteLabel();
+
     return (
       <View
         style={[
@@ -673,6 +877,11 @@ export default function StatsScreen() {
         </View>
         <View style={styles.itemMeta}>
           <Text style={[styles.rowTime, { color: colors.muted }]}>{time}</Text>
+          {minuteLabel ? (
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>
+              {minuteLabel}
+            </Text>
+          ) : null}
           {item.priority ? (
             <View
               style={[styles.priorityPill, { backgroundColor: priorityColor }]}
@@ -1353,22 +1562,14 @@ export default function StatsScreen() {
               Gợi ý cải thiện công việc từ AI
             </Text>
             <View style={styles.aiSuggestContent}>
-              <Text style={[styles.aiSuggestText, { color: colors.muted }]}>
-                • Ưu tiên các công việc quan trọng trong tuần này.
-              </Text>
-              <Text style={[styles.aiSuggestText, { color: colors.muted }]}>
-                • Phân bổ thời gian hợp lý giữa các công việc đang thực hiện.
-              </Text>
-              <Text style={[styles.aiSuggestText, { color: colors.muted }]}>
-                • Đặt nhắc nhở cho các công việc sắp đến hạn.
-              </Text>
-              <TouchableOpacity style={styles.aiSuggestBtn}>
+              <TouchableOpacity style={styles.aiSuggestBtn} onPress={() => setAiModalVisible(true)}>
                 <Text style={styles.aiSuggestBtnText}>
                   Nhận gợi ý công việc từ AI
                 </Text>
               </TouchableOpacity>
             </View>
           </View>
+          <AIChatModal visible={aiModalVisible} onClose={() => setAiModalVisible(false)} initialPrompt={aiPrompt} />
         </>
       )}
 

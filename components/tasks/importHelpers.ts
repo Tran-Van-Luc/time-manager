@@ -20,7 +20,6 @@ export type ParsedRow = {
   repeatDaysOfMonth?: string[];
   repeatEndDate?: number;
   yearlyCount?: number;
-  habitAuto?: boolean;
   habitMerge?: boolean;
   meta?: {
     usedCombined?: boolean;
@@ -315,7 +314,7 @@ export async function parseFile(uri: string): Promise<ParseResult> {
       end_at: final_end_at,
       priority: mapPriorityVi(getCell(row, "Mức độ", ["Priority"])),
       status: 'pending',
-      habitAuto: false,
+  // habitAuto removed: auto-complete feature is no longer supported in import template
       habitMerge: false,
       reminderEnabled: false,
       repeatEnabled: false,
@@ -384,9 +383,6 @@ export async function parseFile(uri: string): Promise<ParseResult> {
         : undefined;
       task.habitMerge = parseBooleanVi(
         getCell(row, "Gộp nhiều ngày", ["Merge Streak"])
-      );
-      task.habitAuto = parseBooleanVi(
-        getCell(row, "Tự động hoàn thành khi hết hạn", ["Auto-complete"])
       );
     }
   }
@@ -563,10 +559,7 @@ export async function exportTemplate() {
           "Optional (Yes/No). If enabled, all repeats are counted as one streak.",
           {}
         ),
-        createCell(
-          "Optional (Yes/No). Auto-completes the task when it expires.",
-          {}
-        ),
+        // Auto-complete column removed
       ],
       [
         createCell(
@@ -597,7 +590,7 @@ export async function exportTemplate() {
           "Tùy chọn (Có/Không). Nếu Có, các ngày lặp tính là 1 đơn vị.",
           {}
         ),
-        createCell("Tùy chọn (Có/Không). Tự động hoàn thành khi hết hạn.", {}),
+        // Auto-complete column removed
       ],
       [
         createCell("Tiêu đề (Title)", mandatoryHeaderCellStyle),
@@ -613,7 +606,6 @@ export async function exportTemplate() {
         ),
         createCell("Số lần lặp/năm (Yearly Count)", mandatoryHeaderCellStyle),
         createCell("Gộp nhiều ngày (Merge Streak)", {}),
-        createCell("Tự động hoàn thành khi hết hạn (Auto-complete)", {}),
       ],
     ];
     repetitionData.push([
@@ -624,7 +616,6 @@ export async function exportTemplate() {
       createCell("31/12/2025"),
       createCell(""),
       createCell("Không"),
-      createCell("Có"),
     ]);
     const ws_repetition = XLSX.utils.aoa_to_sheet(repetitionData);
     ws_repetition["!cols"] = [
@@ -635,7 +626,6 @@ export async function exportTemplate() {
       { wch: 40 },
       { wch: 40 },
       { wch: 30 },
-      { wch: 40 },
     ];
     XLSX.utils.book_append_sheet(wb, ws_repetition, "Lặp lại");
 

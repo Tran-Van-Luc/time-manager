@@ -8,6 +8,24 @@ import {
   Modal,
   ActivityIndicator, // Thêm ActivityIndicator
 } from "react-native";
+const CUT_OFF_KEY = 'endOfDayCutoff';
+const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+
+const isSameLocalDate = (msA?: number | null, msB?: number | null) => {
+  if (msA == null || msB == null) return false;
+  const a = new Date(msA);
+  const b = new Date(msB);
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+};
+
+const cutoffForDateFromString = (cutoffStr: string | null | undefined, date: Date) => {
+  if (!cutoffStr) return null;
+  const parts = String(cutoffStr).split(':');
+  const h = parseInt(parts[0] || '23', 10);
+  const m = parseInt(parts[1] || '0', 10);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), h, m).getTime();
+};
 import { useTasks } from "../hooks/useTasks";
 import { useReminders } from "../hooks/useReminders";
 import { useRecurrences } from "../hooks/useRecurrences";
@@ -340,12 +358,11 @@ export default function TasksScreen() {
         setRepeatStartDate(rec.start_date ? new Date(rec.start_date).getTime() : undefined);
         setRepeatEndDate(rec.end_date ? new Date(rec.end_date).getTime() : undefined);
         // Prefill habit flags for TaskModal switches
-        // If merge is enabled, force auto to false and prevent user from enabling it
-        const mergeFlag = rec.merge_streak === 1;
-        (global as any).__habitFlags = {
-          auto: mergeFlag ? false : rec.auto_complete_expired === 1,
-          merge: mergeFlag,
-        };
+            // If merge is enabled, preserve that; auto-complete feature removed so only set merge
+            const mergeFlag = rec.merge_streak === 1;
+            (global as any).__habitFlags = {
+              merge: mergeFlag,
+            };
       } else {
         setRepeat(false);
         setRepeatFrequency('daily');
@@ -471,7 +488,8 @@ export default function TasksScreen() {
       }
       return r.repeatEndDate;
     })());
-    (global as any).__habitFlags = { auto: !!r.habitAuto, merge: !!r.habitMerge };
+  // Auto-complete removed; only set merge flag
+  (global as any).__habitFlags = { merge: !!r.habitMerge };
   };
 
   const computeImportErrors = (r: ParsedRow): string[] => {
@@ -655,8 +673,8 @@ export default function TasksScreen() {
       // All rows validated -> add them sequentially (no per-row modal). If any add fails, stop and report.
       const failedAdds: { row: number; reason: string }[] = [];
       for (const r of mapped) {
-        // set habit flags for recurrence creation
-        (global as any).__habitFlags = { auto: !!r.habitAuto, merge: !!r.habitMerge };
+  // set habit flags for recurrence creation (only merge flag remains)
+  (global as any).__habitFlags = { merge: !!r.habitMerge };
         const newTaskPayload: any = {
           title: r.title,
           description: r.description || '',
@@ -877,7 +895,35 @@ export default function TasksScreen() {
         recurrences={recurrences}
         onClose={() => setShowDetail(false)}
         onStatusChange={async (taskId, status) => {
-          await editTask(taskId, { status });
+          // compute cutoff-aware metadata when marking completed
+          const extra: any = { status };
+          if (status === 'completed') {
+            const now = Date.now();
+            extra.completed_at = new Date(now).toISOString();
+            try {
+              const task = tasks.find(t => t.id === taskId);
+              if (task) {
+                const dateMs = task.start_at ? (typeof task.start_at === 'string' ? Date.parse(task.start_at) : task.start_at) : (task.end_at ? (typeof task.end_at === 'string' ? Date.parse(task.end_at) : task.end_at) : null);
+                if (dateMs != null && isSameLocalDate(dateMs, now)) {
+                  const cutoffStr = await AsyncStorage.getItem(CUT_OFF_KEY);
+                  const cutoffMs = cutoffForDateFromString(cutoffStr, new Date(dateMs));
+                  const effective = cutoffMs != null ? Math.max(dateMs, cutoffMs) : dateMs;
+                  const diffMinutes = Math.round((now - effective) / 60000);
+                  const completion_status = diffMinutes <= 0 ? 'on_time' : 'late';
+                  extra.completion_diff_minutes = diffMinutes;
+                  extra.completion_status = completion_status;
+                }
+              }
+            } catch (e) {
+              // ignore
+            }
+          } else {
+            // clearing completion metadata when switching away from completed
+            extra.completed_at = undefined;
+            extra.completion_diff_minutes = undefined;
+            extra.completion_status = undefined;
+          }
+          await editTask(taskId, extra);
           setDetailTask((prev) => (prev && prev.id === taskId ? { ...prev, status } : prev));
           await loadTasks();
         }}

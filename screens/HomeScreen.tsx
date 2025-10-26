@@ -168,7 +168,7 @@ export default function HomeScreen() {
     return cells;
   }, [current]);
 
-  const dayMap = useMemo(() => {
+  const baseDayMap = useMemo(() => {
     const map = new Map<string, DayItem[]>();
 
     for (const s of schedules) {
@@ -191,7 +191,13 @@ export default function HomeScreen() {
     const monthStart = startOfDay(new Date(current.getFullYear(), current.getMonth(), 1));
     const monthEnd = endOfDay(new Date(current.getFullYear(), current.getMonth() + 1, 0));
 
-    for (const t of tasks) {
+    // Lọc trước: ẩn các task không lặp đã hoàn thành
+    const filteredTasks = tasks.filter(t => {
+      if (!t.recurrence_id && t.status === 'completed') return false;
+      return true;
+    });
+
+    for (const t of filteredTasks) {
       const baseStart = t.start_at ? new Date(t.start_at).getTime() : undefined;
       const baseEnd = t.end_at ? new Date(t.end_at).getTime() : undefined;
 
@@ -205,7 +211,8 @@ export default function HomeScreen() {
             interval: rec.interval || 1,
             daysOfWeek: rec.days_of_week ? JSON.parse(rec.days_of_week) : [],
             daysOfMonth: rec.day_of_month ? JSON.parse(rec.day_of_month) : [],
-            endDate: rec.end_date ? new Date(rec.end_date).getTime() : undefined,
+            // treat end_date as inclusive: use end of day timestamp so occurrences on that day are included
+            endDate: rec.end_date ? endOfDay(new Date(rec.end_date)).getTime() : undefined,
           } as any;
 
           let occs: { startAt: number; endAt: number }[] = [];
@@ -218,7 +225,8 @@ export default function HomeScreen() {
                 // (completed_at, originalEnd] because those were effectively completed early.
                 const completedAtStr = (t as any).completed_at;
                 const completionDiffMin = (t as any).completion_diff_minutes;
-                if (completedAtStr && typeof completionDiffMin === 'number' && completionDiffMin < 0) {
+                // Only hide when the base task is actually marked completed
+                if ((t as any).status === 'completed' && completedAtStr && typeof completionDiffMin === 'number' && completionDiffMin < 0) {
                   const completedMs = Date.parse(completedAtStr);
                   const originalEndMs = completedMs - completionDiffMin * 60 * 1000; // completionDiffMin is negative
                   // hide occurrences strictly after completedAt and up to original end
@@ -287,6 +295,53 @@ export default function HomeScreen() {
 
     return map;
   }, [schedules, tasks, recurrences, current]);
+
+  // dayMap is the version used for rendering; we start from baseDayMap and then
+  // asynchronously remove occurrences that are already completed (per-recurring-day)
+  const [dayMap, setDayMap] = useState<Map<string, DayItem[]>>(new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    // seed synchronous copy so UI can render immediately
+    setDayMap(new Map(baseDayMap));
+
+    (async () => {
+      try {
+        const filtered = new Map<string, DayItem[]>();
+        for (const [key, items] of baseDayMap.entries()) {
+          const kept: DayItem[] = [];
+          for (const it of items) {
+            if (it.kind === 'task') {
+              const t = it as DayTaskItem;
+              try {
+                const orig = tasks.find(tt => tt.id === t.id);
+                if (orig && (orig as any).recurrence_id) {
+                  const recId = (orig as any).recurrence_id;
+                  // parse key 'YYYY-MM-DD' into local date at start of day
+                  const parts = key.split('-').map((p) => parseInt(p, 10));
+                  const dateObj = new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1);
+                  const done = await isHabitDoneOnDate(recId, startOfDay(dateObj));
+                  if (done) {
+                    // skip this occurrence
+                    continue;
+                  }
+                }
+              } catch {
+                // on error, fall back to keeping the item
+              }
+            }
+            kept.push(it);
+          }
+          if (kept.length) filtered.set(key, kept);
+        }
+        if (!cancelled) setDayMap(filtered);
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [baseDayMap, tasks]);
 
   function resetToToday() {
     const today = startOfDay(new Date());

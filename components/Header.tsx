@@ -8,7 +8,7 @@ import { useRouter } from "expo-router";
 
 export default function Header() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
-  const [notifications, setNotifications] = useState(3);
+  const [notifications, setNotifications] = useState(0);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -36,7 +36,8 @@ export default function Header() {
   };
 
   const showNotifications = () => {
-    alert("Hiển thị notifications!");
+    // Navigate to the completed screen instead of showing an alert
+    router.push('/completed');
   };
 
   return (
