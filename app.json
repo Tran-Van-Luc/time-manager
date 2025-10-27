@@ -22,7 +22,12 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.tipro3201a.timemanager"
+      "package": "com.tipro3201a.timemanager",
+
+      "permissions": [
+        "RECORD_AUDIO",
+        "INTERNET"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -42,7 +47,14 @@
       ],
       "expo-router",
       "expo-web-browser",
-      "expo-secure-store"
+      "expo-secure-store",
+
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Ứng dụng cần quyền truy cập micro để nhập liệu bằng giọng nói."
+        }
+      ]
     ],
     "runtimeVersion": {
       "policy": "appVersion"

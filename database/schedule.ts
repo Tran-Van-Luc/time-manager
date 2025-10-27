@@ -221,7 +221,7 @@ export async function createSchedule(
       }
       // Nếu là buổi gốc, throw như cũ
       throw new Error(
-        `Xung đột với "${conflict.subject}" từ ` +
+        `Trùng lịch với "${conflict.subject}" từ ` +
         `${new Date(conflict.existingStart).toLocaleTimeString()} đến ` +
         `${new Date(conflict.existingEnd).toLocaleTimeString()}`
       );

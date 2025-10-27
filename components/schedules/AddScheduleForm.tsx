@@ -17,6 +17,9 @@ import {
   ScheduleType,
 } from "../../database/schedule";
 import { useSchedules } from "../../hooks/useSchedules";
+import VoiceScheduleInput from "./VoiceScheduleInput";
+
+import { getAllTasks } from "../../database/task";
 
 // Các loại lịch
 const ADD_TYPES: ScheduleType[] = [
@@ -111,33 +114,146 @@ export default function AddScheduleForm({
     initialValues?.endTime ? parseLocalTime(initialValues.endTime) : new Date(startTime)
   );
 
+  // tasks (client-side list) — dùng để kiểm tra conflict ngay trong form
+  const [tasks, setTasks] = useState<Array<Record<string, any>>>([]);
+
   useEffect(() => {
     loadSchedules();
+    // load tasks once for client-side conflict checking
+    (async () => {
+      try {
+        const t = await getAllTasks();
+        setTasks(t || []);
+      } catch (e) {
+        // nếu không thể lấy tasks ở client, bỏ qua; server vẫn kiểm tra khi lưu
+      }
+    })();
   }, []);
 
-  // conflict check (skip current entry when editing)
+  // helper: normalize various DB formats to Date | null
+  const toDate = (v: any): Date | null => {
+    if (v == null) return null;
+    if (v instanceof Date) return v;
+    if (typeof v === "number") {
+      const ms = v < 1e12 ? v * 1000 : v;
+      return new Date(ms);
+    }
+    if (typeof v === "string") {
+      if (/^\d+$/.test(v)) {
+        const n = parseInt(v, 10);
+        const ms = n < 1e12 ? n * 1000 : n;
+        return new Date(ms);
+      }
+      return new Date(v.replace(" ", "T"));
+    }
+    try {
+      return new Date(v);
+    } catch {
+      return null;
+    }
+  };
+
+  // helper: try multiple field names safely
+  const getField = (o: Record<string, any> | null | undefined, ...names: string[]) => {
+    if (!o) return undefined;
+    for (const n of names) {
+      if (n in o && typeof o[n] !== "undefined") return o[n];
+    }
+    return undefined;
+  };
+
+  // generate occurrences for recurring (weekly) between startDate..endDate for the given startTime/endTime
+  const generateRecurringSlots = (sDate: Date, eDate: Date, sTime: Date, eTime: Date) => {
+    const slots: Array<{ start: Date; end: Date }> = [];
+    const cursor = new Date(sDate);
+    while (cursor <= eDate) {
+      const s = new Date(cursor);
+      s.setHours(sTime.getHours(), sTime.getMinutes(), 0, 0);
+      const e = new Date(cursor);
+      e.setHours(eTime.getHours(), eTime.getMinutes(), 0, 0);
+      slots.push({ start: s, end: e });
+      cursor.setDate(cursor.getDate() + 7);
+    }
+    return slots;
+  };
+
+  // conflict check (client-side) — covers both single and recurring; skip current entry when editing
   const conflictDetail = useMemo(() => {
-    if (isRecurringType(type)) return undefined;
-    const ns = new Date(
-      `${formatLocalDate(singleDate)}T${formatLocalTime(startTime)}:00`
-    );
-    const ne = new Date(
-      `${formatLocalDate(singleDate)}T${formatLocalTime(endTime)}:00`
-    );
-    return schedules.find((evt) => {
-      if (evt.id === initialValues?.id) return false;
-      const sameDay =
-        evt.startAt.getFullYear() === ns.getFullYear() &&
-        evt.startAt.getMonth() === ns.getMonth() &&
-        evt.startAt.getDate() === ns.getDate();
-      return sameDay && evt.startAt < ne && evt.endAt > ns;
-    });
-  }, [type, singleDate, startTime, endTime, schedules, initialValues?.id]);
+    // prepare candidate slots to check
+    const candidateSlots: Array<{ start: Date; end: Date }> = [];
+
+    if (isRecurringType(type)) {
+      if (!startDate || !endDate) return undefined;
+      if (startDate > endDate) return undefined;
+      candidateSlots.push(...generateRecurringSlots(startDate, endDate, startTime, endTime));
+    } else {
+      const ns = new Date(
+        `${formatLocalDate(singleDate)}T${formatLocalTime(startTime)}:00`
+      );
+      const ne = new Date(
+        `${formatLocalDate(singleDate)}T${formatLocalTime(endTime)}:00`
+      );
+      candidateSlots.push({ start: ns, end: ne });
+    }
+
+    const overlaps = (aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) => {
+      return aStart < bEnd && aEnd > bStart;
+    };
+
+    // check each candidate slot against schedules and tasks
+    for (const slot of candidateSlots) {
+      // schedules
+      for (const evt of schedules) {
+        if (evt.id === initialValues?.id) continue;
+        const existingStart = toDate(getField(evt as any, "startAt", "start_at", "start"));
+        const existingEnd = toDate(getField(evt as any, "endAt", "end_at", "end"));
+        if (!existingStart || !existingEnd) continue;
+        if (
+          existingStart.getFullYear() === slot.start.getFullYear() &&
+          existingStart.getMonth() === slot.start.getMonth() &&
+          existingStart.getDate() === slot.start.getDate()
+        ) {
+          if (overlaps(slot.start, slot.end, existingStart, existingEnd)) {
+            return {
+              source: "schedule" as const,
+              subject: getField(evt as any, "subject", "title") ?? "Môn học",
+              existingStart,
+              existingEnd,
+            };
+          }
+        }
+      }
+
+      // tasks
+      for (const t of tasks) {
+        if (typeof getField(t, "is_deleted") !== "undefined" && getField(t, "is_deleted")) continue;
+        const existingStart = toDate(getField(t, "start_at", "startAt", "start"));
+        const existingEnd = toDate(getField(t, "end_at", "endAt", "end"));
+        if (!existingStart || !existingEnd) continue;
+        if (
+          existingStart.getFullYear() === slot.start.getFullYear() &&
+          existingStart.getMonth() === slot.start.getMonth() &&
+          existingStart.getDate() === slot.start.getDate()
+        ) {
+          if (overlaps(slot.start, slot.end, existingStart, existingEnd)) {
+            return {
+              source: "task" as const,
+              subject: getField(t, "title") ?? "Công việc",
+              existingStart,
+              existingEnd,
+            };
+          }
+        }
+      }
+    }
+
+    return undefined;
+  }, [type, startDate, endDate, singleDate, startTime, endTime, schedules, tasks, initialValues?.id]);
 
   const isValid =
     courseName.trim() !== "" &&
     startTime < endTime &&
-    ( !isRecurringType(type) ? true : startDate <= endDate ) &&
+    (!isRecurringType(type) ? true : startDate <= endDate) &&
     !conflictDetail;
 
   // Picker states
@@ -184,7 +300,7 @@ export default function AddScheduleForm({
       if (conflictDetail) {
         return Alert.alert(
           "Trùng lịch",
-          `Bạn đã có "${conflictDetail.subject}" từ ${conflictDetail.startAt.toLocaleTimeString()} đến ${conflictDetail.endAt.toLocaleTimeString()}`
+          `Bạn đã có "${conflictDetail.subject}" từ ${conflictDetail.existingStart.toLocaleTimeString()} đến ${conflictDetail.existingEnd.toLocaleTimeString()}`
         );
       }
       return Alert.alert("Lỗi", "Vui lòng kiểm tra lại thông tin");
@@ -225,6 +341,21 @@ export default function AddScheduleForm({
     }
   }
 
+  // handleVoiceParsed: chỉ active khi thêm mới (onSave undefined).
+  const handleVoiceParsed = (data: Partial<CreateScheduleParams>) => {
+    if (onSave) return;
+
+    if (data.courseName) setCourseName(data.courseName);
+    if (data.instructorName) setInstructor(data.instructorName);
+    if (data.location) setLocation(data.location);
+    if (data.type) setType(data.type);
+    if (data.startDate) setStartDate(parseLocalDate(data.startDate));
+    if (data.endDate) setEndDate(parseLocalDate(data.endDate));
+    if (data.singleDate) setSingleDate(parseLocalDate(data.singleDate));
+    if (data.startTime) setStartTime(parseLocalTime(data.startTime));
+    if (data.endTime) setEndTime(parseLocalTime(data.endTime));
+  };
+
   return (
     <View style={s.overlay}>
       <View style={s.modal}>
@@ -234,6 +365,9 @@ export default function AddScheduleForm({
         </View>
 
         <ScrollView>
+          {!onSave && <VoiceScheduleInput onParsed={handleVoiceParsed} />}
+
+          <View style={{ height: 1, backgroundColor: "#ddd", marginVertical: 16 }} />
           <Text style={s.label}>Tên môn học *</Text>
           <TextInput style={s.input} placeholder="VD: Toán cao cấp" value={courseName} onChangeText={setCourseName} />
 
@@ -281,7 +415,11 @@ export default function AddScheduleForm({
             </TouchableOpacity>
           </View>
 
-          {conflictDetail && <Text style={s.error}>Trùng lịch: đã có "{conflictDetail.subject}" khung này</Text>}
+          {conflictDetail && (
+            <Text style={s.error}>
+              Trùng lịch với {conflictDetail.source === "task" ? "công việc" : "lịch"}: "{conflictDetail.subject}" từ {conflictDetail.existingStart.toLocaleTimeString()} đến {conflictDetail.existingEnd.toLocaleTimeString()}
+            </Text>
+          )}
 
           <DateTimePickerModal
             isVisible={isPickerVisible}
