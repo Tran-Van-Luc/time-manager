@@ -541,22 +541,6 @@ QUAN TRỌNG: Chỉ trả về JSON array, không có markdown, không có text 
             </View>
           )}
 
-          {!useMock && !GEMINI_API_KEY.startsWith('AIza') && (
-            <View style={[styles.mockWarning, { borderLeftColor: '#DC2626' }]}>
-              <Text style={styles.mockWarningText}>
-                ⚠️ Chưa có API key. Thêm Gemini API key để dùng AI.
-              </Text>
-            </View>
-          )}
-
-          {!useMock && GEMINI_API_KEY.startsWith('AIza') && (
-            <TouchableOpacity 
-              onPress={checkAvailableModels}
-              style={[styles.pdfImportButton, { backgroundColor: '#10B981', marginBottom: 8 }]}
-            >
-              <Text style={styles.pdfImportButtonText}>🔍 Kiểm tra API</Text>
-            </TouchableOpacity>
-          )}
         </View>
       </View>
     </Modal>
