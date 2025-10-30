@@ -591,129 +591,163 @@ export default function TasksScreen() {
         return;
       }
 
-      // Batch-validate rows first (no partial adds). Collect per-row errors keyed by original Excel row number.
-      const rowErrors: { row: number; errors: string[] }[] = [];
-      const syntheticTasks: any[] = [];
-  // Set global flag so handleAddTask runs in non-interactive (batch) mode
-  (global as any).__skipTaskPrompts = true;
-  for (const r of mapped) {
-        const errs: string[] = [];
-        if (!r.title || !r.title.trim()) errs.push('Thiếu tiêu đề công việc');
-        // basic time checks
-        if (!r.start_at) errs.push('Thiếu hoặc sai định dạng Ngày/Giờ bắt đầu');
-        if (!r.end_at) errs.push('Thiếu hoặc sai định dạng Giờ kết thúc');
-        if (r.start_at && r.end_at && r.end_at <= r.start_at) errs.push('Ngày giờ kết thúc phải sau ngày giờ bắt đầu');
+      // Do import for a given set of rows (run validation + add)
+      const doImport = async (rowsToImport: ParsedRow[]) => {
+        // Batch-validate rows first (no partial adds). Collect per-row errors keyed by original Excel row number.
+        const rowErrors: { row: number; errors: string[] }[] = [];
+        const syntheticTasks: any[] = [];
+        // Set global flag so handleAddTask runs in non-interactive (batch) mode
+        (global as any).__skipTaskPrompts = true;
+        for (const r of rowsToImport) {
+          const errs: string[] = [];
+          if (!r.title || !r.title.trim()) errs.push('Thiếu tiêu đề công việc');
+          // basic time checks
+          if (!r.start_at) errs.push('Thiếu hoặc sai định dạng Ngày/Giờ bắt đầu');
+          if (!r.end_at) errs.push('Thiếu hoặc sai định dạng Giờ kết thúc');
+          if (r.start_at && r.end_at && r.end_at <= r.start_at) errs.push('Ngày giờ kết thúc phải sau ngày giờ bắt đầu');
 
-        // Repeat adjustments and checks similar to computeImportErrors
-        if (r.repeatEnabled) {
-          if (r.repeatFrequency === 'weekly' && (!r.repeatDaysOfWeek || r.repeatDaysOfWeek.length === 0) && r.start_at) {
-            const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(r.start_at).getDay()];
-            r.repeatDaysOfWeek = [dow];
-          }
-          if (r.repeatFrequency === 'monthly' && (!r.repeatDaysOfMonth || r.repeatDaysOfMonth.length === 0) && r.start_at) {
-            r.repeatDaysOfMonth = [String(new Date(r.start_at).getDate())];
-          }
-          const endBoundary = ((): number | undefined => {
-            if (r.repeatFrequency === 'yearly' && r.yearlyCount && r.start_at) {
-              const base = new Date(r.start_at);
-              const end = new Date(base);
-              end.setFullYear(end.getFullYear() + (r.yearlyCount - 1));
-              end.setHours(23,59,0,0);
-              return end.getTime();
+          // Repeat adjustments and checks similar to computeImportErrors
+          if (r.repeatEnabled) {
+            if (r.repeatFrequency === 'weekly' && (!r.repeatDaysOfWeek || r.repeatDaysOfWeek.length === 0) && r.start_at) {
+              const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(r.start_at).getDay()];
+              r.repeatDaysOfWeek = [dow];
             }
-            return r.repeatEndDate;
-          })();
-          if (r.start_at && endBoundary && r.start_at > endBoundary) errs.push('Ngày bắt đầu không thể sau ngày kết thúc lặp');
-        }
-
-        // Conflict checks against existing tasks + already-validated new rows
-        try {
-          if (r.start_at && r.end_at) {
-            const tasksForCheck = [...tasks, ...syntheticTasks];
-            if (r.repeatEnabled) {
-              const rec = {
-                enabled: true,
-                frequency: r.repeatFrequency,
-                interval: r.repeatInterval || 1,
-                daysOfWeek: r.repeatDaysOfWeek,
-                daysOfMonth: r.repeatDaysOfMonth,
-                endDate: ((): number | undefined => {
-                  if (r.repeatFrequency === 'yearly' && r.yearlyCount && r.start_at) {
-                    const base = new Date(r.start_at); const end = new Date(base); end.setFullYear(end.getFullYear() + (r.yearlyCount - 1)); end.setHours(23,59,0,0); return end.getTime();
-                  }
-                  return r.repeatEndDate;
-                })(),
-              } as any;
-              const { hasConflict, conflictMessage } = checkRecurringConflicts(r.start_at, r.end_at, tasksForCheck as any, schedules as any, rec as any);
-              if (hasConflict) errs.push(`Xung đột: ${conflictMessage}`);
-            } else {
-              const { hasConflict, conflictMessage } = checkTimeConflicts(r.start_at, r.end_at, tasksForCheck as any, schedules as any);
-              if (hasConflict) errs.push(`Xung đột: ${conflictMessage}`);
+            if (r.repeatFrequency === 'monthly' && (!r.repeatDaysOfMonth || r.repeatDaysOfMonth.length === 0) && r.start_at) {
+              r.repeatDaysOfMonth = [String(new Date(r.start_at).getDate())];
             }
+            const endBoundary = ((): number | undefined => {
+              if (r.repeatFrequency === 'yearly' && r.yearlyCount && r.start_at) {
+                const base = new Date(r.start_at);
+                const end = new Date(base);
+                end.setFullYear(end.getFullYear() + (r.yearlyCount - 1));
+                end.setHours(23,59,0,0);
+                return end.getTime();
+              }
+              return r.repeatEndDate;
+            })();
+            if (r.start_at && endBoundary && r.start_at > endBoundary) errs.push('Ngày bắt đầu không thể sau ngày kết thúc lặp');
           }
-        } catch (err) {
-          // ignore check errors
+
+          // Conflict checks against existing tasks + already-validated new rows
+          try {
+            if (r.start_at && r.end_at) {
+              const tasksForCheck = [...tasks, ...syntheticTasks];
+              if (r.repeatEnabled) {
+                const rec = {
+                  enabled: true,
+                  frequency: r.repeatFrequency,
+                  interval: r.repeatInterval || 1,
+                  daysOfWeek: r.repeatDaysOfWeek,
+                  daysOfMonth: r.repeatDaysOfMonth,
+                  endDate: ((): number | undefined => {
+                    if (r.repeatFrequency === 'yearly' && r.yearlyCount && r.start_at) {
+                      const base = new Date(r.start_at); const end = new Date(base); end.setFullYear(end.getFullYear() + (r.yearlyCount - 1)); end.setHours(23,59,0,0); return end.getTime();
+                    }
+                    return r.repeatEndDate;
+                  })(),
+                } as any;
+                const { hasConflict, conflictMessage } = checkRecurringConflicts(r.start_at, r.end_at, tasksForCheck as any, schedules as any, rec as any);
+                if (hasConflict) errs.push(`Xung đột: ${conflictMessage}`);
+              } else {
+                const { hasConflict, conflictMessage } = checkTimeConflicts(r.start_at, r.end_at, tasksForCheck as any, schedules as any);
+                if (hasConflict) errs.push(`Xung đột: ${conflictMessage}`);
+              }
+            }
+          } catch (err) {
+            // ignore check errors
+          }
+
+          if (errs.length) {
+            rowErrors.push({ row: (r.meta && (r.meta as any).originalRow) || 0, errors: errs });
+          } else {
+            // add synthetic task for future conflict checks
+            syntheticTasks.push({ id: -1000 - syntheticTasks.length, title: r.title, start_at: r.start_at, end_at: r.end_at, priority: r.priority || 'medium', status: r.status || 'pending' });
+          }
         }
 
-        if (errs.length) {
-          rowErrors.push({ row: (r.meta && (r.meta as any).originalRow) || 0, errors: errs });
-        } else {
-          // add synthetic task for future conflict checks
-          syntheticTasks.push({ id: -1000 - syntheticTasks.length, title: r.title, start_at: r.start_at, end_at: r.end_at, priority: r.priority || 'medium', status: r.status || 'pending' });
+        if (rowErrors.length) {
+          // Build message grouped by row
+          const lines = rowErrors.map(re => `Dòng ${re.row}: ${re.errors.join('; ')}`);
+          setAlertState({ visible:true, tone:'error', title:'Lỗi nhập từng dòng', message: lines.join('\n'), buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
+          delete (global as any).__skipTaskPrompts;
+          return;
         }
-      }
 
-      if (rowErrors.length) {
-        // Build message grouped by row
-        const lines = rowErrors.map(re => `Dòng ${re.row}: ${re.errors.join('; ')}`);
-        setAlertState({ visible:true, tone:'error', title:'Lỗi nhập từng dòng', message: lines.join('\n'), buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
+        // All rows validated -> add them sequentially (no per-row modal). If any add fails, stop and report.
+        const failedAdds: { row: number; reason: string }[] = [];
+        for (const r of rowsToImport) {
+          // set habit flags for recurrence creation (only merge flag remains)
+          (global as any).__habitFlags = { merge: !!r.habitMerge };
+          const newTaskPayload: any = {
+            title: r.title,
+            description: r.description || '',
+            start_at: r.start_at,
+            end_at: r.end_at,
+            priority: r.priority || 'medium',
+            status: r.status || 'pending',
+          };
+          const reminderCfg = r.reminderEnabled
+            ? { enabled: true, time: r.reminderTime || 0, method: r.reminderMethod || 'notification' }
+            : { enabled: false, time: 0, method: 'notification' };
+          const recurCfg = r.repeatEnabled
+            ? { enabled: true, frequency: r.repeatFrequency || 'daily', interval: r.repeatInterval || 1, daysOfWeek: r.repeatDaysOfWeek || [], daysOfMonth: r.repeatDaysOfMonth || [], endDate: r.repeatEndDate }
+            : { enabled: false, frequency: 'daily', interval: 1 };
+
+          const ok = await handleAddTask(newTaskPayload, reminderCfg as any, recurCfg as any);
+          if (!ok) {
+            failedAdds.push({ row: (r.meta && (r.meta as any).originalRow) || 0, reason: `Không thể thêm dòng` });
+            break;
+          }
+        }
+
+        // Clear global flag
+        delete (global as any).__skipTaskPrompts;
+
+        if (failedAdds.length) {
+          const lines = failedAdds.map(f => `Dòng ${f.row}: ${f.reason}`);
+          setAlertState({ visible:true, tone:'error', title:'Lỗi khi thêm', message: lines.join('\n'), buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
+          return;
+        }
+
+        // Success: reload data
+        await loadTasks();
+        await loadReminders();
+        await loadRecurrences();
+        setAlertState({ visible:true, tone:'success', title:'Hoàn tất', message:`Đã thêm ${rowsToImport.length} công việc.`, buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
+        setShowImportDialog(false);
+        setImportDialogPath('');
+        setImportCandidateUri(null);
+      };
+
+      // Enforce: do not add rows with start_at < now + 1 hour. If such rows exist, ask user to continue (which will only import future rows) or cancel.
+      const threshold = Date.now() + 60 * 60 * 1000;
+      const earlyRows = mapped.filter(r => r.start_at && r.start_at < threshold);
+      if (earlyRows.length > 0) {
+        const count = earlyRows.length;
+        const thresholdStr = new Date(threshold).toLocaleString();
+        setAlertState({
+          visible: true,
+          tone: 'warning',
+          title: 'Có công việc sớm hơn thời điểm cho phép',
+          message: `Có ${count} công việc có 'Ngày bắt đầu' trước ${thresholdStr}. Những công việc này sẽ không được thêm. Bạn có muốn tiếp tục và chỉ lưu những công việc sau thời điểm này không?`,
+          buttons: [
+            { text: 'Tiếp tục', onPress: () => {
+              const keep = mapped.filter(r => r.start_at && r.start_at >= threshold);
+              if (keep.length === 0) {
+                setAlertState({ visible:true, tone:'warning', title:'Không có hàng hợp lệ', message: `Không có công việc nào sau thời điểm ${thresholdStr} để thêm.`
+, buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
+                return;
+              }
+              doImport(keep);
+            } },
+            { text: 'Hủy', onPress: () => {}, tone: 'cancel' }
+          ]
+        });
         return;
       }
 
-      // All rows validated -> add them sequentially (no per-row modal). If any add fails, stop and report.
-      const failedAdds: { row: number; reason: string }[] = [];
-      for (const r of mapped) {
-  // set habit flags for recurrence creation (only merge flag remains)
-  (global as any).__habitFlags = { merge: !!r.habitMerge };
-        const newTaskPayload: any = {
-          title: r.title,
-          description: r.description || '',
-          start_at: r.start_at,
-          end_at: r.end_at,
-          priority: r.priority || 'medium',
-          status: r.status || 'pending',
-        };
-        const reminderCfg = r.reminderEnabled
-          ? { enabled: true, time: r.reminderTime || 0, method: r.reminderMethod || 'notification' }
-          : { enabled: false, time: 0, method: 'notification' };
-        const recurCfg = r.repeatEnabled
-          ? { enabled: true, frequency: r.repeatFrequency || 'daily', interval: r.repeatInterval || 1, daysOfWeek: r.repeatDaysOfWeek || [], daysOfMonth: r.repeatDaysOfMonth || [], endDate: r.repeatEndDate }
-          : { enabled: false, frequency: 'daily', interval: 1 };
-
-        const ok = await handleAddTask(newTaskPayload, reminderCfg as any, recurCfg as any);
-        if (!ok) {
-          failedAdds.push({ row: (r.meta && (r.meta as any).originalRow) || 0, reason: `Không thể thêm dòng` });
-          break;
-        }
-      }
-
-      // Clear global flag
-      delete (global as any).__skipTaskPrompts;
-
-      if (failedAdds.length) {
-        const lines = failedAdds.map(f => `Dòng ${f.row}: ${f.reason}`);
-        setAlertState({ visible:true, tone:'error', title:'Lỗi khi thêm', message: lines.join('\n'), buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
-        return;
-      }
-
-      // Success: reload data
-      await loadTasks();
-      await loadReminders();
-      await loadRecurrences();
-      setAlertState({ visible:true, tone:'success', title:'Hoàn tất', message:`Đã thêm ${mapped.length} công việc.`, buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
-      setShowImportDialog(false);
-      setImportDialogPath('');
-      setImportCandidateUri(null);
+      // No early rows -> import all
+      await doImport(mapped);
     } catch (e: any) {
       console.warn('importFromUri failed', e);
       const message = e && e.message ? String(e.message) : 'Không thể đọc tệp Excel. Vui lòng kiểm tra định dạng.';

@@ -18,7 +18,8 @@ export default function CompletedScreen() {
 
   const [loading, setLoading] = useState(true);
   // End-of-day cutoff string stored as 'HH:mm' in AsyncStorage
-  const [cutoffString, setCutoffString] = useState<string>('23:00');
+  // empty string = not set yet (show --.--)
+  const [cutoffString, setCutoffString] = useState<string>('');
   // whether the cutoff feature is enabled (default OFF for new installs)
   const [cutoffEnabled, setCutoffEnabled] = useState<boolean>(false);
   // show native time picker
@@ -230,7 +231,7 @@ export default function CompletedScreen() {
           if (!done) await markHabitToday(it.rec.id!, date);
         } else if (it.kind === 'rec-merge') {
           await markHabitRange(it.rec.id!, new Date(it.from), new Date(it.to), it.task, it.rec);
-  }
+        }
       }
       await Promise.all([loadTasks(), loadRecurrences()]);
       // clear selection
@@ -259,7 +260,7 @@ export default function CompletedScreen() {
         {/* Cutoff editor with enable switch and time picker */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginHorizontal: 4, marginBottom: 8 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Text style={{ color: '#666', marginRight: 8 }}>Ngưỡng cuối ngày:</Text>
+            <Text style={{ color: '#666', marginRight: 8 }}>Tổng hợp hoàn thành vào lúc:</Text>
             <Switch value={cutoffEnabled} onValueChange={async (v) => {
               setCutoffEnabled(v);
               try {
@@ -270,7 +271,7 @@ export default function CompletedScreen() {
             }} />
           </View>
           <TouchableOpacity onPress={() => setTimePickerVisible(true)} disabled={!cutoffEnabled} style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: cutoffEnabled ? '#E5E7EB' : '#F1F5F9', borderRadius: 8 }}>
-            <Text style={{ color: '#111' }}>{cutoffString || '23:00'}</Text>
+            <Text style={{ color: '#111' }}>{cutoffString || '--.--'}</Text>
           </TouchableOpacity>
         </View>
         {loading ? (

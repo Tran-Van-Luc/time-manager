@@ -49,33 +49,47 @@ const parseViDateTime = (s: string): number => {
   return d.getTime();
 };
 
-const parseBooleanVi = (s: any): boolean => {
+const parseBooleanVi = (s: any, def: boolean = false): boolean => {
   if (typeof s === "boolean") return s;
-  if (s == null) return false;
+  if (s == null || s === "") return def;
   const v = String(s).trim().toLowerCase();
-  return ["có", "co", "true", "1", "x", "yes", "y"].includes(v);
+  if (["1", "true", "có", "co", "x", "yes", "y"].includes(v)) return true;
+  if (["2", "false", "không", "khong", "no", "n"].includes(v)) return false;
+  return def;
 };
+
 const mapPriorityVi = (s: any): "low" | "medium" | "high" => {
-  const v = String(s || "")
+  if (s == null || s === "") return "medium"; // default 2 = medium
+  if (typeof s === "number") {
+    if (s === 1) return "low";
+    if (s === 3) return "high";
+    return "medium";
+  }
+  const v = String(s)
     .trim()
     .toLowerCase();
-  if (v.includes("cao") || v.includes("high")) return "high";
-  if (v.includes("trung") || v.includes("trung binh") || v.includes("medium"))
-    return "medium";
-  if (v.includes("thấp") || v.includes("thap") || v.includes("low"))
-    return "low";
+  if (["1", "thấp", "thap", "low"].some(tok => v.includes(tok))) return "low";
+  if (["3", "cao", "high"].some(tok => v.includes(tok))) return "high";
+  // Default: medium (2)
   return "medium";
 };
 
 const mapFrequencyVi = (s: any): "daily" | "weekly" | "monthly" | "yearly" => {
+  if (s == null || s === "") return "daily"; // default 1 = daily
+  if (typeof s === "number") {
+    if (s === 2) return "weekly";
+    if (s === 3) return "monthly";
+    if (s === 4) return "yearly";
+    return "daily";
+  }
   const v = String(s || "")
     .trim()
     .toLowerCase();
-  if (v.includes("tuần") || v.includes("tuan") || v.includes("weekly"))
+  if (v.includes("tuần") || v.includes("tuan") || v.includes("weekly") || v === "2")
     return "weekly";
-  if (v.includes("tháng") || v.includes("thang") || v.includes("monthly"))
+  if (v.includes("tháng") || v.includes("thang") || v.includes("monthly") || v === "3")
     return "monthly";
-  if (v.includes("năm") || v.includes("nam") || v.includes("year"))
+  if (v.includes("năm") || v.includes("nam") || v.includes("year") || v === "4")
     return "yearly";
   return "daily";
 };
@@ -261,7 +275,15 @@ export async function parseFile(uri: string): Promise<ParseResult> {
     const title = getCell(row, "Tiêu đề", ["Title"]);
 
     if (!title || !String(title).trim()) {
-      // Bỏ qua các dòng trống không có tiêu đề
+      // If the row contains other data but no title, treat as an error.
+      const rawStartDate = getCell(row, "Ngày bắt đầu", ["Start Date"]);
+      const rawStartTime = getCell(row, "Giờ bắt đầu", ["Start Time"]);
+      const rawEndTime = getCell(row, "Giờ kết thúc", ["End Time"]);
+      const anyOther = rawStartDate || rawStartTime || rawEndTime || getCell(row, "Mô tả", ["Description"]) || getCell(row, "Mức độ", ["Priority"]);
+      if (anyOther) {
+        errors.push(`Dòng ${excelRowIdx}: Thiếu 'Tiêu đề'`);
+      }
+      // Skip empty or already-reported rows
       continue;
     }
 
@@ -331,10 +353,50 @@ export async function parseFile(uri: string): Promise<ParseResult> {
     tasksMap.set(normalize(parsedRow.title), parsedRow);
   }
 
-  // Nếu có lỗi ngay từ bước đọc file cơ bản, trả về luôn
+  // (Không trả về ngay — tiếp tục validate các sheet Nhắc nhở và Lặp lại để gom hết lỗi)
+
+  // --- START: Validation for Reminders & Repetition sheets ---
+  // Validate that titles in 'Nhắc nhở' and 'Lặp lại' (if present)
+  // 1) match a title in the 'Công việc' sheet (tasksMap)
+  // 2) are not duplicated within their own sheet
+  const validateSheetTitles = (rows: any[], sheetPrettyName: string) => {
+    const seen = new Set<string>();
+    for (const [index, row] of (rows as any[]).entries()) {
+      const excelRowIdx = 4 + index; // dữ liệu bắt đầu từ dòng 4
+      const titleRaw = getCell(row, "Tiêu đề", ["Title"]) || "";
+      if (!titleRaw || String(titleRaw).trim() === "") continue; // bỏ qua nếu không có tiêu đề
+      const normalizedTitle = normalize(titleRaw);
+      if (!tasksMap.has(normalizedTitle)) {
+        errors.push(
+          `Dòng ${excelRowIdx} trong sheet '${sheetPrettyName}': Tiêu đề '${String(
+            titleRaw
+          )}' không khớp bất kỳ tiêu đề nào trong sheet 'Công việc'.`
+        );
+      }
+      if (seen.has(normalizedTitle)) {
+        errors.push(
+          `Dòng ${excelRowIdx} trong sheet '${sheetPrettyName}': Tiêu đề '${String(
+            titleRaw
+          )}' bị trùng lặp trong sheet '${sheetPrettyName}'.`
+        );
+      } else {
+        seen.add(normalizedTitle);
+      }
+    }
+  };
+
+  if (reminderRows && (reminderRows as any[]).length > 0) {
+    validateSheetTitles(reminderRows as any[], "Nhắc nhở");
+  }
+  if (repetitionRows && (repetitionRows as any[]).length > 0) {
+    validateSheetTitles(repetitionRows as any[], "Lặp lại");
+  }
+
+  // Nếu có lỗi validate, trả về để người dùng sửa file Excel
   if (errors.length > 0) {
     return { rows: [], errors };
   }
+  // --- END: Validation for Reminders & Repetition sheets ---
 
   for (const row of reminderRows as any[]) {
     const title = getCell(row, "Tiêu đề", ["Title"]) || "";
@@ -347,13 +409,22 @@ export async function parseFile(uri: string): Promise<ParseResult> {
       task.reminderTime = parseLeadVi(
         getCell(row, "Nhắc trước", ["Remind Before"])
       );
-      const method = String(
-        getCell(row, "Phương thức nhắc", ["Method"]) || ""
-      ).toLowerCase();
-      task.reminderMethod =
-        method.includes("alarm") || method.includes("chuông")
-          ? "alarm"
-          : "notification";
+
+      // Accept numeric encodings: 1 = notification, 2 = alarm; default = notification
+      const rawMethod = getCell(row, "Phương thức nhắc", ["Method"]);
+      if (rawMethod == null || rawMethod === "") {
+        task.reminderMethod = "notification";
+      } else if (typeof rawMethod === "number") {
+        task.reminderMethod = rawMethod === 2 ? "alarm" : "notification";
+      } else {
+        const methodStr = String(rawMethod).toLowerCase();
+        task.reminderMethod =
+          methodStr.includes("alarm") || methodStr.includes("chuông")
+            ? "alarm"
+            : methodStr === "2"
+            ? "alarm"
+            : "notification";
+      }
     }
   }
 
@@ -381,8 +452,11 @@ export async function parseFile(uri: string): Promise<ParseResult> {
       task.yearlyCount = yearlyCountRaw
         ? Math.max(1, Math.min(100, parseInt(String(yearlyCountRaw), 10) || 1))
         : undefined;
+
+      // Gộp nhiều ngày: 1 = có (true), 2 = không (false). Default = 1 (true) if empty.
       task.habitMerge = parseBooleanVi(
-        getCell(row, "Gộp nhiều ngày", ["Merge Streak"])
+        getCell(row, "Gộp nhiều ngày", ["Merge Streak"]),
+        true
       );
     }
   }
@@ -407,14 +481,15 @@ export async function exportTemplate() {
     
     // *** THAY ĐỔI CHÍNH Ở ĐÂY ***
     const createCell = (value: string, style?: object) => {
-      // Kết hợp style cơ bản, style tùy chọn và định dạng Text
+      // Convert sentence breaks into newlines for better Excel cell display.
+      const textVal = value == null ? "" : String(value).replace(/\.\s+/g, ".\n");
+
       const cellStyle = {
         ...baseStyle,
         ...style,
-        numFmt: "@", // Ký hiệu cho định dạng Text trong Excel
+        numFmt: "@",
       };
-      // Trả về đối tượng ô với kiểu 's' (string) và style đã kết hợp
-      return { v: value, t: "s", s: cellStyle };
+      return { v: textVal, t: "s", s: cellStyle };
     };
 
     // --- Sheet 1: Công việc (Tasks) ---
@@ -426,17 +501,19 @@ export async function exportTemplate() {
         ),
         createCell("Optional. A more detailed description."),
         createCell(
-          "Mandatory if start time is present. Format: dd/MM/yyyy.",
+          "Mandatory. Format: dd/MM/yyyy.",
           mandatoryCellStyle
         ),
         createCell(
-          "Optional. 24h format: HH:MM. If empty, the task is for the whole day."
+          "Mandatory. 24h format: HH:MM.",
+          mandatoryCellStyle
         ),
         createCell(
-          "Optional. 24h format: HH:MM. Must be later than the start time."
+          "Mandatory. 24h format: HH:MM. Must be later than the start time.",
+          mandatoryCellStyle
         ),
         createCell(
-          "Optional. Values: Low, Medium, or High (case-insensitive)."
+          "Optional. Values: Low, Medium, or High (case-insensitive). If empty, default is Medium."
         ),
       ],
       [
@@ -446,21 +523,22 @@ export async function exportTemplate() {
         ),
         createCell("Tùy chọn. Mô tả chi tiết hơn."),
         createCell(
-          "Bắt buộc khi có giờ bắt đầu. Định dạng dd/MM/yyyy.",
+          "Bắt buộc. Định dạng dd/MM/yyyy.",
           mandatoryCellStyle
         ),
         createCell(
-          "Tùy chọn. Định dạng 24h HH:MM. Nếu trống, công việc sẽ tính cho cả ngày."
+          "Bắt buộc. Định dạng 24h HH:MM.",
+          mandatoryCellStyle
         ),
-        createCell("Tùy chọn. Định dạng 24h HH:MM, phải lớn hơn giờ bắt đầu."),
-        createCell("Tùy chọn. Giá trị: Thấp, Trung bình hoặc Cao."),
+        createCell("Bắt buộc. Định dạng 24h HH:MM, phải lớn hơn giờ bắt đầu.", mandatoryCellStyle),
+  createCell("Tùy chọn. Giá trị: Thấp, Trung bình hoặc Cao. Nếu để trống mặc định là Trung bình."),
       ],
       [
         createCell("Tiêu đề (Title)", mandatoryHeaderCellStyle),
         createCell("Mô tả (Description)"),
         createCell("Ngày bắt đầu (Start Date)", mandatoryHeaderCellStyle),
-        createCell("Giờ bắt đầu (Start Time)"),
-        createCell("Giờ kết thúc (End Time)"),
+        createCell("Giờ bắt đầu (Start Time)", mandatoryHeaderCellStyle),
+        createCell("Giờ kết thúc (End Time)", mandatoryHeaderCellStyle),
         createCell("Mức độ (Priority)"),
       ],
     ];
@@ -473,6 +551,11 @@ export async function exportTemplate() {
       createCell("Trung bình"),
     ]);
     const ws_tasks = XLSX.utils.aoa_to_sheet(taskData);
+    ws_tasks["!rows"] = [
+      { hpt: 45 }, // Dòng 1 (index 0) - Hướng dẫn tiếng Anh
+      { hpt: 45 }, // Dòng 2 (index 1) - Hướng dẫn tiếng Việt
+      { hpt: 20 }, // Dòng 3 (index 2) - Tiêu đề cột
+    ];
     ws_tasks["!cols"] = [
       { wch: 40 },
       { wch: 50 },
@@ -525,6 +608,11 @@ export async function exportTemplate() {
       createCell("Thông báo"),
     ]);
     const ws_reminders = XLSX.utils.aoa_to_sheet(reminderData);
+    ws_reminders["!rows"] = [
+      { hpt: 60 }, // Dòng 1 (index 0) - Hướng dẫn tiếng Anh
+      { hpt: 60 }, // Dòng 2 (index 1) - Hướng dẫn tiếng Việt
+      { hpt: 20 }, // Dòng 3 (index 2) - Tiêu đề cột
+    ];
     ws_reminders["!cols"] = [{ wch: 40 }, { wch: 40 }, { wch: 35 }];
     XLSX.utils.book_append_sheet(wb, ws_reminders, "Nhắc nhở");
 
@@ -618,6 +706,11 @@ export async function exportTemplate() {
       createCell("Không"),
     ]);
     const ws_repetition = XLSX.utils.aoa_to_sheet(repetitionData);
+    ws_repetition["!rows"] = [
+      { hpt: 65 }, // Dòng 1 (index 0) - Hướng dẫn tiếng Anh
+      { hpt: 65 }, // Dòng 2 (index 1) - Hướng dẫn tiếng Việt
+      { hpt: 20 }, // Dòng 3 (index 2) - Tiêu đề cột
+    ];
     ws_repetition["!cols"] = [
       { wch: 40 },
       { wch: 40 },

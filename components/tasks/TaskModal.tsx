@@ -17,6 +17,7 @@ import CompactSelect from "./CompactSelect";
 import SegmentedOptions from "./SegmentedOptions"; 
 import FloatingLabelInput from "./FloatingLabelInput";
 import ColoredSegmentGroup from "./ColoredSegmentGroup";
+import VoiceTaskInput from './VoiceTaskInput';
 
 export default function TaskModal({
   visible,
@@ -108,6 +109,58 @@ export default function TaskModal({
       return { value: (totalMinutes / 60).toString(), unit: "hours" };
     }
     return { value: totalMinutes.toString(), unit: "minutes" };
+  };
+
+  // Handler to receive parsed task payload from AI/voice component
+  const handleAIPopulate = (payload: { task?: Record<string, any>; reminder?: any; recurrence?: any }) => {
+    if (!payload) return;
+    const { task: t, reminder: r, recurrence: rec } = payload;
+r    // habit merge flag may be present on payload or inside task
+    const habitFlag = (payload as any).habitMerge ?? t?.habitMerge ?? t?.habit_merge ?? null;
+    if (habitFlag !== null && habitFlag !== undefined) {
+      try {
+        setHabitMergeStreak(Boolean(habitFlag));
+      } catch {}
+    }
+    // Populate basic fields
+    if (t) {
+      setNewTask((prev: any) => ({
+        ...prev,
+        title: t.title ?? prev.title ?? '',
+        description: t.description ?? prev.description ?? prev.description,
+        start_at: t.start_at ?? t.startAt ?? t.start_time ?? prev.start_at,
+        end_at: t.end_at ?? t.endAt ?? t.end_time ?? prev.end_at,
+        priority: t.priority ?? prev.priority,
+        status: t.status ?? prev.status,
+      }));
+    }
+
+    // Reminder
+    if (r) {
+      try {
+        setReminder(true);
+        const minutes = r.time ?? r.minutes ?? r.minutesBefore ?? r.remind_before ?? null;
+        if (minutes != null) setReminderTime(Number(minutes));
+        if (r.method) setReminderMethod(String(r.method));
+      } catch {}
+    }
+
+    // Recurrence
+    if (rec) {
+      try {
+        setRepeat(true);
+        if (rec.frequency) setRepeatFrequency(String(rec.frequency));
+        if (rec.interval) setRepeatInterval(Number(rec.interval));
+        if (rec.daysOfWeek) setRepeatDaysOfWeek(Array.isArray(rec.daysOfWeek) ? rec.daysOfWeek : []);
+        if (rec.daysOfMonth) setRepeatDaysOfMonth(Array.isArray(rec.daysOfMonth) ? rec.daysOfMonth : []);
+        if (rec.endDate) setRepeatEndDate(Number(rec.endDate));
+        // If yearly, attempt to hydrate yearlyCount
+        if (rec.frequency === 'yearly' && rec.endDate && newTask.start_at) {
+          const derived = deriveYearlyCountFromDates(newTask.start_at, Number(rec.endDate));
+          if (derived !== null) setYearlyCount(derived);
+        }
+      } catch {}
+    }
   };
 
   // Đồng bộ giá trị custom (nếu người dùng chỉnh)
@@ -438,6 +491,8 @@ export default function TaskModal({
                 <Text className="text-lg font-bold mb-3">
                   {editId === null ? "Thêm công việc mới" : "Sửa công việc"}
                 </Text>
+                {/* AI / Voice quick add for tasks */}
+                <VoiceTaskInput onParsed={handleAIPopulate} />
                 {/* Chỉ hiển thị form thêm/sửa thủ công */}
                   <>
                 <FloatingLabelInput

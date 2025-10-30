@@ -13,7 +13,7 @@ import {
 } from "../utils/taskValidation";
 import type { Recurrence } from "../types/Recurrence";
 import type { Task } from "../types/Task";
-import { setHabitMeta } from "../utils/habits";
+import { setHabitMeta, getHabitCompletions, fmtYMD } from "../utils/habits";
 import { getRecurrenceById } from "../database/recurrence";
 type ScheduleLike = { startAt: Date; endAt: Date; subject?: string };
 
@@ -116,7 +116,7 @@ export const useTaskOperations = (
     }
   };
 
-  const buildExistingRecurringOccurrences = (excludeTaskId?: number) => {
+  const buildExistingRecurringOccurrences = async (excludeTaskId?: number) => {
     const result: Array<{ taskTitle: string; start: number; end: number }> = [];
     if (!recurrences || recurrences.length === 0) return result;
     const recMap: Record<number, Recurrence> = {};
@@ -153,15 +153,28 @@ export const useTaskOperations = (
       } catch {
         occs = [{ startAt: baseStart, endAt: baseEnd }];
       }
+
+      // Get completed dates for this recurrence and skip occurrences that are done
+      let completions: Set<string> = new Set();
+      try {
+        if (rec.id != null) completions = await getHabitCompletions(rec.id);
+      } catch {}
+
       for (const occ of occs) {
+        try {
+          const d = new Date(occ.startAt);
+          d.setHours(0,0,0,0);
+          const ymd = fmtYMD(d);
+          if (completions.has(ymd)) continue; // skip already-completed occurrence
+        } catch {}
         result.push({ taskTitle: t.title || '(Không tiêu đề)', start: occ.startAt, end: occ.endAt });
       }
     }
     return result;
   };
 
-  const checkConflictsWithExistingRecurring = (candidate: Array<{ start: number; end: number }>, excludeTaskId?: number) => {
-    const existing = buildExistingRecurringOccurrences(excludeTaskId);
+  const checkConflictsWithExistingRecurring = async (candidate: Array<{ start: number; end: number }>, excludeTaskId?: number) => {
+    const existing = await buildExistingRecurringOccurrences(excludeTaskId);
     const baseRecurringStarts = new Set<number>();
     for (const t of tasks) {
       if (t.id && t.recurrence_id && (!excludeTaskId || t.id !== excludeTaskId) && t.start_at) {
@@ -191,12 +204,12 @@ export const useTaskOperations = (
 
   // Gom xung đột của toàn bộ các lần lặp vào cùng định dạng; tránh trường hợp
   // block đầu (lần lặp đầu tiên) bị tách riêng rồi các lần sau mới liệt kê task lặp.
-  const buildRecurringConflictMessage = (
+  const buildRecurringConflictMessage = async (
     startAt: number,
     endAt: number,
     recurrenceConfig: { enabled: boolean; frequency: string; interval: number; daysOfWeek?: string[]; daysOfMonth?: string[]; endDate?: number },
     excludeTaskId?: number
-  ): { hasConflict: boolean; conflictMessage: string } => {
+  ): Promise<{ hasConflict: boolean; conflictMessage: string }> => {
     if (!recurrenceConfig?.enabled) return { hasConflict: false, conflictMessage: '' };
     let occs: Array<{ startAt: number; endAt: number }> = [];
     try {
@@ -212,7 +225,7 @@ export const useTaskOperations = (
       occs = [{ startAt, endAt }];
     }
 
-    const existingRecurring = buildExistingRecurringOccurrences(excludeTaskId);
+    const existingRecurring = await buildExistingRecurringOccurrences(excludeTaskId);
     const baseRecurringStarts = new Set<number>();
     for (const t of tasks) {
       if (t.id && t.recurrence_id && (!excludeTaskId || t.id !== excludeTaskId) && t.start_at) {
@@ -339,11 +352,11 @@ export const useTaskOperations = (
       if (startAt && endAt) {
         let conflictRes: { hasConflict: boolean; conflictMessage: string };
         if (recurrenceConfig?.enabled) {
-          conflictRes = buildRecurringConflictMessage(startAt, endAt, recurrenceConfig);
+          conflictRes = await buildRecurringConflictMessage(startAt, endAt, recurrenceConfig);
         } else {
           conflictRes = checkTimeConflicts(startAt, endAt, tasks, (schedules as unknown as any));
           // Bổ sung kiểm tra giao với các lần lặp của task khác (recurring) – trước đây chỉ làm khi chính task là recurring
-          const recurringConflicts = checkConflictsWithExistingRecurring([{ start: startAt, end: endAt }]);
+          const recurringConflicts = await checkConflictsWithExistingRecurring([{ start: startAt, end: endAt }]);
           if (recurringConflicts.length) {
             const extraMsg = recurringConflicts.join('\n');
             conflictRes = conflictRes.hasConflict
@@ -527,21 +540,21 @@ export const useTaskOperations = (
         return false;
       }
 
-      // Recurrence end date requirement (edit): if user didn't set, default softly to end-of-day of startAt
+      // Recurrence end date requirement (edit): require explicit endDate from user
+      // Do NOT default to end-of-day; instead warn and abort so user must pick a date.
       if (recurrenceConfig?.enabled && !recurrenceConfig.endDate) {
-        const tmp = new Date(startAt!);
-        tmp.setHours(23,59,59,999);
-        recurrenceConfig.endDate = tmp.getTime();
+        if (options?.onNotify) options.onNotify({ tone:'warning', title:'Thiếu thông tin', message:'Vui lòng chọn ngày kết thúc cho lặp lại' }); else Alert.alert("Lỗi", "Vui lòng chọn ngày kết thúc cho lặp lại");
+        return false;
       }
 
       // Conflicts (exclude itself) — dùng builder gom block như lúc thêm. Với task không lặp vẫn phải xét các occurrence của task lặp khác.
       if (startAt && endAt) {
         let conflictRes: { hasConflict: boolean; conflictMessage: string };
         if (recurrenceConfig?.enabled) {
-          conflictRes = buildRecurringConflictMessage(startAt, endAt, recurrenceConfig, taskId);
+          conflictRes = await buildRecurringConflictMessage(startAt, endAt, recurrenceConfig, taskId);
         } else {
           conflictRes = checkTimeConflicts(startAt, endAt, tasks, (schedules as unknown as any), taskId);
-          const recurringConflicts = checkConflictsWithExistingRecurring([{ start: startAt, end: endAt }], taskId);
+          const recurringConflicts = await checkConflictsWithExistingRecurring([{ start: startAt, end: endAt }], taskId);
           if (recurringConflicts.length) {
             const extraMsg = recurringConflicts.join('\n');
             conflictRes = conflictRes.hasConflict
