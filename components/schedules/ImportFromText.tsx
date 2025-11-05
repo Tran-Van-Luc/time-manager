@@ -24,6 +24,7 @@ interface ImportFromTextProps {
 
 interface ParsedSchedule extends CreateScheduleParams {
   id?: string;
+  weekday?: string;
 }
 
 // Lấy API key từ biến môi trường EXPO_PUBLIC_GEMINI_API_KEY
@@ -95,7 +96,7 @@ export default function ImportFromText({ visible, onClose, onImport }: ImportFro
                       },
                     },
                     {
-                      text: `Phân tích file PDF lịch học và trả về JSON array.
+                      text: `Phân tích file PDF lịch học và trả về JSON array theo cấu trúc sau:
 
 BẢNG CHUYỂN ĐỔI TIẾT HỌC:
 Tiết 1: 06:45-07:30, Tiết 2: 07:30-08:15, Tiết 3: 08:15-09:00
@@ -104,35 +105,58 @@ Tiết 7: 11:15-12:00, Tiết 8: 12:45-13:30, Tiết 9: 13:30-14:15
 Tiết 10: 14:15-15:00, Tiết 11: 15:00-15:45, Tiết 12: 15:45-16:30
 Tiết 13: 16:30-17:15, Tiết 14: 17:15-18:00, Tiết 15: 18:00-18:45
 
-FORMAT OUTPUT (QUAN TRỌNG - CHỈ TRẢ VỀ JSON ARRAY):
+CÁCH NHÓM LỊCH HỌC:
+1. Với mỗi môn học, tìm tất cả các buổi học CÓ CÙNG: Tên môn + Loại lịch (Lý thuyết/Thực hành) + Thứ + Tiết + Phòng học
+2. Lấy ngày BẮT ĐẦU sớm nhất và ngày KẾT THÚC muộn nhất của nhóm đó
+3. Tạo 1 object duy nhất cho cả khoảng thời gian đó
+
+VÍ DỤ NHÓM:
+Nếu có các buổi học:
+- Thứ 6, Tiết 7-9, Lý thuyết, B2.05: Bắt đầu 27/12/2024, Kết thúc 21/03/2025
+- Thứ 6, Tiết 7-9, Lý thuyết, Trực tuyến: Bắt đầu 10/01/2025, Kết thúc 10/01/2025
+- Thứ 6, Tiết 7-9, Lý thuyết, TT117: Bắt đầu 17/01/2025, Kết thúc 14/02/2025
+
+Thì tạo 3 objects riêng vì PHÒNG HỌC khác nhau:
+1. Thứ 6, 7-9, Lý thuyết, B2.05: từ 2024-12-27 đến 2025-03-21
+2. Thứ 6, 7-9, Lý thuyết, Trực tuyến: từ 2025-01-10 đến 2025-01-10
+3. Thứ 6, 7-9, Lý thuyết, TT117: từ 2025-01-17 đến 2025-02-14
+
+FORMAT OUTPUT:
 [
   {
-    "courseName": "Tên môn học",
-    "type": "Lịch học lý thuyết" hoặc "Lịch học thực hành",
-    "instructorName": "Tên giảng viên",
-    "location": "Phòng học (bỏ phần trong ngoặc)",
-    "singleDate": "YYYY-MM-DD" (từ cột ngày trong tuần),
-    "startTime": "HH:mm" (từ tiết bắt đầu),
-    "endTime": "HH:mm" (từ tiết kết thúc)
+    "courseName": "Tên môn học (bỏ mã môn)",
+    "type": "Lịch học lý thuyết" | "Lịch học thực hành",
+    "instructorName": "Tên giảng viên chính (người đầu tiên)",
+    "location": "Phòng (chỉ lấy phần trước dấu ngoặc, VD: B2.05 từ B2.05 (B2.05 (CLC)))",
+    "weekday": "Số thứ (2-8, với 8 là Chủ nhật)",
+    "startDate": "YYYY-MM-DD (ngày bắt đầu sớm nhất của nhóm)",
+    "endDate": "YYYY-MM-DD (ngày kết thúc muộn nhất của nhóm)",
+    "startTime": "HH:mm (giờ bắt đầu từ tiết)",
+    "endTime": "HH:mm (giờ kết thúc từ tiết)"
   }
 ]
 
-QUY TẮC:
-1. Mỗi môn học trong mỗi ngày → 1 object
-2. Chuyển DD/MM/YYYY thành YYYY-MM-DD
-3. Chuyển "Tiết: X - Y" thành startTime và endTime theo bảng trên
-4. Loại bỏ mã lớp, mã môn (chỉ giữ tên môn)
-5. Location: chỉ lấy "C3.05" không lấy "(C (CS1))"
-6. Nếu có "thực hành" → type = "Lịch học thực hành", còn lại → "Lịch học lý thuyết"
+QUY TẮC XỬ LÝ:
+1. BỎ QUA hoàn toàn: "Thi giữa kỳ", "Thi cuối kỳ" - KHÔNG parse
+2. CHỈ PARSE: "Lý thuyết" và "Thực hành"
+3. Location: Lấy phần TRƯỚC dấu ngoặc đầu tiên (VD: "B2.05" từ "B2.05 (B2.05 (CLC))")
+4. Giảng viên: Chỉ lấy TÊN người đầu tiên (bỏ học hàm, mã)
+5. Chuyển DD/MM/YYYY thành YYYY-MM-DD
+6. weekday: Thứ 2→"2", Thứ 3→"3", ..., Thứ 7→"7", Chủ nhật→"8"
+7. Nhóm các buổi học CÓ CÙNG: môn + loại + thứ + tiết + phòng
 
-QUAN TRỌNG: Chỉ trả về JSON array, không có markdown, không có text khác.`,
+QUAN TRỌNG: 
+- CHỈ trả về JSON array thuần túy
+- KHÔNG có markdown (không có \`\`\`json)
+- KHÔNG có text giải thích
+- CHỈ parse Lý thuyết và Thực hành`,
                     },
                   ],
                 },
               ],
               generationConfig: {
                 temperature: 0.1,
-                maxOutputTokens: 2048,
+                maxOutputTokens: 4096,
               },
             }
           );
@@ -297,7 +321,7 @@ QUAN TRỌNG: Chỉ trả về JSON array, không có markdown, không có text 
     setParsing(true);
 
     try {
-      const schedulesToAdd: CreateScheduleParams[] = parsedSchedules.map(({ id, ...rest }) => {
+      const schedulesToAdd: CreateScheduleParams[] = parsedSchedules.map(({ id, weekday, ...rest }) => {
         const obj: any = { ...rest };
 
         if (obj.courseName) obj.courseName = String(obj.courseName).trim();
@@ -306,19 +330,17 @@ QUAN TRỌNG: Chỉ trả về JSON array, không có markdown, không có text 
 
         obj.type = normalizeType(obj.type);
 
-        obj.singleDate = normalizeDate(obj.singleDate);
         obj.startDate  = normalizeDate(obj.startDate);
         obj.endDate    = normalizeDate(obj.endDate);
         obj.startTime  = normalizeTime(obj.startTime);
         obj.endTime    = normalizeTime(obj.endTime);
 
-        if ((obj.type === "Lịch học lý thuyết" || obj.type === "Lịch học thực hành") && !obj.startDate && obj.singleDate) {
-          obj.startDate = obj.singleDate;
-        }
-        if ((obj.type === "Lịch học lý thuyết" || obj.type === "Lịch học thực hành") && obj.startDate && !obj.endDate) {
-          obj.endDate = obj.startDate;
+        // Nếu có startDate và endDate thì không cần singleDate
+        if (obj.startDate && obj.endDate) {
+          delete obj.singleDate;
         }
 
+        // Nếu thiếu thông tin ngày thì dùng ngày hiện tại
         if (!obj.singleDate && !obj.startDate) {
           const today = new Date();
           obj.singleDate = today.toISOString().slice(0,10);
@@ -338,7 +360,7 @@ QUAN TRỌNG: Chỉ trả về JSON array, không có markdown, không có text 
       setShowTable(false);
       onClose();
 
-      Alert.alert("Thành công", `Đã thêm ${added} buổi học!`);
+      Alert.alert("Thành công", `Đã thêm ${added} lịch học!`);
     } catch (error: any) {
       console.error("Import failed:", error);
       Alert.alert("Lỗi import", error?.message ?? String(error));
@@ -365,7 +387,7 @@ QUAN TRỌNG: Chỉ trả về JSON array, không có markdown, không có text 
             </View>
 
             <Text style={styles.scheduleCount}>
-              Tìm thấy {parsedSchedules.length} buổi học
+              Tìm thấy {parsedSchedules.length} lịch học
             </Text>
 
             <ScrollView style={styles.tableContainer}>
@@ -393,6 +415,17 @@ QUAN TRỌNG: Chỉ trả về JSON array, không có markdown, không có text 
                   </View>
 
                   <View style={styles.fieldGroup}>
+                    <Text style={styles.label}>Loại:</Text>
+                    <TextInput
+                      style={styles.editInput}
+                      value={schedule.type}
+                      onChangeText={(v) =>
+                        updateSchedule(schedule.id!, "type", v)
+                      }
+                    />
+                  </View>
+
+                  <View style={styles.fieldGroup}>
                     <Text style={styles.label}>Giảng viên:</Text>
                     <TextInput
                       style={styles.editInput}
@@ -414,37 +447,48 @@ QUAN TRỌNG: Chỉ trả về JSON array, không có markdown, không có text 
                     />
                   </View>
 
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.label}>Giờ học:</Text>
+                    <TextInput
+                      style={styles.editInput}
+                      value={`${schedule.startTime} - ${schedule.endTime}`}
+                      onChangeText={(v) => {
+                        const [start, end] = v.split(" - ");
+                        updateSchedule(
+                          schedule.id!,
+                          "startTime",
+                          start?.trim() || ""
+                        );
+                        updateSchedule(
+                          schedule.id!,
+                          "endTime",
+                          end?.trim() || ""
+                        );
+                      }}
+                    />
+                  </View>
+
                   <View style={styles.rowGroup}>
                     <View style={[styles.fieldGroup, { flex: 1 }]}>
-                      <Text style={styles.label}>Ngày:</Text>
+                      <Text style={styles.label}>Từ ngày:</Text>
                       <TextInput
                         style={styles.editInput}
-                        value={schedule.singleDate}
+                        value={schedule.startDate}
                         onChangeText={(v) =>
-                          updateSchedule(schedule.id!, "singleDate", v)
+                          updateSchedule(schedule.id!, "startDate", v)
                         }
                       />
                     </View>
                     <View
                       style={[styles.fieldGroup, { flex: 1, marginLeft: 8 }]}
                     >
-                      <Text style={styles.label}>Giờ:</Text>
+                      <Text style={styles.label}>Đến ngày:</Text>
                       <TextInput
                         style={styles.editInput}
-                        value={`${schedule.startTime} - ${schedule.endTime}`}
-                        onChangeText={(v) => {
-                          const [start, end] = v.split(" - ");
-                          updateSchedule(
-                            schedule.id!,
-                            "startTime",
-                            start?.trim() || ""
-                          );
-                          updateSchedule(
-                            schedule.id!,
-                            "endTime",
-                            end?.trim() || ""
-                          );
-                        }}
+                        value={schedule.endDate}
+                        onChangeText={(v) =>
+                          updateSchedule(schedule.id!, "endDate", v)
+                        }
                       />
                     </View>
                   </View>
@@ -497,10 +541,9 @@ QUAN TRỌNG: Chỉ trả về JSON array, không có markdown, không có text 
           </View>
 
           <View style={styles.instructions}>
-            <Text style={styles.instructionTitle}>🤖 AI đọc PDF</Text>
+            <Text style={styles.instructionTitle}>🤖 AI đọc PDF thông minh</Text>
             <Text style={styles.instructionText}>
-              Chọn file PDF lịch học, Gemini AI sẽ tự động phân tích và trích
-              xuất tất cả thông tin!
+              Chọn file PDF lịch học, AI sẽ tự động nhóm các buổi học theo môn, phòng và thời gian!
             </Text>
           </View>
 

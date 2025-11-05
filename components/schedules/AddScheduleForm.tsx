@@ -50,6 +50,15 @@ function formatLocalDate(d: Date): string {
   ].join("-");
 }
 
+// Format date to Vietnamese style: dd/mm/yyyy
+function formatVietnameseDate(d: Date): string {
+  return [
+    String(d.getDate()).padStart(2, "0"),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    d.getFullYear(),
+  ].join("/");
+}
+
 // parse "HH:mm" → local Date (tránh lệch múi giờ)
 function parseLocalTime(timeStr: string): Date {
   const [h, m] = timeStr.split(":").map(Number);
@@ -361,64 +370,103 @@ export default function AddScheduleForm({
       <View style={s.modal}>
         <View style={s.header}>
           <Text style={s.title}>{onSave ? "Chỉnh sửa lịch" : "Thêm lịch mới"}</Text>
-          <TouchableOpacity onPress={onClose}><Text style={{fontSize:18}}>✕</Text></TouchableOpacity>
+          <TouchableOpacity onPress={onClose} style={s.closeBtn}>
+            <Text style={s.closeBtnText}>✕</Text>
+          </TouchableOpacity>
         </View>
 
-        <ScrollView>
+        <ScrollView showsVerticalScrollIndicator={false}>
           {!onSave && <VoiceScheduleInput onParsed={handleVoiceParsed} />}
 
-          <View style={{ height: 1, backgroundColor: "#ddd", marginVertical: 16 }} />
-          <Text style={s.label}>Tên môn học *</Text>
-          <TextInput style={s.input} placeholder="VD: Toán cao cấp" value={courseName} onChangeText={setCourseName} />
-
-          <Text style={s.label}>Loại lịch</Text>
-          <View style={s.picker}>
-            <Picker selectedValue={type} onValueChange={(v) => setType(v as ScheduleType)}>
-              {types.map((t) => <Picker.Item key={t} label={t} value={t} />)}
-            </Picker>
+          <View style={s.divider} />
+          
+          <View style={s.inputGroup}>
+            <Text style={s.label}>📚 Tên môn học *</Text>
+            <TextInput 
+              style={s.input} 
+              placeholder="VD: Toán cao cấp" 
+              placeholderTextColor="#999"
+              value={courseName} 
+              onChangeText={setCourseName} 
+            />
           </View>
 
-          <Text style={s.label}>Giảng viên</Text>
-          <TextInput style={s.input} placeholder="VD: TS. Nguyễn Kiều Anh" value={instructor} onChangeText={setInstructor} />
+          <View style={s.inputGroup}>
+            <Text style={s.label}>📋 Loại lịch</Text>
+            <View style={s.picker}>
+              <Picker selectedValue={type} onValueChange={(v) => setType(v as ScheduleType)}>
+                {types.map((t) => <Picker.Item key={t} label={t} value={t} />)}
+              </Picker>
+            </View>
+          </View>
 
-          <Text style={s.label}>Địa điểm</Text>
-          <TextInput style={s.input} placeholder="VD: Phòng G3" value={location} onChangeText={setLocation} />
+          <View style={s.inputGroup}>
+            <Text style={s.label}>👨‍🏫 Giảng viên</Text>
+            <TextInput 
+              style={s.input} 
+              placeholder="VD: TS. Nguyễn Kiều Anh" 
+              placeholderTextColor="#999"
+              value={instructor} 
+              onChangeText={setInstructor} 
+            />
+          </View>
+
+          <View style={s.inputGroup}>
+            <Text style={s.label}>📍 Địa điểm</Text>
+            <TextInput 
+              style={s.input} 
+              placeholder="VD: Phòng G3" 
+              placeholderTextColor="#999"
+              value={location} 
+              onChangeText={setLocation} 
+            />
+          </View>
 
           {isRecurringType(type) ? (
-            <>
-              <Text style={s.label}>Ngày bắt đầu – kết thúc</Text>
+            <View style={s.inputGroup}>
+              <Text style={s.label}>📅 Ngày bắt đầu – kết thúc</Text>
               <View style={s.row}>
-                <TouchableOpacity style={s.btn} onPress={() => openPicker("startDate", "date")}>
-                  <Text>{formatLocalDate(startDate)}</Text>
+                <TouchableOpacity style={s.dateBtn} onPress={() => openPicker("startDate", "date")}>
+                  <Text style={s.dateBtnText}>{formatVietnameseDate(startDate)}</Text>
+                  <Text style={s.icon}>📆</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={s.btn} onPress={() => openPicker("endDate", "date")}>
-                  <Text>{formatLocalDate(endDate)}</Text>
+                <TouchableOpacity style={s.dateBtn} onPress={() => openPicker("endDate", "date")}>
+                  <Text style={s.dateBtnText}>{formatVietnameseDate(endDate)}</Text>
+                  <Text style={s.icon}>📆</Text>
                 </TouchableOpacity>
               </View>
-            </>
+            </View>
           ) : (
-            <>
-              <Text style={s.label}>Ngày</Text>
-              <TouchableOpacity style={s.btn} onPress={() => openPicker("singleDate", "date")}>
-                <Text>{formatLocalDate(singleDate)}</Text>
+            <View style={s.inputGroup}>
+              <Text style={s.label}>📅 Ngày</Text>
+              <TouchableOpacity style={s.dateBtn} onPress={() => openPicker("singleDate", "date")}>
+                <Text style={s.dateBtnText}>{formatVietnameseDate(singleDate)}</Text>
+                <Text style={s.icon}>📆</Text>
               </TouchableOpacity>
-            </>
+            </View>
           )}
 
-          <Text style={s.label}>Giờ bắt đầu – kết thúc</Text>
-          <View style={s.row}>
-            <TouchableOpacity style={s.btn} onPress={() => openPicker("startTime", "time")}>
-              <Text>{formatLocalTime(startTime)}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.btn} onPress={() => openPicker("endTime", "time")}>
-              <Text>{formatLocalTime(endTime)}</Text>
-            </TouchableOpacity>
+          <View style={s.inputGroup}>
+            <Text style={s.label}>⏰ Giờ bắt đầu – kết thúc</Text>
+            <View style={s.row}>
+              <TouchableOpacity style={s.dateBtn} onPress={() => openPicker("startTime", "time")}>
+                <Text style={s.dateBtnText}>{formatLocalTime(startTime)}</Text>
+                <Text style={s.icon}>🕐</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.dateBtn} onPress={() => openPicker("endTime", "time")}>
+                <Text style={s.dateBtnText}>{formatLocalTime(endTime)}</Text>
+                <Text style={s.icon}>🕐</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {conflictDetail && (
-            <Text style={s.error}>
-              Trùng lịch với {conflictDetail.source === "task" ? "công việc" : "lịch"}: "{conflictDetail.subject}" từ {conflictDetail.existingStart.toLocaleTimeString()} đến {conflictDetail.existingEnd.toLocaleTimeString()}
-            </Text>
+            <View style={s.errorContainer}>
+              <Text style={s.errorIcon}>⚠️</Text>
+              <Text style={s.error}>
+                Trùng lịch với {conflictDetail.source === "task" ? "công việc" : "lịch"}: "{conflictDetail.subject}" từ {conflictDetail.existingStart.toLocaleTimeString()} đến {conflictDetail.existingEnd.toLocaleTimeString()}
+              </Text>
+            </View>
           )}
 
           <DateTimePickerModal
@@ -431,8 +479,14 @@ export default function AddScheduleForm({
             onCancel={handleCancel}
           />
 
-          <TouchableOpacity style={[s.saveBtn, isValid ? s.saveBtnActive : s.saveBtnDisabled]} onPress={handleSave} disabled={!isValid}>
-            <Text style={[s.saveBtnText, !isValid && s.saveBtnTextDisabled]}>{onSave ? "Cập nhật" : "Lưu lịch"}</Text>
+          <TouchableOpacity 
+            style={[s.saveBtn, isValid ? s.saveBtnActive : s.saveBtnDisabled]} 
+            onPress={handleSave} 
+            disabled={!isValid}
+          >
+            <Text style={s.saveBtnText}>
+              {onSave ? "✓ Cập nhật" : "✓ Lưu lịch"}
+            </Text>
           </TouchableOpacity>
         </ScrollView>
       </View>
@@ -443,75 +497,152 @@ export default function AddScheduleForm({
 const s = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.3)",
+    backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
     alignItems: "center",
   },
   modal: {
-    width: "90%",
-    maxHeight: "90%",
+    width: "92%",
+    maxHeight: "85%",
     backgroundColor: "#fff",
-    borderRadius: 8,
-    padding: 16,
+    borderRadius: 16,
+    padding: 0,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e0e0e0",
+    backgroundColor: "#f8f9fa",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
   },
   title: {
-    fontSize: 18,
-    fontWeight: "bold",
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#333",
+  },
+  closeBtn: {
+    padding: 4,
+  },
+  closeBtnText: {
+    fontSize: 24,
+    color: "#666",
+    fontWeight: "300",
+  },
+  divider: {
+    height: 1,
+    backgroundColor: "#e0e0e0",
+    marginVertical: 16,
+    marginHorizontal: 20,
+  },
+  inputGroup: {
+    paddingHorizontal: 20,
+    marginBottom: 16,
   },
   label: {
-    marginTop: 12,
-    marginBottom: 4,
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#fff",
+    marginBottom: 8,
+    backgroundColor: "#5e72e4",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    overflow: "hidden",
   },
   input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    padding: 8,
+    borderWidth: 1.5,
+    borderColor: "#ddd",
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 15,
+    backgroundColor: "#fafafa",
+    color: "#333",
   },
   picker: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: "#ddd",
+    borderRadius: 10,
+    backgroundColor: "#fafafa",
+    overflow: "hidden",
   },
   row: {
     flexDirection: "row",
     justifyContent: "space-between",
+    gap: 10,
   },
-  btn: {
+  dateBtn: {
     flex: 1,
-    padding: 12,
-    backgroundColor: "#f0f0f0",
-    borderRadius: 6,
-    marginRight: 8,
+    flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
+    padding: 12,
+    backgroundColor: "#f0f4ff",
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: "#5e72e4",
+  },
+  dateBtnText: {
+    fontSize: 15,
+    color: "#333",
+    fontWeight: "500",
+  },
+  icon: {
+    fontSize: 20,
+  },
+  errorContainer: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#fff3cd",
+    borderLeftWidth: 4,
+    borderLeftColor: "#ff9800",
+    padding: 12,
+    borderRadius: 8,
+    marginHorizontal: 20,
+    marginBottom: 16,
+  },
+  errorIcon: {
+    fontSize: 18,
+    marginRight: 8,
   },
   error: {
-    color: "red",
-    marginTop: 8,
+    flex: 1,
+    color: "#856404",
+    fontSize: 14,
+    lineHeight: 20,
   },
   saveBtn: {
-    marginTop: 20,
-    paddingVertical: 12,
-    borderRadius: 6,
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 20,
+    paddingVertical: 14,
+    borderRadius: 12,
     alignItems: "center",
+    shadowColor: "#5e72e4",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
   saveBtnActive: {
-    backgroundColor: "#007AFF",
+    backgroundColor: "#5e72e4",
   },
   saveBtnDisabled: {
     backgroundColor: "#ccc",
+    shadowOpacity: 0,
   },
   saveBtnText: {
     color: "#fff",
-    fontWeight: "bold",
-  },
-  saveBtnTextDisabled: {
-    color: "#666",
+    fontWeight: "700",
+    fontSize: 16,
   },
 });
