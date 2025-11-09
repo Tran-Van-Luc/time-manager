@@ -49,6 +49,8 @@ export const schedule_entries = sqliteTable("schedule_entries", {
   type: text("type"),
   start_at: integer("start_at", { mode: "timestamp" }).notNull(),
   end_at: integer("end_at", { mode: "timestamp" }).notNull(),
+  instructor_name: text("instructor_name"),
+  location: text("location"),
   recurrence_id: integer("recurrence_id"),
   status: text("status").default("active"),
   cancel_reason: text("cancel_reason"),

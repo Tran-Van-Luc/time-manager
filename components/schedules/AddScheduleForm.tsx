@@ -424,7 +424,7 @@ export default function AddScheduleForm({
 
           {isRecurringType(type) ? (
             <View style={s.inputGroup}>
-              <Text style={s.label}>📅 Ngày bắt đầu – kết thúc</Text>
+              <Text style={s.label}>📅 Ngày bắt đầu – kết thúc *</Text>
               <View style={s.row}>
                 <TouchableOpacity style={s.dateBtn} onPress={() => openPicker("startDate", "date")}>
                   <Text style={s.dateBtnText}>{formatVietnameseDate(startDate)}</Text>
@@ -447,7 +447,7 @@ export default function AddScheduleForm({
           )}
 
           <View style={s.inputGroup}>
-            <Text style={s.label}>⏰ Giờ bắt đầu – kết thúc</Text>
+            <Text style={s.label}>⏰ Giờ bắt đầu – kết thúc *</Text>
             <View style={s.row}>
               <TouchableOpacity style={s.dateBtn} onPress={() => openPicker("startTime", "time")}>
                 <Text style={s.dateBtnText}>{formatLocalTime(startTime)}</Text>

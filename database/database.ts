@@ -84,7 +84,13 @@ db.$client.execSync(`
   );
 `);
 
-// Trigger ngăn chặn overlap cùng user, cùng ngày
+try { 
+  db.$client.execSync(`ALTER TABLE schedule_entries ADD COLUMN instructor_name TEXT`); 
+} catch(e) {}
+try { 
+  db.$client.execSync(`ALTER TABLE schedule_entries ADD COLUMN location TEXT`); 
+} catch(e) {}
+
 db.$client.execSync(`
   CREATE TRIGGER IF NOT EXISTS no_overlap_schedule
   BEFORE INSERT ON schedule_entries

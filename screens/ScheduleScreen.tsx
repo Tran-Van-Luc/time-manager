@@ -15,11 +15,13 @@ import DayView from "../components/schedules/DayView";
 import WeekView from "../components/schedules/WeekView";
 import ScheduleDetailModal from "../components/schedules/ScheduleDetailModal";
 import ImportFromText from "../components/schedules/ImportFromText";
+import ExcelImportModal from "../components/schedules/ExcelImportModal";
+import ImportErrorModal from "../components/schedules/ImportErrorModal";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as XLSX from "xlsx";
 import { CreateScheduleParams, ScheduleType } from "../database/schedule";
-
+import { useTheme } from "../context/ThemeContext"; // ✅ IMPORT useTheme
 
 const TYPE_STYLE: Record<string, { color: string; emoji: string; pillBg: string }> = {
   "Lịch học lý thuyết": { color: "#1D4ED8", emoji: "📚", pillBg: "#DBEAFE" },
@@ -41,6 +43,8 @@ function capitalize(str?: string) {
 }
 
 export default function ScheduleScreen() {
+  const { theme } = useTheme(); // ✅ SỬ DỤNG THEME
+  
   const {
     schedules,
     loading,
@@ -60,8 +64,38 @@ export default function ScheduleScreen() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [importing, setImporting] = useState(false);
   const [showTextImport, setShowTextImport] = useState(false);
+  const [showExcelImport, setShowExcelImport] = useState(false);
+  
+  const [showErrorDetail, setShowErrorDetail] = useState(false);
+  const [importResult, setImportResult] = useState({
+    addedCount: 0,
+    validationErrors: [] as string[],
+    conflictErrors: [] as string[],
+  });
 
-  // build tuần thứ 2→CN
+  // ✅ DYNAMIC STYLES DỰA TRÊN THEME
+  const themedStyles = useMemo(() => ({
+    container: {
+      backgroundColor: theme === "dark" ? "#1a1a1a" : "#fff",
+    },
+    text: {
+      color: theme === "dark" ? "#e5e5e5" : "#111",
+    },
+    subText: {
+      color: theme === "dark" ? "#a3a3a3" : "#374151",
+    },
+    card: {
+      backgroundColor: theme === "dark" ? "#2a2a2a" : "#fff",
+      shadowColor: theme === "dark" ? "#000" : "#000",
+    },
+    sectionHeader: {
+      backgroundColor: theme === "dark" ? "#1a1a1a" : "#fff",
+    },
+    emptyText: {
+      color: theme === "dark" ? "#666" : "#999",
+    },
+  }), [theme]);
+
   const weekDates = useMemo(() => {
     const d = selectedDate.getDay();
     const offset = d === 0 ? -6 : 1 - d;
@@ -75,7 +109,6 @@ export default function ScheduleScreen() {
     });
   }, [selectedDate]);
 
-  // lọc theo ngày hoặc tuần
   const filtered = useMemo(() => {
     if (viewMode === "day") {
       return schedules.filter(
@@ -132,7 +165,6 @@ export default function ScheduleScreen() {
     setImporting(true);
 
     try {
-      // 1) Mở file picker
       const res = await DocumentPicker.getDocumentAsync({
         type: [
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -146,11 +178,7 @@ export default function ScheduleScreen() {
       }
       
       const uri = res.assets[0].uri;
-
-      // 2) Đọc base64
       const b64 = await FileSystem.readAsStringAsync(uri, { encoding: "base64" });
-
-      // 3) Parse workbook
       const wb = XLSX.read(b64, { type: "base64", cellDates: true });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const raw: any[][] = XLSX.utils.sheet_to_json(ws, {
@@ -159,41 +187,82 @@ export default function ScheduleScreen() {
         raw: true,
       });
 
-      // 4) Find header row
+      if (!raw || raw.length === 0) {
+        Alert.alert("Lỗi import", "File Excel không có dữ liệu");
+        setImporting(false);
+        return;
+      }
+
       const headerRowIndex = raw.findIndex(row =>
         row.some(cell => String(cell).trim() === "Tên môn học")
       );
       
       if (headerRowIndex < 0) {
-        Alert.alert("Lỗi import", "Không tìm thấy header Tên môn học");
+        Alert.alert(
+          "Lỗi import", 
+          "Không tìm thấy dòng tiêu đề.\n\nVui lòng đảm bảo có cột 'Tên môn học' trong file Excel."
+        );
         setImporting(false);
         return;
       }
       
       const header = raw[headerRowIndex].map(c => String(c).trim());
 
-      // 5) Column indexes
-      const findIdx = (name: string) => {
-        const i = header.indexOf(name);
-        if (i < 0) throw new Error(`Thiếu cột "${name}"`);
-        return i;
-      };
-      
+      const requiredColumns = [
+        "Tên môn học",
+        "Loại lịch",
+        "Giảng viên",
+        "Địa điểm",
+        "Ngày bắt đầu",
+        "Ngày kết thúc",
+        "Giờ bắt đầu",
+        "Giờ kết thúc",
+      ];
+
+      const missingColumns: string[] = [];
+      const foundColumns: Record<string, number> = {};
+
+      for (const colName of requiredColumns) {
+        const idx = header.indexOf(colName);
+        if (idx < 0) {
+          missingColumns.push(colName);
+        } else {
+          foundColumns[colName] = idx;
+        }
+      }
+
+      if (missingColumns.length > 0) {
+        const missingList = missingColumns.map(col => `• ${col}`).join("\n");
+        Alert.alert(
+          "Thiếu cột bắt buộc",
+          `File Excel thiếu ${missingColumns.length} cột:\n\n${missingList}\n\nVui lòng tải file mẫu để xem định dạng đúng.`
+        );
+        setImporting(false);
+        return;
+      }
+
       const idx = {
-        courseName: findIdx("Tên môn học"),
-        type:       findIdx("Loại lịch"),
-        instructor: findIdx("Giảng viên"),
-        location:   findIdx("Địa điểm"),
-        startDate:  findIdx("Ngày bắt đầu"),
-        endDate:    findIdx("Ngày kết thúc"),
-        startTime:  findIdx("Giờ bắt đầu"),
-        endTime:    findIdx("Giờ kết thúc"),
+        courseName: foundColumns["Tên môn học"],
+        type:       foundColumns["Loại lịch"],
+        instructor: foundColumns["Giảng viên"],
+        location:   foundColumns["Địa điểm"],
+        startDate:  foundColumns["Ngày bắt đầu"],
+        endDate:    foundColumns["Ngày kết thúc"],
+        startTime:  foundColumns["Giờ bắt đầu"],
+        endTime:    foundColumns["Giờ kết thúc"],
       };
 
-      // 6) Data rows
       const rows = raw.slice(headerRowIndex + 1);
 
-      // Helpers để parse Excel cells
+      if (rows.length === 0) {
+        Alert.alert(
+          "Lỗi import",
+          "File Excel không có dữ liệu.\n\nVui lòng thêm ít nhất 1 dòng dữ liệu sau dòng tiêu đề."
+        );
+        setImporting(false);
+        return;
+      }
+
       const pad2 = (n: number) => String(n).padStart(2, "0");
       
       function toDateParts(v: any): [number, number, number] {
@@ -227,9 +296,9 @@ export default function ScheduleScreen() {
         throw new Error("Không parse được giờ: " + s);
       }
 
-      // 7) Duyệt rows, import và collect conflict
       let addedCount = 0;
       const conflictMessages: string[] = [];
+      const validationErrors: string[] = [];
       const validTypes: ScheduleType[] = [
         "Lịch học lý thuyết",
         "Lịch học thực hành",
@@ -240,45 +309,69 @@ export default function ScheduleScreen() {
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
-        const rawName = String(row[idx.courseName] ?? "").trim();
-        const rawType = String(row[idx.type] ?? "").trim();
         const excelRowNumber = headerRowIndex + 2 + i;
-
-        if (!rawName || !rawType) {
+        
+        if (!row || row.length === 0 || row.every(cell => !cell)) {
           continue;
         }
 
-        // Nếu ô Loại lịch chứa nhiều giá trị (phân tách bằng ',' hoặc ';'), tách ra
+        const rawName = String(row[idx.courseName] ?? "").trim();
+        const rawType = String(row[idx.type] ?? "").trim();
+        const rawInstructor = String(row[idx.instructor] ?? "").trim();
+        const rawLocation = String(row[idx.location] ?? "").trim();
+
+        const missingFields: string[] = [];
+        
+        if (!rawName) missingFields.push("Tên môn học");
+        if (!rawType) missingFields.push("Loại lịch");
+        if (!rawInstructor) missingFields.push("Giảng viên");
+        if (!rawLocation) missingFields.push("Địa điểm");
+
+        if (missingFields.length > 0) {
+          validationErrors.push(
+            `Dòng ${excelRowNumber}: Thiếu ${missingFields.join(", ")}`
+          );
+          continue;
+        }
+
         const rawTypes = rawType
           .split(/\s*[;,]\s*/)
           .map((t: string) => t.trim())
           .filter(Boolean);
 
-        // Normalize legacy type
         const normTypes = rawTypes.map((t: string) =>
           t === "Lịch học thường xuyên" ? "Lịch học lý thuyết" : t
         );
 
-        // Lọc chỉ giữ các type hợp lệ
         const validTypesArr = normTypes.filter((t: string) => 
           validTypes.includes(t as ScheduleType)
         );
 
         if (validTypesArr.length === 0) {
+          validationErrors.push(
+            `Dòng ${excelRowNumber}: Loại lịch không hợp lệ "${rawType}". ` +
+            `Chỉ chấp nhận: ${validTypes.join(", ")}`
+          );
           continue;
         }
 
-        // Raw date/time
         const sdRaw = row[idx.startDate];
         const edRaw = row[idx.endDate];
         const stRaw = row[idx.startTime];
         const etRaw = row[idx.endTime];
         
-        if (!sdRaw || !stRaw || !etRaw) {
+        const missingDateTime: string[] = [];
+        if (!sdRaw) missingDateTime.push("Ngày bắt đầu");
+        if (!stRaw) missingDateTime.push("Giờ bắt đầu");
+        if (!etRaw) missingDateTime.push("Giờ kết thúc");
+        
+        if (missingDateTime.length > 0) {
+          validationErrors.push(
+            `Dòng ${excelRowNumber}: Thiếu ${missingDateTime.join(", ")}`
+          );
           continue;
         }
 
-        // Parse thành string
         let y: number, m: number, d: number;
         let sh: number, sm: number, eh: number, em: number;
         
@@ -295,7 +388,6 @@ export default function ScheduleScreen() {
         const startTime = `${pad2(sh)}:${pad2(sm)}`;
         const endTime = `${pad2(eh)}:${pad2(em)}`;
 
-        // Tạo params cho từng loại hợp lệ
         for (const scheduleTypeRaw of validTypesArr) {
           const scheduleType = scheduleTypeRaw as ScheduleType;
           let params: CreateScheduleParams;
@@ -314,7 +406,6 @@ export default function ScheduleScreen() {
               endTime,
             };
           } else if (scheduleType === "Lịch học thực hành") {
-            // Nếu thực hành có endDate, xử lý như recurring; nếu không, coi là singleDate
             if (edRaw) {
               const [ey, emn, eday] = toDateParts(edRaw);
               const endDate = `${ey}-${pad2(emn)}-${pad2(eday)}`;
@@ -340,7 +431,6 @@ export default function ScheduleScreen() {
               };
             }
           } else {
-            // Lịch thi, Lịch học bù, Lịch tạm ngưng: dùng singleDate
             params = {
               courseName: rawName,
               type: scheduleType,
@@ -365,25 +455,56 @@ export default function ScheduleScreen() {
         }
       }
 
-      // 8) Reload và show alert
       await loadSchedules();
       
-      let alertMsg = `✅ Đã thêm ${addedCount} buổi học!`;
-      if (conflictMessages.length) {
-        alertMsg += `\n\n⚠️ Không thêm được ${conflictMessages.length} buổi:\n`
-                  + conflictMessages.slice(0, 5).join("\n");
-        if (conflictMessages.length > 5) {
-          alertMsg += `\n... và ${conflictMessages.length - 5} lỗi khác`;
+      setImportResult({
+        addedCount,
+        validationErrors,
+        conflictErrors: conflictMessages,
+      });
+
+      if (validationErrors.length + conflictMessages.length > 5) {
+        setShowErrorDetail(true);
+      } else {
+        let alertTitle = "Kết quả import";
+        let alertMsg = "";
+
+        if (addedCount > 0) {
+          alertMsg += `✅ Đã thêm thành công ${addedCount} buổi học!\n`;
         }
+
+        if (validationErrors.length > 0) {
+          alertMsg += `\n⚠️ Bỏ qua ${validationErrors.length} dòng do lỗi dữ liệu:\n`;
+          alertMsg += validationErrors.slice(0, 3).join("\n");
+          if (validationErrors.length > 3) {
+            alertMsg += `\n... và ${validationErrors.length - 3} lỗi khác`;
+          }
+        }
+
+        if (conflictMessages.length > 0) {
+          alertMsg += `\n\n❌ Không thêm được ${conflictMessages.length} buổi do trùng lịch:\n`;
+          alertMsg += conflictMessages.slice(0, 3).join("\n");
+          if (conflictMessages.length > 3) {
+            alertMsg += `\n... và ${conflictMessages.length - 3} lỗi khác`;
+          }
+        }
+
+        if (addedCount === 0) {
+          alertTitle = "Import thất bại";
+          if (alertMsg.trim() === "") {
+            alertMsg = "Không có dữ liệu hợp lệ để import.";
+          }
+        }
+        
+        Alert.alert(alertTitle, alertMsg.trim());
       }
-      
-      Alert.alert("Kết quả import", alertMsg);
 
     } catch (err: any) {
       console.error("❌ handleImportExcel error:", err);
       Alert.alert("Lỗi import Excel", err?.message ?? String(err));
     } finally {
       setImporting(false);
+      setShowExcelImport(false);
     }
   }
 
@@ -391,27 +512,19 @@ export default function ScheduleScreen() {
     let addedCount = 0;
     const errors: string[] = [];
 
-    console.log("🔄 Starting import, total schedules:", schedules.length);
-
     for (const params of schedules) {
       try {
-        console.log("➕ Adding schedule:", params);
         await addSchedule(params);
         addedCount++;
-        console.log(`✅ Successfully added: ${params.courseName}`);
       } catch (error: any) {
         const errMsg = `${params.courseName}: ${error?.message ?? String(error)}`;
         errors.push(errMsg);
-        console.error("❌ Failed to add:", errMsg, error);
       }
     }
 
-    console.log("🔄 Reloading schedules...");
     await loadSchedules();
-    console.log(`✅ Import complete: ${addedCount} added, ${errors.length} errors`);
 
     if (errors.length > 0) {
-      console.warn("Import errors:", errors);
       throw new Error(`Đã thêm ${addedCount} buổi. Lỗi ${errors.length} buổi:\n${errors.join("\n")}`);
     }
 
@@ -421,7 +534,7 @@ export default function ScheduleScreen() {
   function renderSectionHeader({ section }: { section: any }) {
     const st = TYPE_STYLE[section.title];
     return (
-      <View style={styles.sectionHeader}>
+      <View style={[styles.sectionHeader, themedStyles.sectionHeader]}>
         <Text style={[styles.sectionHeaderText, { color: st.color }]}>
           {st.emoji} {section.title}
         </Text>
@@ -443,23 +556,25 @@ export default function ScheduleScreen() {
       ).padStart(2, "0")}`;
 
     return (
-      <View style={[styles.card, { borderLeftColor: st.color }]}>
+      <View style={[styles.card, themedStyles.card, { borderLeftColor: st.color }]}>
         <View style={styles.line1}>
-          <Text style={styles.subjectText}>{capitalize(item.subject)}</Text>
+          <Text style={[styles.subjectText, themedStyles.text]}>
+            {capitalize(item.subject)}
+          </Text>
           <View style={[styles.typeTag, { backgroundColor: st.pillBg }]}>
             <Text style={{ color: st.color, fontWeight: "600" }}>
               {capitalize(item.type.replace("Lịch ", ""))}
             </Text>
           </View>
         </View>
-        <Text style={styles.infoText}>
+        <Text style={[styles.infoText, themedStyles.subText]}>
           🗓️ {dayName} ⏰ {fmt(item.startAt)} — {fmt(item.endAt)}
         </Text>
-        <Text style={styles.infoText}>
+        <Text style={[styles.infoText, themedStyles.subText]}>
           👨‍🏫 {capitalize(item.instructorName ?? "") || "Chưa có giảng viên"}
         </Text>
         <View style={styles.bottomRow}>
-          <Text style={styles.infoText}>
+          <Text style={[styles.infoText, themedStyles.subText]}>
             📍 {capitalize(item.location ?? "") || "Chưa có địa điểm"}
           </Text>
           <View style={styles.actionsRow}>
@@ -500,32 +615,20 @@ export default function ScheduleScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, themedStyles.container]}>
       {/* Header */}
       <View style={styles.headerRow}>
-        <Text style={styles.pageTitle}>Thời khóa biểu</Text>
+        <Text style={[styles.pageTitle, themedStyles.text]}>Thời khóa biểu</Text>
 
         <View style={styles.headerActions}>
-          {/* Nút Import Excel */}
           <TouchableOpacity
             style={styles.importButton}
-            onPress={handleImportExcel}
-            disabled={importing}
+            onPress={() => setShowExcelImport(true)}
           >
-            <AntDesign 
-              name="download" 
-              size={20} 
-              color={importing ? "#94A3B8" : "#1D4ED8"} 
-            />
-            <Text style={[
-              styles.importText,
-              importing && { color: "#94A3B8" }
-            ]}>
-              Excel
-            </Text>
+            <AntDesign name="download" size={20} color="#1D4ED8" />
+            <Text style={styles.importText}>Excel</Text>
           </TouchableOpacity>
 
-          {/* Nút Import từ Text (PDF) */}
           <TouchableOpacity
             style={[styles.importButton, { borderColor: "#059669" }]}
             onPress={() => setShowTextImport(true)}
@@ -547,7 +650,7 @@ export default function ScheduleScreen() {
         />
       </View>
 
-      {loading && <Text style={styles.empty}>Đang tải...</Text>}
+      {loading && <Text style={[styles.empty, themedStyles.emptyText]}>Đang tải...</Text>}
 
       {viewMode === "day" ? (
         <SectionList
@@ -557,7 +660,7 @@ export default function ScheduleScreen() {
           renderSectionHeader={renderSectionHeader}
           renderItem={renderItem}
           ListEmptyComponent={
-            <Text style={styles.empty}>Không có lịch hôm nay.</Text>
+            <Text style={[styles.empty, themedStyles.emptyText]}>Không có lịch hôm nay.</Text>
           }
         />
       ) : (
@@ -566,6 +669,7 @@ export default function ScheduleScreen() {
           schedules={filtered}
           typeStyle={TYPE_STYLE}
           onSelectItem={setSelectedItem}
+          theme={theme} // ✅ TRUYỀN THEME VÀO WEEKVIEW
         />
       )}
 
@@ -630,12 +734,19 @@ export default function ScheduleScreen() {
         onClose={() => setShowTextImport(false)}
         onImport={handleImportFromText}
       />
+
+      <ExcelImportModal
+        visible={showExcelImport}
+        onClose={() => setShowExcelImport(false)}
+        onImport={handleImportExcel}
+        importing={importing}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", padding: 16 },
+  container: { flex: 1, padding: 16 },
   headerRow: { flexDirection: "column", marginBottom: 8 },
   pageTitle: { fontSize: 22, fontWeight: "bold" },
   headerActions: {
@@ -659,12 +770,10 @@ const styles = StyleSheet.create({
   sectionHeader: { paddingVertical: 6, marginTop: 16 },
   sectionHeaderText: { fontSize: 16, fontWeight: "bold" },
   card: {
-    backgroundColor: "#fff",
     borderRadius: 10,
     padding: 12,
     marginVertical: 8,
     borderLeftWidth: 4,
-    shadowColor: "#000",
     shadowOpacity: 0.05,
     shadowRadius: 3,
     elevation: 2,
@@ -674,9 +783,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 6,
   },
-  subjectText: { flex: 1, fontWeight: "bold", fontSize: 16, color: "#111" },
+  subjectText: { flex: 1, fontWeight: "bold", fontSize: 16 },
   typeTag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, height: 25 },
-  infoText: { fontSize: 14, color: "#374151", marginTop: 2 },
+  infoText: { fontSize: 14, marginTop: 2 },
   bottomRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -684,7 +793,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   actionsRow: { flexDirection: "row" },
-  empty: { textAlign: "center", color: "#999", marginTop: 20 },
+  empty: { textAlign: "center", marginTop: 20 },
   addButton: {
     position: "absolute",
     right: 24,

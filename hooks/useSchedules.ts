@@ -1,4 +1,3 @@
-// hooks/useSchedules.ts
 import { useState, useCallback } from "react";
 import { eq } from "drizzle-orm";
 import { db } from "../database/database";
@@ -47,7 +46,6 @@ export function useSchedules() {
     async (params: CreateScheduleParams) => {
       setLoading(true);
       try {
-        // createSchedule đã trả về { courseId, sessionsCreated }
         const { sessionsCreated } = await createSchedule(params);
         await loadSchedules();
         return sessionsCreated;
@@ -78,7 +76,6 @@ export function useSchedules() {
     async (subject: string) => {
       setLoading(true);
       try {
-        // tìm course_id tương ứng
         const found = await db
           .select({ id: courses.id })
           .from(courses)
@@ -102,17 +99,14 @@ export function useSchedules() {
     async (id: number, params: CreateScheduleParams) => {
       setLoading(true);
       try {
-        // Nếu chuyển sang "Lịch tạm ngưng" thì dùng createSchedule để đảm bảo logic +1 buổi bù
         if (params.type === "Lịch tạm ngưng") {
-          // Xóa lịch cũ
           await db
             .delete(schedule_entries)
             .where(eq(schedule_entries.id, id))
             .run();
-          // Thêm mới theo logic tạm ngưng (sẽ tự động +1 buổi bù)
           await createSchedule(params);
         } else {
-          // 1) find or create course row
+          // ✅ CHỈ TÌM hoặc TẠO course, KHÔNG UPDATE
           let courseId: number;
           const trimmedName = params.courseName.trim();
           const found = await db
@@ -123,14 +117,7 @@ export function useSchedules() {
 
           if (found) {
             courseId = found.id;
-            await db
-              .update(courses)
-              .set({
-                instructor_name: params.instructorName ?? null,
-                location:        params.location       ?? null,
-              })
-              .where(eq(courses.id, courseId))
-              .run();
+            // ✅ KHÔNG CẬP NHẬT instructor/location của course nữa
           } else {
             const code = trimmedName
               .split(/\s+/)
@@ -144,8 +131,8 @@ export function useSchedules() {
               .values({
                 code,
                 name:            trimmedName,
-                instructor_name: params.instructorName ?? null,
-                location:        params.location       ?? null,
+                instructor_name: null, // ✅ Không lưu ở đây
+                location:        null, // ✅ Không lưu ở đây
                 color_tag:       null,
               })
               .returning({ id: courses.id })
@@ -153,19 +140,20 @@ export function useSchedules() {
             courseId = ins.id;
           }
 
-          // 2) compute new start/end
           const baseDate = params.singleDate ?? params.startDate!;
           const s = new Date(`${baseDate}T${params.startTime}:00`);
           const e = new Date(`${baseDate}T${params.endTime}:00`);
 
-          // 3) update entry
+          // ✅ CẬP NHẬT instructor và location vào schedule_entries
           await db
             .update(schedule_entries)
             .set({
-              course_id: courseId,
-              type:      params.type,
-              start_at:  s,
-              end_at:    e,
+              course_id:       courseId,
+              type:            params.type,
+              start_at:        s,
+              end_at:          e,
+              instructor_name: params.instructorName ?? null, // ✅ LƯU RIÊNG
+              location:        params.location ?? null,       // ✅ LƯU RIÊNG
             })
             .where(eq(schedule_entries.id, id))
             .run();

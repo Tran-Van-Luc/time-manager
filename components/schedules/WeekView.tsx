@@ -1,5 +1,5 @@
 // components/WeekView.tsx
-import React from "react";
+import React, { useMemo } from "react";
 import {
   View,
   Text,
@@ -10,11 +10,8 @@ import {
 import { ScheduleItem } from "../../hooks/useSchedules";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-// Chiều rộng cột “Phiên”
 const SESSION_COL_WIDTH = 60;
-// Chia đều phần còn lại cho 7 ngày trong tuần
 const DAY_COL_WIDTH = (SCREEN_WIDTH - SESSION_COL_WIDTH) / 7.4;
-// Chiều cao mỗi hàng phiên
 const ROW_HEIGHT = 160;
 
 const DAY_LABELS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
@@ -25,6 +22,7 @@ interface Props {
   schedules: ScheduleItem[];
   typeStyle: Record<string, { color: string; emoji: string; pillBg: string }>;
   onSelectItem: (item: ScheduleItem) => void;
+  theme: "light" | "dark"; // ✅ THÊM PROP THEME
 }
 
 export default function WeekView({
@@ -32,7 +30,42 @@ export default function WeekView({
   schedules,
   typeStyle,
   onSelectItem,
+  theme, // ✅ NHẬN THEME
 }: Props) {
+  // ✅ DYNAMIC STYLES DỰA TRÊN THEME
+  const themedStyles = useMemo(() => ({
+    wrapper: {
+      backgroundColor: theme === "dark" ? "#1a1a1a" : "#fff",
+    },
+    sessionLabel: {
+      color: theme === "dark" ? "#e5e5e5" : "#111",
+    },
+    dayHeader: {
+      backgroundColor: theme === "dark" ? "#2a2a2a" : "#fafafa",
+      color: theme === "dark" ? "#e5e5e5" : "#111",
+      borderColor: theme === "dark" ? "#444" : "#ddd",
+    },
+    sessionRow: {
+      borderColor: theme === "dark" ? "#333" : "#eee",
+    },
+    sessionColumn: {
+      borderColor: theme === "dark" ? "#333" : "#eee",
+    },
+    dayColumn: {
+      borderColor: theme === "dark" ? "#333" : "#eee",
+    },
+    emptySession: {
+      color: theme === "dark" ? "#666" : "#aaa",
+    },
+    legendContainer: {
+      backgroundColor: theme === "dark" ? "#2a2a2a" : "#f9f9f9",
+      borderColor: theme === "dark" ? "#333" : "#eee",
+    },
+    legendText: {
+      color: theme === "dark" ? "#a3a3a3" : "#374151",
+    },
+  }), [theme]);
+
   const getSession = (date: Date) => {
     const m = date.getHours() * 60 + date.getMinutes();
     if (m >= 390 && m < 720) return "Sáng";
@@ -41,14 +74,14 @@ export default function WeekView({
   };
 
   return (
-    <View style={styles.wrapper}>
+    <View style={[styles.wrapper, themedStyles.wrapper]}>
       {/* Grid tuần */}
       <View style={styles.container}>
         {/* Cột Phiên */}
-        <View style={styles.sessionColumn}>
+        <View style={[styles.sessionColumn, themedStyles.sessionColumn]}>
           {SESSIONS.map((s, i) => (
             <View key={i} style={[styles.sessionRow1, { height: ROW_HEIGHT }]}>
-              <Text style={styles.sessionLabel}>
+              <Text style={[styles.sessionLabel, themedStyles.sessionLabel]}>
                 {s === "Sáng" ? "🌅" : s === "Chiều" ? "🌞" : "🌙"} {s}
               </Text>
             </View>
@@ -62,8 +95,8 @@ export default function WeekView({
           );
 
           return (
-            <View key={idx} style={styles.dayColumn}>
-              <Text style={styles.dayHeader}>
+            <View key={idx} style={[styles.dayColumn, themedStyles.dayColumn]}>
+              <Text style={[styles.dayHeader, themedStyles.dayHeader]}>
                 {DAY_LABELS[idx]}{"\n"}
                 {day.getDate()}/{day.getMonth() + 1}
               </Text>
@@ -75,16 +108,22 @@ export default function WeekView({
                 return (
                   <View
                     key={i}
-                    style={[styles.sessionRow, { height: ROW_HEIGHT }]}
+                    style={[
+                      styles.sessionRow,
+                      themedStyles.sessionRow,
+                      { height: ROW_HEIGHT }
+                    ]}
                   >
                     <View style={styles.content}>
                       {items.length === 0 ? (
-                        <Text style={styles.emptySession}>–</Text>
+                        <Text style={[styles.emptySession, themedStyles.emptySession]}>
+                          –
+                        </Text>
                       ) : (
                         items.map((item) => {
                           const st = typeStyle[item.type] || {
                             color: "#6B7280",
-                            pillBg: "#fff",
+                            pillBg: theme === "dark" ? "#2a2a2a" : "#fff",
                             emoji: "",
                           };
                           return (
@@ -93,7 +132,9 @@ export default function WeekView({
                               style={[
                                 styles.labelCard,
                                 {
-                                  backgroundColor: st.pillBg,
+                                  backgroundColor: theme === "dark" 
+                                    ? `${st.color}20` // Màu với opacity cho dark mode
+                                    : st.pillBg,
                                   borderLeftColor: st.color,
                                 },
                               ]}
@@ -116,16 +157,21 @@ export default function WeekView({
       </View>
 
       {/* Chú thích (legend) */}
-      <View style={styles.legendContainer}>
+      <View style={[styles.legendContainer, themedStyles.legendContainer]}>
         {Object.entries(typeStyle).map(([key, st]) => (
           <View key={key} style={styles.legendItem}>
             <View
               style={[
                 styles.legendBox,
-                { borderLeftColor: st.color, backgroundColor: st.pillBg },
+                { 
+                  borderLeftColor: st.color, 
+                  backgroundColor: theme === "dark" 
+                    ? `${st.color}20` 
+                    : st.pillBg 
+                },
               ]}
             />
-            <Text style={styles.legendText}>
+            <Text style={[styles.legendText, themedStyles.legendText]}>
               {st.emoji} {key}
             </Text>
           </View>
@@ -138,7 +184,6 @@ export default function WeekView({
 const styles = StyleSheet.create({
   wrapper: {
     flex: 1,
-    backgroundColor: "#fff",
   },
   container: {
     flexDirection: "row",
@@ -146,7 +191,6 @@ const styles = StyleSheet.create({
   sessionColumn: {
     width: SESSION_COL_WIDTH,
     borderRightWidth: 1,
-    borderColor: "#eee",
   },
   sessionRow1: {
     justifyContent: "center",
@@ -156,7 +200,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     borderBottomWidth: 1,
-    borderColor: "#eee",
   },
   sessionLabel: {
     fontWeight: "bold",
@@ -166,7 +209,6 @@ const styles = StyleSheet.create({
   dayColumn: {
     width: DAY_COL_WIDTH,
     borderRightWidth: 1,
-    borderColor: "#eee",
   },
   dayHeader: {
     textAlign: "center",
@@ -174,8 +216,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     paddingVertical: 4,
     borderBottomWidth: 1,
-    borderColor: "#ddd",
-    backgroundColor: "#fafafa",
   },
   content: {
     flex: 1,
@@ -194,16 +234,13 @@ const styles = StyleSheet.create({
   },
   emptySession: {
     fontSize: 10,
-    color: "#aaa",
   },
   legendContainer: {
     flexDirection: "row",
     justifyContent: "center",
     flexWrap: "wrap",
     borderTopWidth: 1,
-    borderColor: "#eee",
     paddingVertical: 8,
-    backgroundColor: "#f9f9f9",
   },
   legendItem: {
     flexDirection: "row",
@@ -220,6 +257,5 @@ const styles = StyleSheet.create({
   },
   legendText: {
     fontSize: 12,
-    color: "#374151",
   },
 });
