@@ -8,6 +8,7 @@ import {
   Dimensions,
 } from "react-native";
 import { ScheduleItem } from "../../hooks/useSchedules";
+import { useLanguage } from "../../context/LanguageContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const SESSION_COL_WIDTH = 60;
@@ -19,10 +20,10 @@ const SESSIONS = ["Sáng", "Chiều", "Tối"];
 
 interface Props {
   weekDates: Date[];
-  schedules: ScheduleItem[];
+  schedules: (ScheduleItem & { typeLabel?: string })[];
   typeStyle: Record<string, { color: string; emoji: string; pillBg: string }>;
   onSelectItem: (item: ScheduleItem) => void;
-  theme: "light" | "dark"; // ✅ THÊM PROP THEME
+  theme: "light" | "dark";
 }
 
 export default function WeekView({
@@ -30,48 +31,158 @@ export default function WeekView({
   schedules,
   typeStyle,
   onSelectItem,
-  theme, // ✅ NHẬN THEME
+  theme,
 }: Props) {
-  // ✅ DYNAMIC STYLES DỰA TRÊN THEME
-  const themedStyles = useMemo(() => ({
-    wrapper: {
-      backgroundColor: theme === "dark" ? "#1a1a1a" : "#fff",
-    },
-    sessionLabel: {
-      color: theme === "dark" ? "#e5e5e5" : "#111",
-    },
-    dayHeader: {
-      backgroundColor: theme === "dark" ? "#2a2a2a" : "#fafafa",
-      color: theme === "dark" ? "#e5e5e5" : "#111",
-      borderColor: theme === "dark" ? "#444" : "#ddd",
-    },
-    sessionRow: {
-      borderColor: theme === "dark" ? "#333" : "#eee",
-    },
-    sessionColumn: {
-      borderColor: theme === "dark" ? "#333" : "#eee",
-    },
-    dayColumn: {
-      borderColor: theme === "dark" ? "#333" : "#eee",
-    },
-    emptySession: {
-      color: theme === "dark" ? "#666" : "#aaa",
-    },
-    legendContainer: {
-      backgroundColor: theme === "dark" ? "#2a2a2a" : "#f9f9f9",
-      borderColor: theme === "dark" ? "#333" : "#eee",
-    },
-    legendText: {
-      color: theme === "dark" ? "#a3a3a3" : "#374151",
-    },
-  }), [theme]);
+  const { language, t } = useLanguage();
 
+  // localization for static UI bits in this component
+  const L = {
+    vi: {
+      morning: "Sáng",
+      afternoon: "Chiều",
+      evening: "Tối",
+      empty: "–",
+      legendTitle: "Chú thích",
+      dayDateFormat: (d: Date) => `${d.getDate()}/${d.getMonth() + 1}`,
+    },
+    en: {
+      morning: "Morning",
+      afternoon: "Afternoon",
+      evening: "Evening",
+      empty: "–",
+      legendTitle: "Legend",
+      dayDateFormat: (d: Date) => `${d.getDate()}/${d.getMonth() + 1}`,
+    },
+  }[language];
+
+  // dynamic themed styles
+  const themedStyles = useMemo(
+    () => ({
+      wrapper: {
+        backgroundColor: theme === "dark" ? "#1a1a1a" : "#fff",
+      },
+      sessionLabel: {
+        color: theme === "dark" ? "#e5e5e5" : "#111",
+      },
+      dayHeader: {
+        backgroundColor: theme === "dark" ? "#2a2a2a" : "#fafafa",
+        color: theme === "dark" ? "#e5e5e5" : "#111",
+        borderColor: theme === "dark" ? "#444" : "#ddd",
+      },
+      sessionRow: {
+        borderColor: theme === "dark" ? "#333" : "#eee",
+      },
+      sessionColumn: {
+        borderColor: theme === "dark" ? "#333" : "#eee",
+      },
+      dayColumn: {
+        borderColor: theme === "dark" ? "#333" : "#eee",
+      },
+      emptySession: {
+        color: theme === "dark" ? "#666" : "#aaa",
+      },
+      legendContainer: {
+        backgroundColor: theme === "dark" ? "#2a2a2a" : "#f9f9f9",
+        borderColor: theme === "dark" ? "#333" : "#eee",
+      },
+      legendText: {
+        color: theme === "dark" ? "#a3a3a3" : "#374151",
+      },
+    }),
+    [theme]
+  );
+
+  // Normalize raw type values (from DB or older data) to current translated label keys used by typeStyle
+  function normalizeTypeToLabel(rawType: string | undefined): string {
+    if (!rawType) return rawType ?? "";
+
+    const trimmed = String(rawType).trim();
+
+    // Map canonical keys to translated labels (use t.schedule.types if available)
+    const keyToLabel: Record<string, string> = {
+      theory: t.schedule?.types?.theory ?? "Lịch học lý thuyết",
+      practice: t.schedule?.types?.practice ?? "Lịch học thực hành",
+      exam: t.schedule?.types?.exam ?? "Lịch thi",
+      suspended: t.schedule?.types?.suspended ?? "Lịch tạm ngưng",
+      makeup: t.schedule?.types?.makeup ?? "Lịch học bù",
+    };
+
+    const lower = trimmed.toLowerCase();
+
+    // Direct key matches
+    if (keyToLabel[lower]) return keyToLabel[lower];
+
+    // Common Vietnamese stored labels
+    const vnMatch: Record<string, string> = {
+      "lịch học lý thuyết": keyToLabel.theory,
+      "lịch học thực hành": keyToLabel.practice,
+      "lịch thi": keyToLabel.exam,
+      "lịch tạm ngưng": keyToLabel.suspended,
+      "lịch học bù": keyToLabel.makeup,
+      "học lý thuyết": keyToLabel.theory,
+      "thực hành": keyToLabel.practice,
+      "thi": keyToLabel.exam,
+      "tạm ngưng": keyToLabel.suspended,
+      "học bù": keyToLabel.makeup,
+    };
+    if (vnMatch[lower]) return vnMatch[lower];
+
+    // Common English stored labels
+    const enMatch: Record<string, string> = {
+      "theory class": keyToLabel.theory,
+      "theory": keyToLabel.theory,
+      "practice class": keyToLabel.practice,
+      "practice": keyToLabel.practice,
+      "exam": keyToLabel.exam,
+      "suspended": keyToLabel.suspended,
+      "makeup class": keyToLabel.makeup,
+      "makeup": keyToLabel.makeup,
+    };
+    if (enMatch[lower]) return enMatch[lower];
+
+    // heuristics
+    if (lower.includes("lý thuyết") || lower.includes("theory")) return keyToLabel.theory;
+    if (lower.includes("thực hành") || lower.includes("practice")) return keyToLabel.practice;
+    if (lower.includes("thi") || lower.includes("exam")) return keyToLabel.exam;
+    if (lower.includes("tạm ngưng") || lower.includes("suspend")) return keyToLabel.suspended;
+    if (lower.includes("bù") || lower.includes("makeup")) return keyToLabel.makeup;
+
+    // fallback: return original trimmed string
+    return trimmed;
+  }
+
+  // Determine session for a given date/time
   const getSession = (date: Date) => {
     const m = date.getHours() * 60 + date.getMinutes();
     if (m >= 390 && m < 720) return "Sáng";
     if (m >= 750 && m < 1050) return "Chiều";
     return "Tối";
   };
+
+  // Group schedules per day (using startAt date)
+  const groupedByDay = useMemo(() => {
+    const map: Record<string, (ScheduleItem & { typeLabel?: string })[]> = {};
+    weekDates.forEach((d) => {
+      map[d.toDateString()] = [];
+    });
+    schedules.forEach((s) => {
+      const key = s.startAt.toDateString();
+      if (!map[key]) map[key] = [];
+      map[key].push(s);
+    });
+    return map;
+  }, [schedules, weekDates]);
+
+  // Helper to get style for an item using either item.typeLabel or normalized item.type
+  function getStyleForItem(item: ScheduleItem & { typeLabel?: string }) {
+    const label = (item as any).typeLabel ?? normalizeTypeToLabel(item.type);
+    const st = typeStyle[label] || {
+      color: "#6B7280",
+      pillBg: theme === "dark" ? "#2a2a2a" : "#fff",
+      emoji: "",
+    };
+    return { st, label };
+  }
 
   return (
     <View style={[styles.wrapper, themedStyles.wrapper]}>
@@ -82,7 +193,8 @@ export default function WeekView({
           {SESSIONS.map((s, i) => (
             <View key={i} style={[styles.sessionRow1, { height: ROW_HEIGHT }]}>
               <Text style={[styles.sessionLabel, themedStyles.sessionLabel]}>
-                {s === "Sáng" ? "🌅" : s === "Chiều" ? "🌞" : "🌙"} {s}
+                {s === "Sáng" ? "🌅" : s === "Chiều" ? "🌞" : "🌙"}{" "}
+                {s === "Sáng" ? L.morning : s === "Chiều" ? L.afternoon : L.evening}
               </Text>
             </View>
           ))}
@@ -90,51 +202,44 @@ export default function WeekView({
 
         {/* 7 cột ngày */}
         {weekDates.map((day, idx) => {
-          const dayItems = schedules.filter(
-            (s) => s.startAt.toDateString() === day.toDateString()
-          );
+          const dayItems = groupedByDay[day.toDateString()] || [];
 
           return (
             <View key={idx} style={[styles.dayColumn, themedStyles.dayColumn]}>
               <Text style={[styles.dayHeader, themedStyles.dayHeader]}>
                 {DAY_LABELS[idx]}{"\n"}
-                {day.getDate()}/{day.getMonth() + 1}
+                {L.dayDateFormat(day)}
               </Text>
 
               {SESSIONS.map((session, i) => {
-                const items = dayItems.filter(
-                  (it) => getSession(it.startAt) === session
-                );
+                const items = dayItems.filter((it) => getSession(it.startAt) === session);
                 return (
                   <View
                     key={i}
                     style={[
                       styles.sessionRow,
                       themedStyles.sessionRow,
-                      { height: ROW_HEIGHT }
+                      { height: ROW_HEIGHT },
                     ]}
                   >
                     <View style={styles.content}>
                       {items.length === 0 ? (
                         <Text style={[styles.emptySession, themedStyles.emptySession]}>
-                          –
+                          {L.empty}
                         </Text>
                       ) : (
                         items.map((item) => {
-                          const st = typeStyle[item.type] || {
-                            color: "#6B7280",
-                            pillBg: theme === "dark" ? "#2a2a2a" : "#fff",
-                            emoji: "",
-                          };
+                          const { st, label } = getStyleForItem(item as any);
                           return (
                             <TouchableOpacity
                               key={item.id}
                               style={[
                                 styles.labelCard,
                                 {
-                                  backgroundColor: theme === "dark" 
-                                    ? `${st.color}20` // Màu với opacity cho dark mode
-                                    : st.pillBg,
+                                  backgroundColor:
+                                    theme === "dark"
+                                      ? `${st.color}20`
+                                      : st.pillBg,
                                   borderLeftColor: st.color,
                                 },
                               ]}
@@ -163,11 +268,9 @@ export default function WeekView({
             <View
               style={[
                 styles.legendBox,
-                { 
-                  borderLeftColor: st.color, 
-                  backgroundColor: theme === "dark" 
-                    ? `${st.color}20` 
-                    : st.pillBg 
+                {
+                  borderLeftColor: st.color,
+                  backgroundColor: theme === "dark" ? `${st.color}20` : st.pillBg,
                 },
               ]}
             />

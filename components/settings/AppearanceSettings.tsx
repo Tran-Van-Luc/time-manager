@@ -12,12 +12,12 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Appearance } from "react-native";
 import { useTheme } from "../../context/ThemeContext";
+import { useLanguage } from "../../context/LanguageContext";
 import { Ionicons } from "@expo/vector-icons";
 import PrimaryColorPicker from "./PrimaryColorPicker";
 
 const STORAGE_KEY_PREF_THEME = "prefTheme";
 const STORAGE_KEY_PRIMARY = "primaryColor";
-const STORAGE_KEY_LANG = "appLanguage";
 
 export default function AppearanceSettings({
   visible,
@@ -27,24 +27,17 @@ export default function AppearanceSettings({
   onClose: () => void;
 }) {
   const { theme, toggleTheme } = useTheme();
+  const { t } = useLanguage();
   const isDark = theme === "dark";
   const systemTheme = Appearance.getColorScheme() || "light";
 
   const [prefTheme, setPrefTheme] = useState<"system" | "light" | "dark">("system");
   const [showPrimaryPicker, setShowPrimaryPicker] = useState(false);
-  const [labels, setLabels] = useState({
-    title: "Giao diện",
-    close: "Đóng",
-    system: "Hệ thống",
-    dark: "Tối",
-    light: "Sáng",
-    primaryColor: "Màu chủ đạo",
-  });
 
   const themeOptions = [
-    { id: "system", labelKey: "system", icon: "contrast-outline" },
-    { id: "dark", labelKey: "dark", icon: "moon-outline" },
-    { id: "light", labelKey: "light", icon: "sunny-outline" },
+    { id: "system", icon: "contrast-outline" },
+    { id: "dark", icon: "moon-outline" },
+    { id: "light", icon: "sunny-outline" },
   ];
 
   useEffect(() => {
@@ -62,17 +55,6 @@ export default function AppearanceSettings({
     })();
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const lang = (await AsyncStorage.getItem(STORAGE_KEY_LANG)) as "vi" | "en" | null;
-        updateLabels(lang ?? "vi");
-      } catch {
-        updateLabels("vi");
-      }
-    })();
-  }, [visible]);
-
   async function applyPref(next: "system" | "light" | "dark") {
     setPrefTheme(next);
     await AsyncStorage.setItem(STORAGE_KEY_PREF_THEME, next);
@@ -89,26 +71,11 @@ export default function AppearanceSettings({
     }
   }
 
-  function updateLabels(lang: "vi" | "en") {
-    if (lang === "en") {
-      setLabels({
-        title: "Appearance",
-        close: "Close",
-        system: "System",
-        dark: "Dark",
-        light: "Light",
-        primaryColor: "Primary color",
-      });
-    } else {
-      setLabels({
-        title: "Giao diện",
-        close: "Đóng",
-        system: "Hệ thống",
-        dark: "Tối",
-        light: "Sáng",
-        primaryColor: "Màu chủ đạo",
-      });
-    }
+  function getThemeLabel(themeId: string) {
+    if (themeId === "system") return t.appearanceSettings.system;
+    if (themeId === "dark") return t.appearanceSettings.dark;
+    if (themeId === "light") return t.appearanceSettings.light;
+    return themeId;
   }
 
   const styles = createStyles(isDark);
@@ -119,20 +86,20 @@ export default function AppearanceSettings({
         <SafeAreaView style={styles.safe}>
           <View style={styles.header}>
             <TouchableOpacity onPress={onClose}>
-              <Text style={styles.closeText}>{labels.close}</Text>
+              <Text style={styles.closeText}>{t.appearanceSettings.close}</Text>
             </TouchableOpacity>
-            <Text style={styles.title}>{labels.title}</Text>
+            <Text style={styles.title}>{t.appearanceSettings.title}</Text>
             <View style={{ width: 50 }} />
           </View>
 
           <ScrollView contentContainerStyle={styles.container}>
             <View style={styles.card}>
-              {themeOptions.map((t, idx) => {
-                const active = prefTheme === t.id;
+              {themeOptions.map((themeOption, idx) => {
+                const active = prefTheme === themeOption.id;
                 return (
                   <TouchableOpacity
-                    key={t.id}
-                    onPress={() => applyPref(t.id as any)}
+                    key={themeOption.id}
+                    onPress={() => applyPref(themeOption.id as any)}
                     style={[
                       styles.item,
                       idx === 0 && styles.itemFirst,
@@ -142,15 +109,15 @@ export default function AppearanceSettings({
                   >
                     <View style={styles.itemLeft}>
                       <Ionicons
-                        name={t.icon as any}
+                        name={themeOption.icon as any}
                         size={18}
                         color={active ? styles.iconActive.color : styles.icon.color}
                       />
                       <Text style={[styles.itemText, active && styles.itemTextActive]}>
-                        {t.id === "system" ? labels.system : t.id === "dark" ? labels.dark : labels.light}
+                        {getThemeLabel(themeOption.id)}
                       </Text>
                     </View>
-                    {prefTheme === t.id && (
+                    {prefTheme === themeOption.id && (
                       <Ionicons name="checkmark" size={18} color={styles.check.color} />
                     )}
                   </TouchableOpacity>
@@ -165,7 +132,9 @@ export default function AppearanceSettings({
               >
                 <View style={styles.itemLeft}>
                   <Ionicons name="color-palette-outline" size={18} color={isDark ? "#9aa4b2" : "#374151"} />
-                  <Text style={[styles.itemText, { color: isDark ? "#E6EEF8" : "#111" }]}>{labels.primaryColor}</Text>
+                  <Text style={[styles.itemText, { color: isDark ? "#E6EEF8" : "#111" }]}>
+                    {t.appearanceSettings.primaryColor}
+                  </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={isDark ? "#9aa4b2" : "#9ca3af"} />
               </TouchableOpacity>
@@ -282,3 +251,4 @@ const createStyles = (isDark: boolean) =>
       color: isDark ? "#9aa4b2" : "#9ca3af",
     },
   });
+  

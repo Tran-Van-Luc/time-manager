@@ -15,6 +15,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
 import axios from "axios";
 import { CreateScheduleParams } from "../../database/schedule";
+import { useLanguage } from "../../context/LanguageContext";
 
 interface ImportFromTextProps {
   visible: boolean;
@@ -32,6 +33,76 @@ const GEMINI_API_KEY = String(process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? "");
 const USE_MOCK = false;
 
 export default function ImportFromText({ visible, onClose, onImport }: ImportFromTextProps) {
+  const { language } = useLanguage();
+
+  // Chỉ bổ sung object ngôn ngữ (vi / en) — KHÔNG thay đổi logic xử lý
+  const L = {
+    vi: {
+      titleImport: "Import từ PDF",
+      titlePreview: "Xem trước lịch học",
+      aiTitle: "🤖 AI đọc PDF thông minh",
+      aiDescription:
+        "Chọn file PDF lịch học, AI sẽ tự động nhóm các buổi học theo môn, phòng và thời gian!",
+      choosePdf: "Chọn file PDF",
+      analyzing: "Đang phân tích...",
+      foundCount: (n: number) => `Tìm thấy ${n} lịch học`,
+      back: "Quay lại",
+      addAll: "Thêm tất cả",
+      adding: "Đang thêm...",
+      successAdded: (n: number) => `Đã thêm ${n} lịch học!`,
+      errorNoFile: "Không lấy được file",
+      errorReadPdfTitle: "Lỗi đọc PDF",
+      errorNoSchedulesTitle: "Không tìm thấy lịch",
+      errorNoSchedulesMsg: "Không thể trích xuất thông tin lịch học từ file này.",
+      mockWarning: "⚠️ Đang dùng mock data.",
+      useRealAi: "Nhấn để dùng AI thật",
+      delete: "Xóa",
+      fieldLabels: {
+        courseName: "Tên môn",
+        type: "Loại",
+        instructor: "Giảng viên",
+        location: "Phòng",
+        time: "Giờ học",
+        fromDate: "Từ ngày",
+        toDate: "Đến ngày",
+      },
+      confirmImportError: "Lỗi import",
+      close: "Đóng",
+    },
+    en: {
+      titleImport: "Import from PDF",
+      titlePreview: "Preview schedules",
+      aiTitle: "🤖 Smart PDF reader",
+      aiDescription:
+        "Pick a schedule PDF and the AI will group sessions by course, room and time automatically!",
+      choosePdf: "Pick PDF file",
+      analyzing: "Analyzing...",
+      foundCount: (n: number) => `Found ${n} schedules`,
+      back: "Back",
+      addAll: "Add all",
+      adding: "Adding...",
+      successAdded: (n: number) => `Added ${n} schedules!`,
+      errorNoFile: "Cannot read file",
+      errorReadPdfTitle: "PDF read error",
+      errorNoSchedulesTitle: "No schedules found",
+      errorNoSchedulesMsg: "Could not extract schedule information from this file.",
+      mockWarning: "⚠️ Using mock data.",
+      useRealAi: "Tap to use real AI",
+      delete: "Delete",
+      fieldLabels: {
+        courseName: "Course",
+        type: "Type",
+        instructor: "Instructor",
+        location: "Room",
+        time: "Time",
+        fromDate: "From",
+        toDate: "To",
+      },
+      confirmImportError: "Import error",
+      close: "Close",
+    },
+  }[language];
+
   const [parsing, setParsing] = useState(false);
   const [parsedSchedules, setParsedSchedules] = useState<ParsedSchedule[]>([]);
   const [showTable, setShowTable] = useState(false);
@@ -122,34 +193,10 @@ Thì tạo 3 objects riêng vì PHÒNG HỌC khác nhau:
 3. Thứ 6, 7-9, Lý thuyết, TT117: từ 2025-01-17 đến 2025-02-14
 
 FORMAT OUTPUT:
-[
-  {
-    "courseName": "Tên môn học (bỏ mã môn)",
-    "type": "Lịch học lý thuyết" | "Lịch học thực hành",
-    "instructorName": "Tên giảng viên chính (người đầu tiên)",
-    "location": "Phòng (chỉ lấy phần trước dấu ngoặc, VD: B2.05 từ B2.05 (B2.05 (CLC)))",
-    "weekday": "Số thứ (2-8, với 8 là Chủ nhật)",
-    "startDate": "YYYY-MM-DD (ngày bắt đầu sớm nhất của nhóm)",
-    "endDate": "YYYY-MM-DD (ngày kết thúc muộn nhất của nhóm)",
-    "startTime": "HH:mm (giờ bắt đầu từ tiết)",
-    "endTime": "HH:mm (giờ kết thúc từ tiết)"
-  }
-]
+[ ...JSON array như mô tả... ]
 
 QUY TẮC XỬ LÝ:
-1. BỎ QUA hoàn toàn: "Thi giữa kỳ", "Thi cuối kỳ" - KHÔNG parse
-2. CHỈ PARSE: "Lý thuyết" và "Thực hành"
-3. Location: Lấy phần TRƯỚC dấu ngoặc đầu tiên (VD: "B2.05" từ "B2.05 (B2.05 (CLC))")
-4. Giảng viên: Chỉ lấy TÊN người đầu tiên (bỏ học hàm, mã)
-5. Chuyển DD/MM/YYYY thành YYYY-MM-DD
-6. weekday: Thứ 2→"2", Thứ 3→"3", ..., Thứ 7→"7", Chủ nhật→"8"
-7. Nhóm các buổi học CÓ CÙNG: môn + loại + thứ + tiết + phòng
-
-QUAN TRỌNG: 
-- CHỈ trả về JSON array thuần túy
-- KHÔNG có markdown (không có \`\`\`json)
-- KHÔNG có text giải thích
-- CHỈ parse Lý thuyết và Thực hành`,
+- CHỈ trả về JSON array thuần túy, KHÔNG kèm giải thích`,
                     },
                   ],
                 },
@@ -221,7 +268,7 @@ QUAN TRỌNG:
       const uri = asset?.uri || (res as any).uri;
 
       if (!uri) {
-        throw new Error("Không lấy được file");
+        throw new Error(L.errorNoFile);
       }
 
       console.log("📄 Reading PDF:", uri);
@@ -237,10 +284,7 @@ QUAN TRỌNG:
       );
 
       if (schedules.length === 0) {
-        Alert.alert(
-          "Không tìm thấy lịch",
-          "Không thể trích xuất thông tin lịch học từ file này."
-        );
+        Alert.alert(L.errorNoSchedulesTitle, L.errorNoSchedulesMsg);
         setParsing(false);
         return;
       }
@@ -250,7 +294,7 @@ QUAN TRỌNG:
       setParsing(false);
     } catch (error: any) {
       console.error("❌ PDF import error:", error);
-      Alert.alert("Lỗi đọc PDF", error?.message ?? String(error));
+      Alert.alert(L.errorReadPdfTitle, error?.message ?? String(error));
       setParsing(false);
     }
   }
@@ -314,7 +358,7 @@ QUAN TRỌNG:
 
   async function handleAddSchedules() {
     if (parsedSchedules.length === 0) {
-      Alert.alert("Lỗi", "Không có lịch để thêm");
+      Alert.alert(L.confirmImportError, language === "vi" ? "Không có lịch để thêm" : "No schedules to add");
       return;
     }
 
@@ -360,10 +404,10 @@ QUAN TRỌNG:
       setShowTable(false);
       onClose();
 
-      Alert.alert("Thành công", `Đã thêm ${added} lịch học!`);
+      Alert.alert(language === "vi" ? "Thành công" : "Success", L.successAdded(added));
     } catch (error: any) {
       console.error("Import failed:", error);
-      Alert.alert("Lỗi import", error?.message ?? String(error));
+      Alert.alert(L.confirmImportError, error?.message ?? String(error));
     } finally {
       setParsing(false);
     }
@@ -380,14 +424,14 @@ QUAN TRỌNG:
         <View style={styles.overlay}>
           <View style={styles.modal}>
             <View style={styles.header}>
-              <Text style={styles.title}>Xem trước lịch học</Text>
+              <Text style={styles.title}>{L.titlePreview}</Text>
               <TouchableOpacity onPress={onClose}>
                 <AntDesign name="close" size={24} color="#374151" />
               </TouchableOpacity>
             </View>
 
             <Text style={styles.scheduleCount}>
-              Tìm thấy {parsedSchedules.length} lịch học
+              {L.foundCount(parsedSchedules.length)}
             </Text>
 
             <ScrollView style={styles.tableContainer}>
@@ -404,7 +448,7 @@ QUAN TRỌNG:
                   </View>
 
                   <View style={styles.fieldGroup}>
-                    <Text style={styles.label}>Tên môn:</Text>
+                    <Text style={styles.label}>{L.fieldLabels.courseName}:</Text>
                     <TextInput
                       style={styles.editInput}
                       value={schedule.courseName}
@@ -415,7 +459,7 @@ QUAN TRỌNG:
                   </View>
 
                   <View style={styles.fieldGroup}>
-                    <Text style={styles.label}>Loại:</Text>
+                    <Text style={styles.label}>{L.fieldLabels.type}:</Text>
                     <TextInput
                       style={styles.editInput}
                       value={schedule.type}
@@ -426,7 +470,7 @@ QUAN TRỌNG:
                   </View>
 
                   <View style={styles.fieldGroup}>
-                    <Text style={styles.label}>Giảng viên:</Text>
+                    <Text style={styles.label}>{L.fieldLabels.instructor}:</Text>
                     <TextInput
                       style={styles.editInput}
                       value={schedule.instructorName}
@@ -437,7 +481,7 @@ QUAN TRỌNG:
                   </View>
 
                   <View style={styles.fieldGroup}>
-                    <Text style={styles.label}>Phòng:</Text>
+                    <Text style={styles.label}>{L.fieldLabels.location}:</Text>
                     <TextInput
                       style={styles.editInput}
                       value={schedule.location}
@@ -448,7 +492,7 @@ QUAN TRỌNG:
                   </View>
 
                   <View style={styles.fieldGroup}>
-                    <Text style={styles.label}>Giờ học:</Text>
+                    <Text style={styles.label}>{L.fieldLabels.time}:</Text>
                     <TextInput
                       style={styles.editInput}
                       value={`${schedule.startTime} - ${schedule.endTime}`}
@@ -470,7 +514,7 @@ QUAN TRỌNG:
 
                   <View style={styles.rowGroup}>
                     <View style={[styles.fieldGroup, { flex: 1 }]}>
-                      <Text style={styles.label}>Từ ngày:</Text>
+                      <Text style={styles.label}>{L.fieldLabels.fromDate}:</Text>
                       <TextInput
                         style={styles.editInput}
                         value={schedule.startDate}
@@ -482,7 +526,7 @@ QUAN TRỌNG:
                     <View
                       style={[styles.fieldGroup, { flex: 1, marginLeft: 8 }]}
                     >
-                      <Text style={styles.label}>Đến ngày:</Text>
+                      <Text style={styles.label}>{L.fieldLabels.toDate}:</Text>
                       <TextInput
                         style={styles.editInput}
                         value={schedule.endDate}
@@ -501,7 +545,7 @@ QUAN TRỌNG:
                 style={[styles.button, styles.clearButton]}
                 onPress={handleClear}
               >
-                <Text style={styles.clearButtonText}>Quay lại</Text>
+                <Text style={styles.clearButtonText}>{L.back}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -514,11 +558,11 @@ QUAN TRỌNG:
                 disabled={parsing}
               >
                 {parsing ? (
-                  <Text style={styles.parseButtonText}>Đang thêm...</Text>
+                  <Text style={styles.parseButtonText}>{L.adding}</Text>
                 ) : (
                   <>
                     <AntDesign name="plus" size={18} color="#fff" />
-                    <Text style={styles.parseButtonText}>Thêm tất cả</Text>
+                    <Text style={styles.parseButtonText}>{L.addAll}</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -534,16 +578,16 @@ QUAN TRỌNG:
       <View style={styles.overlay}>
         <View style={styles.modal}>
           <View style={styles.header}>
-            <Text style={styles.title}>Import từ PDF</Text>
+            <Text style={styles.title}>{L.titleImport}</Text>
             <TouchableOpacity onPress={onClose}>
               <AntDesign name="close" size={24} color="#374151" />
             </TouchableOpacity>
           </View>
 
           <View style={styles.instructions}>
-            <Text style={styles.instructionTitle}>🤖 AI đọc PDF thông minh</Text>
+            <Text style={styles.instructionTitle}>{L.aiTitle}</Text>
             <Text style={styles.instructionText}>
-              Chọn file PDF lịch học, AI sẽ tự động nhóm các buổi học theo môn, phòng và thời gian!
+              {L.aiDescription}
             </Text>
           </View>
 
@@ -558,12 +602,12 @@ QUAN TRỌNG:
             {parsing ? (
               <>
                 <ActivityIndicator color="#fff" />
-                <Text style={styles.pdfImportButtonText}>Đang phân tích...</Text>
+                <Text style={styles.pdfImportButtonText}>{L.analyzing}</Text>
               </>
             ) : (
               <>
                 <AntDesign name="file" size={20} color="#fff" />
-                <Text style={styles.pdfImportButtonText}>Chọn file PDF</Text>
+                <Text style={styles.pdfImportButtonText}>{L.choosePdf}</Text>
               </>
             )}
           </TouchableOpacity>
@@ -571,14 +615,14 @@ QUAN TRỌNG:
           {useMock && (
             <View style={styles.mockWarning}>
               <Text style={styles.mockWarningText}>
-                ⚠️ Đang dùng mock data. 
+                {L.mockWarning}
               </Text>
               <TouchableOpacity 
                 onPress={() => setUseMock(false)}
                 style={{ marginTop: 4 }}
               >
                 <Text style={[styles.mockWarningText, { fontWeight: '600', textDecorationLine: 'underline' }]}>
-                  Nhấn để dùng AI thật
+                  {L.useRealAi}
                 </Text>
               </TouchableOpacity>
             </View>

@@ -9,6 +9,7 @@ import {
   StyleSheet,
   ViewStyle,
 } from "react-native";
+import { useLanguage } from "../../context/LanguageContext";
 
 type Props = {
   value: "day" | "week" | "month";
@@ -29,6 +30,14 @@ export function AnimatedToggle({
   textColor = "#374151",
   activeTextColor = "#ffffff",
 }: Props) {
+  const { language } = useLanguage();
+
+  // localized labels
+  const labels = {
+    vi: { day: "Ngày", week: "Tuần", month: "Tháng" },
+    en: { day: "Day", week: "Week", month: "Month" },
+  }[language];
+
   const progress = useRef(
     new Animated.Value(value === "day" ? 0 : value === "week" ? 1 : 2)
   ).current;
@@ -43,13 +52,12 @@ export function AnimatedToggle({
     }).start();
   }, [value, progress]);
 
-  // translateX tính theo phần trăm của container (width cố định 240)
+  // translateX calculated as percentage of container (width fixed 240)
   const translateX = progress.interpolate({
     inputRange: [0, 2],
     outputRange: ["0%", "200%"],
   });
 
-  // animated background and text color interpolation per index, but we fallback to props
   const bgInterp = (index: number) =>
     progress.interpolate({
       inputRange: [index - 0.6, index, index + 0.6],
@@ -73,11 +81,11 @@ export function AnimatedToggle({
             { transform: [{ translateX }], backgroundColor: accentColor },
           ]}
         />
-        {["day", "week", "month"].map((k, i) => (
-          <TouchableWithoutFeedback key={k} onPress={() => onChange(k as any)}>
+        {(["day", "week", "month"] as const).map((k, i) => (
+          <TouchableWithoutFeedback key={k} onPress={() => onChange(k)}>
             <Animated.View style={[atStyles.btn, { backgroundColor: bgInterp(i) as any }]}>
               <Animated.Text style={[atStyles.btnText, { color: colorInterp(i) as any }]}>
-                {k === "day" ? "Ngày" : k === "week" ? "Tuần" : "Tháng"}
+                {labels[k]}
               </Animated.Text>
             </Animated.View>
           </TouchableWithoutFeedback>
@@ -88,12 +96,10 @@ export function AnimatedToggle({
 }
 
 const atStyles = StyleSheet.create({
-  // container cố định, không cho flex mở rộng từ parent
   container: {
     paddingHorizontal: 8,
     alignSelf: "flex-start",
   },
-  // row có kích thước cố định (không co giãn)
   row: {
     width: 240,
     height: 36,

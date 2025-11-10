@@ -21,6 +21,8 @@ import { useRecurrences } from "../hooks/useRecurrences";
 import { generateOccurrences } from "../utils/taskValidation";
 import { AnimatedToggle } from "../components/schedules/AnimatedToggle";
 import { useTheme } from "../context/ThemeContext";
+import { useLanguage } from "../context/LanguageContext";
+import { usePrimaryColor } from "../context/PrimaryColorContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const SESSION_COL_WIDTH = 60;
@@ -54,11 +56,9 @@ type DayTaskItem = {
 
 type DayItem = DayScheduleItem | DayTaskItem;
 
-const WEEKDAY_LABELS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
-
 function pad2(n: number) { return String(n).padStart(2, "0"); }
-function ymd(d: Date) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; } // internal key (ISO)
-function dmy(d: Date) { return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`; } // display DD/MM/YYYY
+function ymd(d: Date) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+function dmy(d: Date) { return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`; }
 function startOfDay(d: Date) { return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0); }
 function endOfDay(d: Date) { return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999); }
 function hashColor(input: string) { let h = 0; for (let i = 0; i < input.length; i++) h = (h << 5) - h + input.charCodeAt(i); return `hsl(${Math.abs(h) % 360}, 60%, 60%)`; }
@@ -125,17 +125,55 @@ export default function HomeScreen() {
   const { theme } = useTheme();
   const isDark = theme === "dark";
 
-  const [primaryColor, setPrimaryColor] = useState<string | null>(null);
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const c = await AsyncStorage.getItem(STORAGE_KEY_PRIMARY);
-        if (mounted && c) setPrimaryColor(c);
-      } catch { /* ignore */ }
-    })();
-    return () => { mounted = false; };
-  }, []);
+  const { language } = useLanguage();
+
+  // Localized strings for HomeScreen
+  const L = {
+    vi: {
+      weekdayShort: ["T2","T3","T4","T5","T6","T7","CN"],
+      todayText: "Hôm nay",
+      chooseDate: "Chọn ngày",
+      monthLabel: (cur: Date) => `Tháng ${cur.getMonth() + 1}, ${cur.getFullYear()}`,
+      weekLabelPrefix: "Tuần",
+      dayPrefix: "Ngày",
+      sessionsTitle: "Phiên",
+      sessionNames: ["Sáng","Chiều","Tối"],
+      sectionSchedule: "Lịch học",
+      sectionTasks: "Công việc",
+      emptySchedule: "Không có lịch học",
+      emptyTasks: "Không có công việc",
+      todayDone: "Hôm nay đã hoàn thành",
+      sessionEmojis: ["🌅","🌞","🌙"],
+      chooseDayBtn: "Chọn ngày",
+      navPrev: "‹",
+      navNext: "›",
+      morePrefix: "+",
+      timeDash: "–",
+    },
+    en: {
+      weekdayShort: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
+      todayText: "Today",
+      chooseDate: "Choose date",
+      monthLabel: (cur: Date) => `${cur.toLocaleString('default', { month: 'long' })}, ${cur.getFullYear()}`,
+      weekLabelPrefix: "Week",
+      dayPrefix: "Day",
+      sessionsTitle: "Session",
+      sessionNames: ["Morning","Afternoon","Night"],
+      sectionSchedule: "Schedule",
+      sectionTasks: "Tasks",
+      emptySchedule: "No schedule",
+      emptyTasks: "No tasks",
+      todayDone: "Completed today",
+      sessionEmojis: ["🌅","🌞","🌙"],
+      chooseDayBtn: "Pick date",
+      navPrev: "‹",
+      navNext: "›",
+      morePrefix: "+",
+      timeDash: "–",
+    }
+  }[language];
+
+  const { primaryColor } = usePrimaryColor();
 
   const colors = {
     background: isDark ? "#0B1220" : "#f9fafb",
@@ -144,7 +182,7 @@ export default function HomeScreen() {
     text: isDark ? "#E6EEF8" : "#111827",
     muted: isDark ? "#9AA4B2" : "#6b7280",
     border: isDark ? "#1f2937" : "#eee",
-    themeColor: primaryColor ?? "#2563EB",
+    themeColor: primaryColor,
   };
 
   const [viewMode, setViewMode] = useState<"month" | "week" | "day">("month");
@@ -191,7 +229,6 @@ export default function HomeScreen() {
     const monthStart = startOfDay(new Date(current.getFullYear(), current.getMonth(), 1));
     const monthEnd = endOfDay(new Date(current.getFullYear(), current.getMonth() + 1, 0));
 
-    // Lọc trước: ẩn các task không lặp đã hoàn thành
     const filteredTasks = tasks.filter(t => {
       if (!t.recurrence_id && t.status === 'completed') return false;
       return true;
@@ -211,7 +248,6 @@ export default function HomeScreen() {
             interval: rec.interval || 1,
             daysOfWeek: rec.days_of_week ? JSON.parse(rec.days_of_week) : [],
             daysOfMonth: rec.day_of_month ? JSON.parse(rec.day_of_month) : [],
-            // treat end_date as inclusive: use end of day timestamp so occurrences on that day are included
             endDate: rec.end_date ? endOfDay(new Date(rec.end_date)).getTime() : undefined,
           } as any;
 
@@ -220,16 +256,11 @@ export default function HomeScreen() {
 
           for (const occ of occs) {
                 if (occ.endAt < monthStart.getTime() || occ.startAt > monthEnd.getTime()) continue;
-                // If the base task recorded a completion_diff_minutes < 0 (completed early)
-                // compute the original end and hide occurrences that fall in the interval
-                // (completed_at, originalEnd] because those were effectively completed early.
                 const completedAtStr = (t as any).completed_at;
                 const completionDiffMin = (t as any).completion_diff_minutes;
-                // Only hide when the base task is actually marked completed
                 if ((t as any).status === 'completed' && completedAtStr && typeof completionDiffMin === 'number' && completionDiffMin < 0) {
                   const completedMs = Date.parse(completedAtStr);
-                  const originalEndMs = completedMs - completionDiffMin * 60 * 1000; // completionDiffMin is negative
-                  // hide occurrences strictly after completedAt and up to original end
+                  const originalEndMs = completedMs - completionDiffMin * 60 * 1000;
                   if (occ.startAt > completedMs && occ.startAt <= originalEndMs) continue;
                 }
             const occStart = new Date(occ.startAt);
@@ -296,13 +327,10 @@ export default function HomeScreen() {
     return map;
   }, [schedules, tasks, recurrences, current]);
 
-  // dayMap is the version used for rendering; we start from baseDayMap and then
-  // asynchronously remove occurrences that are already completed (per-recurring-day)
   const [dayMap, setDayMap] = useState<Map<string, DayItem[]>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
-    // seed synchronous copy so UI can render immediately
     setDayMap(new Map(baseDayMap));
 
     (async () => {
@@ -317,17 +345,14 @@ export default function HomeScreen() {
                 const orig = tasks.find(tt => tt.id === t.id);
                 if (orig && (orig as any).recurrence_id) {
                   const recId = (orig as any).recurrence_id;
-                  // parse key 'YYYY-MM-DD' into local date at start of day
                   const parts = key.split('-').map((p) => parseInt(p, 10));
                   const dateObj = new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1);
                   const done = await isHabitDoneOnDate(recId, startOfDay(dateObj));
                   if (done) {
-                    // skip this occurrence
                     continue;
                   }
                 }
               } catch {
-                // on error, fall back to keeping the item
               }
             }
             kept.push(it);
@@ -336,7 +361,6 @@ export default function HomeScreen() {
         }
         if (!cancelled) setDayMap(filtered);
       } catch {
-        // ignore
       }
     })();
 
@@ -473,9 +497,9 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        <Text style={[styles.timeText, { color: colors.muted }]}>⏰ {fmtTime(s.start)} – {fmtTime(s.end)}</Text>
-        <Text style={[styles.detailText, { color: colors.muted }]}>👨‍🏫 {s.instructorName ?? "Chưa có giảng viên"}</Text>
-        <Text style={[styles.detailText, { color: colors.muted }]}>📍 {s.location ?? "Chưa có phòng"}</Text>
+        <Text style={[styles.timeText, { color: colors.muted }]}>⏰ {fmtTime(s.start)} {L.timeDash} {fmtTime(s.end)}</Text>
+        <Text style={[styles.detailText, { color: colors.muted }]}>👨‍🏫 {s.instructorName ?? (language === "vi" ? "Chưa có giảng viên" : "No instructor")}</Text>
+        <Text style={[styles.detailText, { color: colors.muted }]}>📍 {s.location ?? (language === "vi" ? "Chưa có phòng" : "No location")}</Text>
       </View>
     );
   };
@@ -518,20 +542,20 @@ export default function HomeScreen() {
         </View>
 
         <Text style={[styles.timeText, { color: textColor }]}>
-          ⏰ {fmtTime(t.start)} {t.start || t.end ? "–" : ""} {fmtTime(t.end)}
+          ⏰ {fmtTime(t.start)} {t.start || t.end ? L.timeDash : ""} {fmtTime(t.end)}
         </Text>
 
         {todayDone === true ? (
-          <Text style={[styles.detailText, { color: "#16a34a", marginBottom: 6 }]}>Hôm nay đã hoàn thành</Text>
+          <Text style={[styles.detailText, { color: "#16a34a", marginBottom: 6 }]}>{L.todayDone}</Text>
         ) : null}
 
         <View style={styles.rowPills}>
           <View style={[styles.pill, { backgroundColor: borderColor }]}>
-            <Text style={styles.pillText}>{labelPriorityVn(t.priority ?? undefined)}</Text>
+            <Text style={styles.pillText}>{language === "vi" ? labelPriorityVn(t.priority ?? undefined) : (t.priority ? t.priority.charAt(0).toUpperCase() + t.priority.slice(1) : "Other")}</Text>
           </View>
 
           <View style={[styles.pill, { backgroundColor: "#fff", borderWidth: 0, paddingHorizontal: 12 }]}>
-            <Text style={[styles.pillText, { color: "#111827" }]}>{labelStatusVn(t.status ?? undefined)}</Text>
+            <Text style={[styles.pillText, { color: "#111827" }]}>{language === "vi" ? labelStatusVn(t.status ?? undefined) : (t.status ? t.status.replace('-', ' ') : "Unknown")}</Text>
           </View>
         </View>
 
@@ -556,7 +580,6 @@ export default function HomeScreen() {
     );
   }
 
-  // handler for date picker change (day mode)
   const onDatePickerChange = (event: any, picked?: Date) => {
     if (Platform.OS === "android") {
       setShowDatePicker(false);
@@ -572,7 +595,7 @@ export default function HomeScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.headerSmall, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
         <View style={styles.headerLeft}>
-          <TouchableOpacity onPress={prev} style={[styles.navBtnSmall, { backgroundColor: isDark ? "#0b1320" : "#f3f4f6" }]}><Text style={[styles.navTextSmall, { color: colors.text }]}>‹</Text></TouchableOpacity>
+          <TouchableOpacity onPress={prev} style={[styles.navBtnSmall, { backgroundColor: isDark ? "#0b1320" : "#f3f4f6" }]}><Text style={[styles.navTextSmall, { color: colors.text }]}>{L.navPrev}</Text></TouchableOpacity>
 
           <View style={styles.titleWrapper}>
             <Text
@@ -581,19 +604,19 @@ export default function HomeScreen() {
               adjustsFontSizeToFit
               minimumFontScale={0.7}
             >
-              {viewMode === "month" ? `Tháng ${current.getMonth() + 1}, ${current.getFullYear()}` :
+              {viewMode === "month" ? L.monthLabel(current) :
                viewMode === "week" ? (() => {
                  const mon = weekDays[0];
                  const sun = weekDays[6];
                  const sameMonth = mon.getMonth() === sun.getMonth() && mon.getFullYear() === sun.getFullYear();
-                 if (sameMonth) return `Tuần ${mon.getDate()} - ${sun.getDate()} ${mon.getMonth() + 1}/${mon.getFullYear()}`;
-                 return `Tuần ${mon.getDate()}/${mon.getMonth() + 1} - ${sun.getDate()}/${sun.getMonth() + 1} ${sun.getFullYear()}`;
+                 if (sameMonth) return `${L.weekLabelPrefix} ${mon.getDate()} - ${sun.getDate()} ${mon.getMonth() + 1}/${mon.getFullYear()}`;
+                 return `${L.weekLabelPrefix} ${mon.getDate()}/${mon.getMonth() + 1} - ${sun.getDate()}/${sun.getMonth() + 1} ${sun.getFullYear()}`;
                })() :
-               `Ngày ${dmy(dayFocused)}`}
+               `${L.dayPrefix} ${dmy(dayFocused)}`}
             </Text>
           </View>
 
-          <TouchableOpacity onPress={next} style={[styles.navBtnSmall, { backgroundColor: isDark ? "#0b1320" : "#f3f4f6" }]}><Text style={[styles.navTextSmall, { color: colors.text }]}>›</Text></TouchableOpacity>
+          <TouchableOpacity onPress={next} style={[styles.navBtnSmall, { backgroundColor: isDark ? "#0b1320" : "#f3f4f6" }]}><Text style={[styles.navTextSmall, { color: colors.text }]}>{L.navNext}</Text></TouchableOpacity>
         </View>
 
         <AnimatedToggle
@@ -613,7 +636,7 @@ export default function HomeScreen() {
 
       {viewMode === "month" && (
         <View style={[styles.weekRow, { backgroundColor: colors.surface }]}>
-          {WEEKDAY_LABELS.map((lbl) => (
+          {L.weekdayShort.map((lbl) => (
             <Text key={lbl} style={[styles.weekLabel, { color: colors.themeColor }]}>{lbl}</Text>
           ))}
         </View>
@@ -658,7 +681,7 @@ export default function HomeScreen() {
                   ))}
                   {more > 0 && (
                     <View style={[styles.iconBadge, { backgroundColor: "#9ca3af" }]}>
-                      <Text style={styles.iconText}>+{more}</Text>
+                      <Text style={styles.iconText}>{L.morePrefix}{more}</Text>
                     </View>
                   )}
                 </View>
@@ -673,7 +696,7 @@ export default function HomeScreen() {
           <View style={{ flexDirection: "row", backgroundColor: colors.surface, borderBottomWidth: 1, borderColor: colors.border }}>
             <View style={{ width: 64, borderRightWidth: 1, borderColor: colors.border, paddingVertical: 8 }}>
               <View style={{ height: 40, justifyContent: "center", alignItems: "center" }}>
-                <Text style={{ fontWeight: "700", fontSize: 12, color: colors.text }}>Phiên</Text>
+                <Text style={{ fontWeight: "700", fontSize: 12, color: colors.text }}>{L.sessionsTitle}</Text>
               </View>
             </View>
 
@@ -695,7 +718,7 @@ export default function HomeScreen() {
                 >
                   <View style={{ paddingVertical: 6, alignItems: "center" }}>
                     <Text style={{ fontSize: 12, fontWeight: "700", color: isSelected ? colors.themeColor : colors.text, textAlign: "center" }}>
-                      {WEEKDAY_LABELS[idx]}{"\n"}{day.getDate()}/{day.getMonth() + 1}
+                      {L.weekdayShort[idx]}{"\n"}{day.getDate()}/{day.getMonth() + 1}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -705,7 +728,7 @@ export default function HomeScreen() {
 
           <View style={{ flexDirection: "row", backgroundColor: colors.surface }}>
             <View style={{ width: 64, borderRightWidth: 1, borderColor: colors.border }}>
-              {["Sáng", "Chiều", "Tối"].map((s, i) => (
+              {L.sessionNames.map((s, i) => (
                 <View
                   key={i}
                   style={{
@@ -716,7 +739,7 @@ export default function HomeScreen() {
                     borderColor: colors.border,
                   }}
                 >
-                  <Text style={{ fontSize: 12, color: colors.text }}>{s === "Sáng" ? "🌅 Sáng" : s === "Chiều" ? "🌞 Chiều" : "🌙 Tối"}</Text>
+                  <Text style={{ fontSize: 12, color: colors.text }}>{L.sessionEmojis[i]} {s}</Text>
                 </View>
               ))}
             </View>
@@ -726,6 +749,9 @@ export default function HomeScreen() {
               const items = dayMap.get(key) ?? [];
 
               const bySession = {
+                Morning: [] as DayItem[],
+                Afternoon: [] as DayItem[],
+                Night: [] as DayItem[],
                 Sáng: [] as DayItem[],
                 Chiều: [] as DayItem[],
                 Tối: [] as DayItem[],
@@ -734,14 +760,15 @@ export default function HomeScreen() {
               for (const it of items) {
                 const start = (it as any).start ? new Date((it as any).start) : undefined;
                 const minutes = start ? start.getHours() * 60 + start.getMinutes() : 480;
-                const session = minutes >= 390 && minutes < 720 ? "Sáng" : minutes >= 750 && minutes < 1050 ? "Chiều" : "Tối";
+                const session = minutes >= 390 && minutes < 720 ? (language === "vi" ? "Sáng" : "Morning") : minutes >= 750 && minutes < 1050 ? (language === "vi" ? "Chiều" : "Afternoon") : (language === "vi" ? "Tối" : "Night");
                 bySession[session].push(it);
               }
 
               return (
                 <View key={dayIdx} style={{ flex: 1, borderRightWidth: dayIdx < 6 ? 1 : 0, borderColor: colors.border }}>
-                  {["Sáng", "Chiều", "Tối"].map((session, sidx) => {
-                    const cellItems = bySession[session as keyof typeof bySession];
+                  {L.sessionNames.map((session, sidx) => {
+                    const keySession = language === "vi" ? ["Sáng","Chiều","Tối"][sidx] : ["Morning","Afternoon","Night"][sidx];
+                    const cellItems = bySession[keySession as keyof typeof bySession];
                     return (
                       <View
                         key={sidx}
@@ -849,32 +876,31 @@ export default function HomeScreen() {
             <Text style={{ fontSize: 16, fontWeight: "700", color: colors.text }}>{dmy(startOfDay(dayFocused))}</Text>
             <View style={{ flexDirection: "row", alignItems: "center" }}>
               <TouchableOpacity onPress={() => setShowDatePicker(true)} style={[styles.navBtn, { backgroundColor: isDark ? "#071226" : "#f3f4f6", marginRight: 8 }]}>
-                <Text style={{ color: colors.text }}>Chọn ngày</Text>
+                <Text style={{ color: colors.text }}>{L.chooseDayBtn}</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Lịch học</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>{L.sectionSchedule}</Text>
           {(() => {
             const key = ymd(startOfDay(dayFocused));
             const items = dayMap.get(key) ?? [];
             const scheds = items.filter(it => it.kind === "schedule") as DayScheduleItem[];
-            if (scheds.length === 0) return <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>Không có lịch học</Text></View>;
+            if (scheds.length === 0) return <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>{L.emptySchedule}</Text></View>;
             return scheds.map((s, i) => <ScheduleItemView key={s.id ?? i} s={s} />);
           })()}
 
-          <Text style={[styles.sectionTitle, { marginTop: 10, color: colors.text }]}>Công việc</Text>
+          <Text style={[styles.sectionTitle, { marginTop: 10, color: colors.text }]}>{L.sectionTasks}</Text>
           {(() => {
             const key = ymd(startOfDay(dayFocused));
             const items = dayMap.get(key) ?? [];
             const tasksList = items.filter(it => it.kind === "task") as DayTaskItem[];
-            if (tasksList.length === 0) return <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>Không có công việc</Text></View>;
+            if (tasksList.length === 0) return <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>{L.emptyTasks}</Text></View>;
             return tasksList.map((t, i) => <TaskCard key={i} t={t} date={dayFocused} />);
           })()}
         </ScrollView>
       )}
 
-      {/* Date picker (visible for both platforms when showDatePicker true) */}
       {showDatePicker && (
         <DateTimePicker
           testID="dateTimePicker"
@@ -904,14 +930,14 @@ export default function HomeScreen() {
                   </View>
 
                   <ScrollView contentContainerStyle={{ padding: 8 }}>
-                    <Text style={[styles.sectionTitle, { color: colors.text }]}>Lịch học</Text>
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>{L.sectionSchedule}</Text>
                     {schedulesForDay.length === 0 ? (
-                      <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>Không có lịch học</Text></View>
+                      <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>{L.emptySchedule}</Text></View>
                     ) : schedulesForDay.map((s, i) => <ScheduleItemView key={s.id ?? i} s={s} />)}
 
-                    <Text style={[styles.sectionTitle, { marginTop: 10, color: colors.text }]}>Công việc</Text>
+                    <Text style={[styles.sectionTitle, { marginTop: 10, color: colors.text }]}>{L.sectionTasks}</Text>
                     {tasksForDay.length === 0 ? (
-                      <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>Không có công việc</Text></View>
+                      <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>{L.emptyTasks}</Text></View>
                     ) : tasksForDay.map((t, i) => {
                       const bgColor = isDark ? "#071226" : getTaskBgColor(t.priority ?? undefined);
                       const borderColor = getTaskColor(t.priority ?? undefined);
@@ -929,16 +955,16 @@ export default function HomeScreen() {
                           </View>
 
                           <Text style={[styles.timeText, { color: textColor }]}>
-                            ⏰ {fmtTime(t.start)} {t.start || t.end ? "–" : ""} {fmtTime(t.end)}
+                            ⏰ {fmtTime(t.start)} {t.start || t.end ? L.timeDash : ""} {fmtTime(t.end)}
                           </Text>
 
                           <View style={styles.rowPills}>
                             <View style={[styles.pill, { backgroundColor: borderColor }]}>
-                              <Text style={styles.pillText}>{labelPriorityVn(t.priority ?? undefined)}</Text>
+                              <Text style={styles.pillText}>{language === "vi" ? labelPriorityVn(t.priority ?? undefined) : (t.priority ? t.priority.charAt(0).toUpperCase() + t.priority.slice(1) : "Other")}</Text>
                             </View>
 
                             <View style={[styles.pill, { backgroundColor: "#fff", borderWidth: 0, paddingHorizontal: 12 }]}>
-                              <Text style={[styles.pillText, { color: "#111827" }]}>{labelStatusVn(t.status ?? undefined)}</Text>
+                              <Text style={[styles.pillText, { color: "#111827" }]}>{language === "vi" ? labelStatusVn(t.status ?? undefined) : (t.status ? t.status.replace('-', ' ') : "Unknown")}</Text>
                             </View>
                           </View>
 

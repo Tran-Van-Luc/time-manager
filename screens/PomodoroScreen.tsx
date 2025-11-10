@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useTheme } from "../context/ThemeContext";
 import { usePomodoro } from "../hooks/usePomodoro";
+import { useLanguage } from "../context/LanguageContext";
 
 function pad(n: number) {
   return String(n).padStart(2, "0");
@@ -41,37 +42,71 @@ export default function PomodoroScreen() {
   const { theme } = useTheme();
   const isDark = theme === "dark";
 
-  const L_VI = {
-    pageTitle: "Chế độ tập trung Pomodoro",
-    mode_work: "Làm việc",
-    mode_short: "Nghỉ ngắn",
-    mode_long: "Nghỉ dài",
-    start: "Bắt đầu",
-    running: "Đang chạy",
-    resume: "Tiếp tục",
-    pause: "Tạm dừng",
-    reset: "Đặt lại",
-    settingsTitle: "Cài đặt (phút)",
-    noteTitle: "Ghi chú",
-    noteBody:
-      "• Bắt đầu / Tiếp tục: Khởi chạy hoặc tiếp tục bộ đếm từ thời gian hiện tại.\n" +
-      "• Tạm dừng: Dừng bộ đếm và lưu số giây còn lại.\n" +
-      "• Đặt lại: Xóa trạng thái hiện tại và trả về thời lượng mặc định của chế độ.",
-    completedToday: "Phiên làm việc hoàn thành hôm nay",
-    consecutive: "Phiên làm việc liên tiếp hiện tại",
-    alertEmptyTitle: "Thời lượng không hợp lệ",
-    alertEmptyMsg:
-      "Vui lòng đặt thời lượng lớn hơn 0 cho chế độ hiện tại trước khi bắt đầu.",
-    setting_labels: {
-      work: "Làm việc",
-      short: "Nghỉ ngắn",
-      long: "Nghỉ dài",
-      sessionsBeforeLong: "Số phiên",
-    },
-  };
+  const { language } = useLanguage();
 
-  const [L, setL] = React.useState(L_VI);
-  useEffect(() => setL(L_VI), []);
+  // Localization mapping (Vietnamese and English)
+  const L = {
+    vi: {
+      pageTitle: "Chế độ tập trung Pomodoro",
+      mode_work: "Làm việc",
+      mode_short: "Nghỉ ngắn",
+      mode_long: "Nghỉ dài",
+      start: "Bắt đầu",
+      running: "Đang chạy",
+      resume: "Tiếp tục",
+      pause: "Tạm dừng",
+      reset: "Đặt lại",
+      settingsTitle: "Cài đặt (phút)",
+      noteTitle: "Ghi chú",
+      noteBody:
+        "• Bắt đầu / Tiếp tục: Khởi chạy hoặc tiếp tục bộ đếm từ thời gian hiện tại.\n" +
+        "• Tạm dừng: Dừng bộ đếm và lưu số giây còn lại.\n" +
+        "• Đặt lại: Xóa trạng thái hiện tại và trả về thời lượng mặc định của chế độ.",
+      completedToday: "Phiên làm việc hoàn thành hôm nay",
+      consecutive: "Phiên làm việc liên tiếp hiện tại",
+      alertEmptyTitle: "Thời lượng không hợp lệ",
+      alertEmptyMsg:
+        "Vui lòng đặt thời lượng lớn hơn 0 cho chế độ hiện tại trước khi bắt đầu.",
+      setting_labels: {
+        work: "Làm việc",
+        short: "Nghỉ ngắn",
+        long: "Nghỉ dài",
+        sessionsBeforeLong: "Số phiên",
+      },
+    },
+    en: {
+      pageTitle: "Pomodoro Focus",
+      mode_work: "Work",
+      mode_short: "Short Break",
+      mode_long: "Long Break",
+      start: "Start",
+      running: "Running",
+      resume: "Resume",
+      pause: "Pause",
+      reset: "Reset",
+      settingsTitle: "Settings (minutes)",
+      noteTitle: "Notes",
+      noteBody:
+        "• Start / Resume: Start or resume the timer from current time.\n" +
+        "• Pause: Pause the timer and retain remaining seconds.\n" +
+        "• Reset: Clear current state and restore default duration for the mode.",
+      completedToday: "Work sessions completed today",
+      consecutive: "Current consecutive sessions",
+      alertEmptyTitle: "Invalid duration",
+      alertEmptyMsg:
+        "Please set a duration greater than 0 for the current mode before starting.",
+      setting_labels: {
+        work: "Work",
+        short: "Short Break",
+        long: "Long Break",
+        sessionsBeforeLong: "Sessions Count",
+      },
+    },
+  }[language];
+
+  useEffect(() => {
+    // no-op, kept in case future side-effects needed on language change
+  }, [language]);
 
   const colors = {
     background: isDark ? "#071226" : "#fff",
@@ -90,7 +125,10 @@ export default function PomodoroScreen() {
   const seconds = remainingSec % 60;
   const isTimerActive = running || isPaused;
 
-  const persistSingleSetting = async (field: "work" | "short" | "long" | "sessions", value: number) => {
+  const persistSingleSetting = async (
+    field: "work" | "short" | "long" | "sessions",
+    value: number
+  ) => {
     const newSettings = {
       workMin: field === "work" ? value : workMin,
       shortBreakMin: field === "short" ? value : shortBreakMin,
@@ -114,28 +152,73 @@ export default function PomodoroScreen() {
   };
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={{ paddingBottom: 40 }}>
-      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={colors.background} />
+    <ScrollView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      contentContainerStyle={{ paddingBottom: 40 }}
+    >
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor={colors.background}
+      />
       <Text style={[styles.pageTitle, { color: colors.text }]}>{L.pageTitle}</Text>
 
-      <View style={[styles.timerCard, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
-        <View style={[styles.timerCircle, { backgroundColor: colors.inputBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.timerText, { color: colors.text }]}>{pad(minutes)}:{pad(seconds)}</Text>
+      <View
+        style={[
+          styles.timerCard,
+          { backgroundColor: colors.surface, borderColor: colors.cardBorder },
+        ]}
+      >
+        <View
+          style={[
+            styles.timerCircle,
+            { backgroundColor: colors.inputBg, borderColor: colors.cardBorder },
+          ]}
+        >
+          <Text style={[styles.timerText, { color: colors.text }]}>
+            {pad(minutes)}:{pad(seconds)}
+          </Text>
           <Text style={[styles.modeText, { color: colors.muted }]}>
-            {mode === "work" ? L.mode_work : mode === "short_break" ? L.mode_short : L.mode_long}
+            {mode === "work"
+              ? L.mode_work
+              : mode === "short_break"
+              ? L.mode_short
+              : L.mode_long}
           </Text>
         </View>
 
         <View style={styles.controlsRow}>
-          <TouchableOpacity onPress={onStartPress} style={[styles.controlBtn, { backgroundColor: running ? colors.runningGray : colors.controlGreen }]} disabled={running}>
-            <Text style={styles.controlText}>{running ? L.running : isPaused ? L.resume : L.start}</Text>
+          <TouchableOpacity
+            onPress={onStartPress}
+            style={[
+              styles.controlBtn,
+              { backgroundColor: running ? colors.runningGray : colors.controlGreen },
+            ]}
+            disabled={running}
+          >
+            <Text style={styles.controlText}>
+              {running ? L.running : isPaused ? L.resume : L.start}
+            </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={pause} style={[styles.controlBtn, { backgroundColor: running ? colors.controlOrange : colors.runningGray }]} disabled={!running}>
+          <TouchableOpacity
+            onPress={pause}
+            style={[
+              styles.controlBtn,
+              { backgroundColor: running ? colors.controlOrange : colors.runningGray },
+            ]}
+            disabled={!running}
+          >
             <Text style={styles.controlText}>{L.pause}</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => reset()} style={[styles.controlBtn, { backgroundColor: colors.controlRed, opacity: isTimerActive ? 1 : 0.5 }]} disabled={!isTimerActive}>
+          <TouchableOpacity
+            onPress={() => reset()}
+            style={[
+              styles.controlBtn,
+              { backgroundColor: colors.controlRed, opacity: isTimerActive ? 1 : 0.5 },
+            ]}
+            disabled={!isTimerActive}
+          >
             <Text style={styles.controlText}>{L.reset}</Text>
           </TouchableOpacity>
         </View>

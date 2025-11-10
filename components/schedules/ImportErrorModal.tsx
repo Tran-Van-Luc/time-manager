@@ -1,3 +1,4 @@
+// components/ImportErrorModal.tsx
 import React from "react";
 import {
   View,
@@ -8,6 +9,7 @@ import {
   ScrollView,
 } from "react-native";
 import { AntDesign } from "@expo/vector-icons";
+import { useLanguage } from "../../context/LanguageContext";
 
 interface Props {
   visible: boolean;
@@ -24,6 +26,41 @@ export default function ImportErrorModal({
   validationErrors,
   conflictErrors,
 }: Props) {
+  const { language } = useLanguage();
+
+  const L = {
+    vi: {
+      title: "Chi tiết Import",
+      addedSuccess: (n: number) => `Đã thêm thành công ${n} buổi học`,
+      validationTitle: (n: number) => `Lỗi dữ liệu (${n})`,
+      conflictTitle: (n: number) => `Trùng lịch (${n})`,
+      guideTitle: "💡 Hướng dẫn khắc phục:",
+      validationGuides: [
+        "• Kiểm tra các cột bắt buộc: Tên môn học, Loại lịch, Giảng viên, Địa điểm, Ngày bắt đầu, Giờ bắt đầu, Giờ kết thúc",
+        "• Định dạng ngày: YYYY-MM-DD hoặc DD/MM/YYYY",
+        "• Định dạng giờ: HH:mm (ví dụ: 07:00, 13:30)",
+        "• Loại lịch hợp lệ: Lịch học lý thuyết, Lịch học thực hành, Lịch thi, Lịch học bù, Lịch tạm ngưng",
+      ],
+      conflictGuide: "• Kiểm tra trùng lặp với lịch đã có trong hệ thống",
+      close: "Đóng",
+    },
+    en: {
+      title: "Import details",
+      addedSuccess: (n: number) => `Successfully added ${n} sessions`,
+      validationTitle: (n: number) => `Validation errors (${n})`,
+      conflictTitle: (n: number) => `Conflicts (${n})`,
+      guideTitle: "💡 How to fix",
+      validationGuides: [
+        "• Check required columns: Subject, Type, Instructor, Location, Start Date, Start Time, End Time",
+        "• Date format: YYYY-MM-DD or DD/MM/YYYY",
+        "• Time format: HH:mm (eg: 07:00, 13:30)",
+        "• Valid types: Lecture, Lab, Exam, Makeup, Cancelled",
+      ],
+      conflictGuide: "• Check for duplicates against existing schedules in the system",
+      close: "Close",
+    },
+  }[language];
+
   const totalErrors = validationErrors.length + conflictErrors.length;
 
   return (
@@ -37,7 +74,7 @@ export default function ImportErrorModal({
         <View style={styles.modal}>
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>Chi tiết Import</Text>
+            <Text style={styles.title}>{L.title}</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <AntDesign name="close" size={24} color="#666" />
             </TouchableOpacity>
@@ -45,24 +82,20 @@ export default function ImportErrorModal({
 
           {/* Content */}
           <ScrollView style={styles.content}>
-            {/* Thành công */}
+            {/* Success */}
             {addedCount > 0 && (
               <View style={styles.successBox}>
                 <Text style={styles.successIcon}>✅</Text>
-                <Text style={styles.successText}>
-                  Đã thêm thành công {addedCount} buổi học
-                </Text>
+                <Text style={styles.successText}>{L.addedSuccess(addedCount)}</Text>
               </View>
             )}
 
-            {/* Lỗi validation */}
+            {/* Validation errors */}
             {validationErrors.length > 0 && (
               <View style={styles.errorSection}>
                 <View style={styles.errorHeader}>
                   <Text style={styles.errorIcon}>⚠️</Text>
-                  <Text style={styles.errorTitle}>
-                    Lỗi dữ liệu ({validationErrors.length})
-                  </Text>
+                  <Text style={styles.errorTitle}>{L.validationTitle(validationErrors.length)}</Text>
                 </View>
                 <View style={styles.errorList}>
                   {validationErrors.map((err, idx) => (
@@ -74,14 +107,12 @@ export default function ImportErrorModal({
               </View>
             )}
 
-            {/* Lỗi conflict */}
+            {/* Conflict errors */}
             {conflictErrors.length > 0 && (
               <View style={styles.errorSection}>
                 <View style={styles.errorHeader}>
                   <Text style={styles.errorIcon}>❌</Text>
-                  <Text style={styles.errorTitle}>
-                    Trùng lịch ({conflictErrors.length})
-                  </Text>
+                  <Text style={styles.errorTitle}>{L.conflictTitle(conflictErrors.length)}</Text>
                 </View>
                 <View style={styles.errorList}>
                   {conflictErrors.map((err, idx) => (
@@ -93,32 +124,23 @@ export default function ImportErrorModal({
               </View>
             )}
 
-            {/* Hướng dẫn khắc phục */}
+            {/* Guidance */}
             {totalErrors > 0 && (
               <View style={styles.guideBox}>
-                <Text style={styles.guideTitle}>💡 Hướng dẫn khắc phục:</Text>
-                
+                <Text style={styles.guideTitle}>{L.guideTitle}</Text>
+
                 {validationErrors.length > 0 && (
                   <>
-                    <Text style={styles.guideText}>
-                      • Kiểm tra các cột bắt buộc: Tên môn học, Loại lịch, Giảng viên, Địa điểm, Ngày bắt đầu, Giờ bắt đầu, Giờ kết thúc
-                    </Text>
-                    <Text style={styles.guideText}>
-                      • Định dạng ngày: YYYY-MM-DD hoặc DD/MM/YYYY
-                    </Text>
-                    <Text style={styles.guideText}>
-                      • Định dạng giờ: HH:mm (ví dụ: 07:00, 13:30)
-                    </Text>
-                    <Text style={styles.guideText}>
-                      • Loại lịch hợp lệ: Lịch học lý thuyết, Lịch học thực hành, Lịch thi, Lịch học bù, Lịch tạm ngưng
-                    </Text>
+                    {L.validationGuides.map((g, i) => (
+                      <Text key={i} style={styles.guideText}>
+                        {g}
+                      </Text>
+                    ))}
                   </>
                 )}
-                
+
                 {conflictErrors.length > 0 && (
-                  <Text style={styles.guideText}>
-                    • Kiểm tra trùng lặp với lịch đã có trong hệ thống
-                  </Text>
+                  <Text style={styles.guideText}>{L.conflictGuide}</Text>
                 )}
               </View>
             )}
@@ -127,7 +149,7 @@ export default function ImportErrorModal({
           {/* Footer */}
           <View style={styles.footer}>
             <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-              <Text style={styles.closeButtonText}>Đóng</Text>
+              <Text style={styles.closeButtonText}>{L.close}</Text>
             </TouchableOpacity>
           </View>
         </View>

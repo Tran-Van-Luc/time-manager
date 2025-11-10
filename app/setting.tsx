@@ -1,4 +1,3 @@
-// app/setting.tsx
 import React, { useEffect, useState } from "react";
 import {
   View,
@@ -14,6 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { AntDesign } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
+import { useLanguage } from "../context/LanguageContext";
 import AppearanceSettings from "../components/settings/AppearanceSettings";
 import LanguageSettings from "../components/settings/LanguageSettings";
 import WidgetSettings from "../components/settings/WidgetSettings";
@@ -22,87 +22,19 @@ import * as Notifications from 'expo-notifications';
 import { refreshNotifications } from '../utils/notificationScheduler';
 import DataManagementSettings from "../components/settings/DataManagementSettings";
 
-const STORAGE_KEY_LANG = "appLanguage";
-
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const isDark = theme === "dark";
 
   const [notifEnabled, setNotifEnabled] = useState(true);
   const [showAppearance, setShowAppearance] = useState(false);
   const [showLanguage, setShowLanguage] = useState(false);
   const [showWidget, setShowWidget] = useState(false);
-  const [showSurvey, setShowSurvey] = useState(false);
   const [showDataManagement, setShowDataManagement] = useState(false);
-
-
-  const [labels, setLabels] = useState({
-    close: "Đóng",
-    title: "Cài đặt",
-    notifications: "Thông báo",
-    appearance: "Giao diện",
-    language: "Ngôn ngữ",
-    detailedSettings: "Thiết lập chi tiết",
-    utilities: "Tiện ích",
-    dataManagement: "Quản lý dữ liệu",
-    help: "Trợ giúp",
-    contactSupport: "Liên hệ hỗ trợ",
-    joinSurvey: "Tham gia khảo sát",
-    rateApp: "Đánh giá ứng dụng",
-    inviteFriends: "Mời bạn bè",
-    termsOfUse: "Điều khoản sử dụng",
-    privacyPolicy: "Chính sách bảo mật",
-  });
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const l = (await AsyncStorage.getItem(STORAGE_KEY_LANG)) as "vi" | "en" | null;
-        if (l === "en") {
-          setLabels({
-            close: "Close",
-            title: "Settings",
-            notifications: "Notifications",
-            appearance: "Appearance",
-            language: "Language",
-            detailedSettings: "Detailed Settings",
-            utilities: "Utilities",
-            dataManagement: "Data Management",
-            help: "Help",
-            contactSupport: "Contact Support",
-            joinSurvey: "Join Survey",
-            rateApp: "Rate App",
-            inviteFriends: "Invite Friends",
-            termsOfUse: "Terms of Use",
-            privacyPolicy: "Privacy Policy",
-          });
-        } else {
-          setLabels({
-            close: "Đóng",
-            title: "Cài đặt",
-            notifications: "Thông báo",
-            appearance: "Giao diện",
-            language: "Ngôn ngữ",
-            detailedSettings: "Thiết lập chi tiết",
-            utilities: "Tiện ích",
-            dataManagement: "Quản lý dữ liệu",
-            help: "Trợ giúp",
-            contactSupport: "Liên hệ hỗ trợ",
-            joinSurvey: "Tham gia khảo sát",
-            rateApp: "Đánh giá ứng dụng",
-            inviteFriends: "Mời bạn bè",
-            termsOfUse: "Điều khoản sử dụng",
-            privacyPolicy: "Chính sách bảo mật",
-          });
-        }
-      } catch {
-        /* ignore */
-      }
-    })();
-  }, [showLanguage]);
 
   // Load persisted notification setting on mount
   useEffect(() => {
@@ -193,9 +125,13 @@ export default function SettingsScreen() {
         ]}
       >
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={[styles.closeText, { color: colors.accent }]}>{labels.close}</Text>
+          <Text style={[styles.closeText, { color: colors.accent }]}>
+            {t.settings.close}
+          </Text>
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>{labels.title}</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>
+          {t.settings.title}
+        </Text>
         <View style={{ width: 48 }} />
       </View>
 
@@ -205,7 +141,7 @@ export default function SettingsScreen() {
           {/* Thông báo */}
           <Row
             icon="🔔"
-            title={labels.notifications}
+            title={t.settings.notifications}
             right={
               <View style={styles.switchWrap}>
                 <Switch
@@ -224,7 +160,7 @@ export default function SettingsScreen() {
           {/* Giao diện */}
           <Row
             icon="⚙️"
-            title={labels.appearance}
+            title={t.settings.appearance}
             right={<AntDesign name="right" size={18} color={colors.subtleText} />}
             onPress={() => setShowAppearance(true)}
           />
@@ -233,7 +169,7 @@ export default function SettingsScreen() {
           {/* Ngôn ngữ */}
           <Row
             icon="🌐"
-            title={labels.language}
+            title={t.settings.language}
             right={<AntDesign name="right" size={18} color={colors.subtleText} />}
             onPress={() => setShowLanguage(true)}
           />
@@ -244,7 +180,7 @@ export default function SettingsScreen() {
         <View style={[styles.group, { borderColor: colors.border }]}>
           <Row
             icon="🧩"
-            title={labels.utilities}
+            title={t.settings.utilities}
             right={<AntDesign name="right" size={18} color={colors.subtleText} />}
             onPress={() => setShowWidget(true)}
           />
@@ -252,7 +188,7 @@ export default function SettingsScreen() {
 
           <Row
             icon="💾"
-            title={labels.dataManagement}
+            title={t.settings.dataManagement}
             right={<AntDesign name="right" size={18} color={colors.subtleText} />}
             onPress={() => setShowDataManagement(true)}
           />
@@ -262,7 +198,7 @@ export default function SettingsScreen() {
         <View style={[styles.group, { borderColor: colors.border }]}>
           <Row
             icon="❓"
-            title={labels.help}
+            title={t.settings.help}
             right={<AntDesign name="right" size={18} color={colors.subtleText} />}
             onPress={() => handlePress("help")}
           />
@@ -270,7 +206,7 @@ export default function SettingsScreen() {
 
           <Row
             icon="🔗"
-            title={labels.contactSupport}
+            title={t.settings.contactSupport}
             right={<AntDesign name="right" size={18} color={colors.subtleText} />}
             onPress={() => handlePress("contact")}
           />
@@ -280,7 +216,7 @@ export default function SettingsScreen() {
         <View style={[styles.group, { borderColor: colors.border }]}>
           <Row
             icon="📝"
-            title={labels.joinSurvey}
+            title={t.settings.joinSurvey}
             right={<AntDesign name="right" size={18} color={colors.subtleText} />}
             onPress={() => handlePress("survey")}
           />
@@ -288,7 +224,7 @@ export default function SettingsScreen() {
 
           <Row
             icon="👥"
-            title={labels.inviteFriends}
+            title={t.settings.inviteFriends}
             right={<AntDesign name="right" size={18} color={colors.subtleText} />}
             onPress={() => handlePress("inviteFriends")}
           />
@@ -298,7 +234,7 @@ export default function SettingsScreen() {
         <View style={[styles.group, { borderColor: colors.border }]}>
           <Row
             icon="📄"
-            title={labels.termsOfUse}
+            title={t.settings.termsOfUse}
             right={<AntDesign name="right" size={18} color={colors.subtleText} />}
             onPress={() => handlePress("termsOfUse")}
           />
@@ -306,18 +242,17 @@ export default function SettingsScreen() {
 
           <Row
             icon="🛡️"
-            title={labels.privacyPolicy}
+            title={t.settings.privacyPolicy}
             right={<AntDesign name="right" size={18} color={colors.subtleText} />}
             onPress={() => handlePress("privacyPolicy")}
           />
         </View>
-
-        <AppearanceSettings visible={showAppearance} onClose={() => setShowAppearance(false)} />
-        <LanguageSettings visible={showLanguage} onClose={() => setShowLanguage(false)} />
-        <WidgetSettings visible={showWidget} onClose={() => setShowWidget(false)} />
-        <DataManagementSettings visible={showDataManagement} onClose={() => setShowDataManagement(false)} />
-    
       </ScrollView>
+
+      <AppearanceSettings visible={showAppearance} onClose={() => setShowAppearance(false)} />
+      <LanguageSettings visible={showLanguage} onClose={() => setShowLanguage(false)} />
+      <WidgetSettings visible={showWidget} onClose={() => setShowWidget(false)} />
+      <DataManagementSettings visible={showDataManagement} onClose={() => setShowDataManagement(false)} />
     </View>
   );
 }

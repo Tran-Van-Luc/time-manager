@@ -7,17 +7,15 @@ import {
   Dimensions,
   StyleSheet,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "../context/ThemeContext";
-
-const STORAGE_KEY_PRIMARY = "primaryColor";
-const STORAGE_KEY_LANG = "appLanguage";
+import { useLanguage } from "../context/LanguageContext";
+import { usePrimaryColor } from "../context/PrimaryColorContext";
 
 const tabsBase = [
   { key: "home", icon: "🏠", label_en: "Home", label_vi: "Trang chủ" },
   { key: "tasks", icon: "📋", label_en: "Tasks", label_vi: "Công việc" },
   { key: "schedule", icon: "📅", label_en: "Schedule", label_vi: "Lịch học" },
-  { key: "pomodoro", icon: "⏰", label_en: "Focus", label_vi: "Tập Trung" },
+  { key: "pomodoro", icon: "⏰", label_en: "Focus", label_vi: "Tập trung" },
   { key: "stats", icon: "📊", label_en: "Stats", label_vi: "Thống kê" },
 ];
 
@@ -30,35 +28,36 @@ export default function Footer({
 }) {
   const { theme } = useTheme();
   const isDark = theme === "dark";
+  const { language } = useLanguage();
 
-  const [accent, setAccent] = useState<string>("#2563EB");
-  const [lang, setLang] = useState<"vi" | "en">("vi");
+  // primaryColor provided by PrimaryColorContext (kept in sync globally)
+  const { primaryColor } = usePrimaryColor();
+
+  // local accent mirrors primaryColor for styling; fallback to default
+  const [accent, setAccent] = useState<string>(primaryColor ?? "#2563EB");
 
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const c = await AsyncStorage.getItem(STORAGE_KEY_PRIMARY);
-        if (mounted && c) setAccent(c);
-      } catch {}
-    })();
-    (async () => {
-      try {
-        const l = (await AsyncStorage.getItem(STORAGE_KEY_LANG)) as "vi" | "en" | null;
-        if (mounted && l) setLang(l);
-      } catch {}
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    if (primaryColor) setAccent(primaryColor);
+  }, [primaryColor]);
 
+  const colors = {
+    background: isDark ? "#0B1220" : "#f9fafb",
+    surface: isDark ? "#0F1724" : "#fff",
+    card: isDark ? "#111827" : "#fff",
+    text: isDark ? "#E6EEF8" : "#111827",
+    muted: isDark ? "#9AA4B2" : "#6b7280",
+    border: isDark ? "#1f2937" : "#eee",
+    themeColor: accent,
+  };
+
+  // Gán nhãn theo ngôn ngữ
   const tabs = tabsBase.map((t) => ({
     key: t.key,
     icon: t.icon,
-    label: lang === "en" ? t.label_en : t.label_vi,
+    label: language === "en" ? t.label_en : t.label_vi,
   }));
 
+  // Hiệu ứng thanh highlight
   const translateAnim = useRef(new Animated.Value(0)).current;
   const tabWidth = Dimensions.get("window").width / tabs.length;
 
@@ -85,8 +84,12 @@ export default function Footer({
               onPress={() => onTabPress?.(tab.key)}
               activeOpacity={0.8}
             >
-              <Text style={[styles.icon, active && { color: accent }]}>{tab.icon}</Text>
-              <Text style={[styles.label, active && { color: accent }]}>{tab.label}</Text>
+              <Text style={[styles.icon, active && { color: accent }]}>
+                {tab.icon}
+              </Text>
+              <Text style={[styles.label, active && { color: accent }]}>
+                {tab.label}
+              </Text>
             </TouchableOpacity>
           );
         })}

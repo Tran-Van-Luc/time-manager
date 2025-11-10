@@ -1,3 +1,4 @@
+// components/ExcelImportModal.tsx
 import React from "react";
 import {
   View,
@@ -11,6 +12,7 @@ import { AntDesign } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as XLSX from "xlsx";
+import { useLanguage } from "../../context/LanguageContext";
 
 interface Props {
   visible: boolean;
@@ -20,10 +22,65 @@ interface Props {
 }
 
 export default function ExcelImportModal({ visible, onClose, onImport, importing }: Props) {
-  
+  const { language } = useLanguage();
+
+  // localized labels (only English / Vietnamese as requested)
+  const L = {
+    vi: {
+      title: "Import Excel",
+      description:
+        "Chọn file Excel để nhập lịch học, hoặc tải file mẫu để tham khảo định dạng.",
+      requiredTitle: "📋 Các cột bắt buộc:",
+      required: [
+        "• Tên môn học",
+        "• Loại lịch (Lịch học lý thuyết, Lịch học thực hành, Lịch thi, Lịch học bù, Lịch tạm ngưng)",
+        "• Giảng viên",
+        "• Địa điểm",
+        "• Ngày bắt đầu (YYYY-MM-DD hoặc DD/MM/YYYY)",
+        "• Ngày kết thúc (cho lịch recurring)",
+        "• Giờ bắt đầu (HH:mm)",
+        "• Giờ kết thúc (HH:mm)",
+      ],
+      download: "Lấy mẫu Excel",
+      pick: (loading: boolean) => (loading ? "Đang import..." : "Chọn file Excel"),
+      successTitle: "Thành công",
+      successMsg: "File mẫu đã được tạo!",
+      shareErrorTitle: "Lỗi",
+      shareErrorMsg: "Không thể chia sẻ file trên thiết bị này",
+      createErrorTitle: "Lỗi",
+      createErrorMsg: "Không thể tạo file mẫu",
+      dialogSaveTitle: "Lưu file mẫu",
+    },
+    en: {
+      title: "Import Excel",
+      description:
+        "Choose an Excel file to import schedules, or download the template to see the format.",
+      requiredTitle: "📋 Required columns:",
+      required: [
+        "• Subject",
+        "• Type (Lecture, Lab, Exam, Makeup, Cancelled)",
+        "• Instructor",
+        "• Location",
+        "• Start Date (YYYY-MM-DD or DD/MM/YYYY)",
+        "• End Date (for recurring schedules)",
+        "• Start Time (HH:mm)",
+        "• End Time (HH:mm)",
+      ],
+      download: "Download template",
+      pick: (loading: boolean) => (loading ? "Importing..." : "Pick Excel file"),
+      successTitle: "Success",
+      successMsg: "Template file created!",
+      shareErrorTitle: "Error",
+      shareErrorMsg: "Cannot share file on this device",
+      createErrorTitle: "Error",
+      createErrorMsg: "Cannot create template file",
+      dialogSaveTitle: "Save template",
+    },
+  }[language];
+
   async function handleDownloadTemplate() {
     try {
-      // Tạo dữ liệu mẫu
+      // Tạo dữ liệu mẫu (Vietnamese headers kept for compatibility)
       const sampleData = [
         {
           "Tên môn học": "Toán cao cấp",
@@ -74,7 +131,7 @@ export default function ExcelImportModal({ visible, onClose, onImport, importing
 
       // Tạo workbook
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Lịch học");
+      XLSX.utils.book_append_sheet(wb, ws, "Lịch học / Schedule");
 
       // Ghi file
       const wbout = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
@@ -88,16 +145,16 @@ export default function ExcelImportModal({ visible, onClose, onImport, importing
       if (canShare) {
         await Sharing.shareAsync(uri, {
           mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          dialogTitle: "Lưu file mẫu",
+          dialogTitle: L.dialogSaveTitle,
           UTI: "com.microsoft.excel.xlsx",
         });
-        Alert.alert("Thành công", "File mẫu đã được tạo!");
+        Alert.alert(L.successTitle, L.successMsg);
       } else {
-        Alert.alert("Lỗi", "Không thể chia sẻ file trên thiết bị này");
+        Alert.alert(L.shareErrorTitle, L.shareErrorMsg);
       }
     } catch (error: any) {
       console.error("Download template error:", error);
-      Alert.alert("Lỗi", error?.message ?? "Không thể tạo file mẫu");
+      Alert.alert(L.createErrorTitle, error?.message ?? L.createErrorMsg);
     }
   }
 
@@ -112,7 +169,7 @@ export default function ExcelImportModal({ visible, onClose, onImport, importing
         <View style={styles.modal}>
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>Import Excel</Text>
+            <Text style={styles.title}>{L.title}</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <AntDesign name="close" size={24} color="#666" />
             </TouchableOpacity>
@@ -120,49 +177,40 @@ export default function ExcelImportModal({ visible, onClose, onImport, importing
 
           {/* Content */}
           <View style={styles.content}>
-            <Text style={styles.description}>
-              Chọn file Excel để nhập lịch học, hoặc tải file mẫu để tham khảo định dạng.
-            </Text>
+            <Text style={styles.description}>{L.description}</Text>
 
-            {/* Hướng dẫn */}
+            {/* Hướng dẫn / Instructions */}
             <View style={styles.infoBox}>
-              <Text style={styles.infoTitle}>📋 Các cột bắt buộc:</Text>
-              <Text style={styles.infoText}>• Tên môn học</Text>
-              <Text style={styles.infoText}>• Loại lịch (Lịch học lý thuyết, Lịch học thực hành, Lịch thi, Lịch học bù, Lịch tạm ngưng)</Text>
-              <Text style={styles.infoText}>• Giảng viên</Text>
-              <Text style={styles.infoText}>• Địa điểm</Text>
-              <Text style={styles.infoText}>• Ngày bắt đầu (YYYY-MM-DD hoặc DD/MM/YYYY)</Text>
-              <Text style={styles.infoText}>• Ngày kết thúc (cho lịch recurring)</Text>
-              <Text style={styles.infoText}>• Giờ bắt đầu (HH:mm)</Text>
-              <Text style={styles.infoText}>• Giờ kết thúc (HH:mm)</Text>
+              <Text style={styles.infoTitle}>{L.requiredTitle}</Text>
+              {L.required.map((line) => (
+                <Text key={line} style={styles.infoText}>
+                  {line}
+                </Text>
+              ))}
             </View>
 
             {/* Buttons */}
             <View style={styles.buttonContainer}>
-              {/* Nút lấy mẫu */}
+              {/* Nút lấy mẫu / Download template */}
               <TouchableOpacity
                 style={[styles.button, styles.templateButton]}
                 onPress={handleDownloadTemplate}
               >
                 <AntDesign name="download" size={20} color="#059669" />
-                <Text style={[styles.buttonText, { color: "#059669" }]}>
-                  Lấy mẫu Excel
+                <Text style={[styles.buttonText, { color: "#059669", marginLeft: 8 }]}>
+                  {L.download}
                 </Text>
               </TouchableOpacity>
 
-              {/* Nút import */}
+              {/* Nút import / Pick file */}
               <TouchableOpacity
                 style={[styles.button, styles.importButton]}
                 onPress={onImport}
                 disabled={importing}
               >
-                <AntDesign 
-                  name="upload" 
-                  size={20} 
-                  color={importing ? "#94A3B8" : "#fff"} 
-                />
-                <Text style={[styles.buttonText, { color: "#fff" }]}>
-                  {importing ? "Đang import..." : "Chọn file Excel"}
+                <AntDesign name="upload" size={20} color={importing ? "#94A3B8" : "#fff"} />
+                <Text style={[styles.buttonText, { color: "#fff", marginLeft: 8 }]}>
+                  {L.pick(importing)}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -262,6 +310,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 4,
+    marginTop: 8,
   },
   buttonText: {
     fontSize: 16,

@@ -1,3 +1,4 @@
+// app/_layout.tsx
 import React, { useEffect, useState } from "react";
 import { Slot, useRouter, useSegments } from "expo-router";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -5,8 +6,9 @@ import { View, StatusBar, ActivityIndicator, StyleSheet } from "react-native";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-
 import { ThemeProvider, useTheme } from "../context/ThemeContext";
+import { LanguageProvider, useLanguage } from "../context/LanguageContext";
+import { PrimaryColorProvider, usePrimaryColor } from "../context/PrimaryColorContext";
 
 const tabs = [
   { key: "home", route: "/" },
@@ -20,13 +22,12 @@ function LayoutContent() {
   const router = useRouter();
   const segments = useSegments();
   const currentRoute = "/" + (segments?.[0] || "");
-
   const [loading, setLoading] = useState(true);
-
-
   const { theme } = useTheme();
+  const { isLoading: languageLoading } = useLanguage();
+  const { isLoading: colorLoading } = usePrimaryColor();
   const isDark = theme === 'dark';
-
+  
   const colors = {
     background: isDark ? '#121212' : '#FFFFFF',
     activityIndicator: isDark ? '#FFFFFF' : '#2E6EF7'
@@ -58,7 +59,8 @@ function LayoutContent() {
     };
   }, [segments]);
 
-  if (loading) {
+  // Wait for language, color, and onboarding to load
+  if (loading || languageLoading || colorLoading) {
     return (
       <View style={[styles.loaderContainer, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.activityIndicator} />
@@ -72,7 +74,6 @@ function LayoutContent() {
     "/prepare",
     "/setting",
   ];
-
   const showChrome = !noChromeRoutes.includes(currentRoute) || currentRoute === "/";
   
   return (
@@ -82,14 +83,10 @@ function LayoutContent() {
         backgroundColor="transparent"
         barStyle={isDark ? "light-content" : "dark-content"}
       />
-
       {showChrome && <Header />}
-
-
       <View style={{ flex: 1, backgroundColor: colors.background }}>
         <Slot />
       </View>
-
       {showChrome && (
         <SafeAreaView edges={["bottom"]} style={{ backgroundColor: colors.background }}>
           <Footer
@@ -108,7 +105,11 @@ function LayoutContent() {
 export default function MainLayout() {
   return (
     <ThemeProvider>
-      <LayoutContent />
+      <LanguageProvider>
+        <PrimaryColorProvider>
+          <LayoutContent />
+        </PrimaryColorProvider>
+      </LanguageProvider>
     </ThemeProvider>
   );
 }

@@ -1,5 +1,4 @@
-// components/settings/LanguageSettings.tsx
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
   View,
   Text,
@@ -8,10 +7,8 @@ import {
   SafeAreaView,
   StyleSheet,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "../../context/ThemeContext";
-
-const STORAGE_KEY_LANG = "appLanguage";
+import { useLanguage } from "../../context/LanguageContext";
 
 const LANGUAGES = [
   { id: "en", name: "English" },
@@ -26,45 +23,11 @@ export default function LanguageSettings({
   onClose: () => void;
 }) {
   const { theme } = useTheme();
+  const { language, setLanguage, t } = useLanguage();
   const isDark = theme === "dark";
 
-  const [selected, setSelected] = useState<"vi" | "en">("vi");
-  const [labels, setLabels] = useState({
-    title: "Ngôn ngữ",
-    close: "Đóng",
-  });
-
-  useEffect(() => {
-    (async () => {
-      const saved = (await AsyncStorage.getItem(STORAGE_KEY_LANG)) as
-        | "vi"
-        | "en"
-        | null;
-      if (saved) {
-        setSelected(saved);
-        updateLabels(saved);
-      }
-    })();
-  }, [visible]);
-
   async function selectLanguage(lang: "vi" | "en") {
-    setSelected(lang);
-    updateLabels(lang);
-    await AsyncStorage.setItem(STORAGE_KEY_LANG, lang);
-  }
-
-  function updateLabels(lang: "vi" | "en") {
-    if (lang === "en") {
-      setLabels({
-        title: "Language",
-        close: "Close",
-      });
-    } else {
-      setLabels({
-        title: "Ngôn ngữ",
-        close: "Đóng",
-      });
-    }
+    await setLanguage(lang);
   }
 
   const s = createStyles(isDark);
@@ -74,9 +37,9 @@ export default function LanguageSettings({
       <SafeAreaView style={s.safe}>
         <View style={s.header}>
           <TouchableOpacity onPress={onClose}>
-            <Text style={s.close}>{labels.close}</Text>
+            <Text style={s.close}>{t.languageSettings.close}</Text>
           </TouchableOpacity>
-          <Text style={s.title}>{labels.title}</Text>
+          <Text style={s.title}>{t.languageSettings.title}</Text>
           <View style={{ width: 40 }} />
         </View>
 
@@ -94,7 +57,7 @@ export default function LanguageSettings({
               activeOpacity={0.7}
             >
               <Text style={s.label}>{lang.name}</Text>
-              {selected === lang.id && <Text style={s.check}>✓</Text>}
+              {language === lang.id && <Text style={s.check}>✓</Text>}
             </TouchableOpacity>
           ))}
         </View>
@@ -129,7 +92,6 @@ const createStyles = (isDark: boolean) =>
       fontWeight: "700",
       color: isDark ? "#E6EEF8" : "#111",
     },
-
     container: {
       backgroundColor: isDark ? "#071226" : "#fff",
       borderRadius: 12,

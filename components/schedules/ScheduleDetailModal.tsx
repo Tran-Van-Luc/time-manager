@@ -1,3 +1,4 @@
+// components/schedules/ScheduleDetailModal.tsx
 import React from "react";
 import {
   Modal,
@@ -8,6 +9,7 @@ import {
   StyleSheet,
 } from "react-native";
 import { ScheduleItem } from "../../hooks/useSchedules";
+import { useLanguage } from "../../context/LanguageContext";
 
 interface Props {
   visible: boolean;
@@ -27,9 +29,95 @@ export default function ScheduleDetailModal({
   onEdit,
   onDelete,
 }: Props) {
+  const { language, t } = useLanguage();
+
+  const L = {
+    vi: {
+      noInstructor: "Chưa có giảng viên",
+      noLocation: "Chưa có phòng",
+      edit: "Chỉnh sửa",
+      delete: "Xóa",
+      close: "Đóng",
+      timePrefix: "⏰",
+      instructorPrefix: "👨‍🏫",
+      locationPrefix: "📍",
+    },
+    en: {
+      noInstructor: "No instructor",
+      noLocation: "No location",
+      edit: "Edit",
+      delete: "Delete",
+      close: "Close",
+      timePrefix: "⏰",
+      instructorPrefix: "👨‍🏫",
+      locationPrefix: "📍",
+    },
+  }[language];
+
   if (!item) return null;
 
-  const style = typeStyle[item.type] || {
+  // Normalize raw type values to the translated label keys used in typeStyle
+  function normalizeTypeToLabel(rawType: string | undefined): string {
+    if (!rawType) return rawType ?? "";
+
+    const trimmed = String(rawType).trim();
+
+    // Prefer using translation keys from t.schedule.types if available
+    const keyToLabel: Record<string, string> = {
+      theory: t?.schedule?.types?.theory ?? "Lịch học lý thuyết",
+      practice: t?.schedule?.types?.practice ?? "Lịch học thực hành",
+      exam: t?.schedule?.types?.exam ?? "Lịch thi",
+      suspended: t?.schedule?.types?.suspended ?? "Lịch tạm ngưng",
+      makeup: t?.schedule?.types?.makeup ?? "Lịch học bù",
+    };
+
+    const lower = trimmed.toLowerCase();
+
+    // direct canonical key match
+    if (keyToLabel[lower]) return keyToLabel[lower];
+
+    // common Vietnamese stored labels
+    const vnMap: Record<string, string> = {
+      "lịch học lý thuyết": keyToLabel.theory,
+      "lịch học thực hành": keyToLabel.practice,
+      "lịch thi": keyToLabel.exam,
+      "lịch tạm ngưng": keyToLabel.suspended,
+      "lịch học bù": keyToLabel.makeup,
+      "học lý thuyết": keyToLabel.theory,
+      "thực hành": keyToLabel.practice,
+      "thi": keyToLabel.exam,
+      "tạm ngưng": keyToLabel.suspended,
+      "học bù": keyToLabel.makeup,
+    };
+    if (vnMap[lower]) return vnMap[lower];
+
+    // common English stored labels
+    const enMap: Record<string, string> = {
+      "theory class": keyToLabel.theory,
+      "theory": keyToLabel.theory,
+      "practice class": keyToLabel.practice,
+      "practice": keyToLabel.practice,
+      "exam": keyToLabel.exam,
+      "suspended": keyToLabel.suspended,
+      "makeup class": keyToLabel.makeup,
+      "makeup": keyToLabel.makeup,
+    };
+    if (enMap[lower]) return enMap[lower];
+
+    // heuristics
+    if (lower.includes("lý thuyết") || lower.includes("theory")) return keyToLabel.theory;
+    if (lower.includes("thực hành") || lower.includes("practice")) return keyToLabel.practice;
+    if (lower.includes("thi") || lower.includes("exam")) return keyToLabel.exam;
+    if (lower.includes("tạm ngưng") || lower.includes("suspend")) return keyToLabel.suspended;
+    if (lower.includes("bù") || lower.includes("makeup")) return keyToLabel.makeup;
+
+    // fallback: return trimmed original (may still match a typeStyle key)
+    return trimmed;
+  }
+
+  // Use normalized label to look up style
+  const typeLabel = (item as any).typeLabel ?? normalizeTypeToLabel(item.type);
+  const style = typeStyle[typeLabel] || {
     color: "#6B7280",
     pillBg: "#fff",
     emoji: "",
@@ -77,13 +165,13 @@ export default function ScheduleDetailModal({
                 </View>
 
                 <Text style={styles.time}>
-                  ⏰ {fmt(item.startAt)} – {fmt(item.endAt)}
+                  {L.timePrefix} {fmt(item.startAt)} – {fmt(item.endAt)}
                 </Text>
                 <Text style={styles.detail}>
-                  👨‍🏫 {item.instructorName ?? "Chưa có giảng viên"}
+                  {L.instructorPrefix} {item.instructorName ?? (t?.schedule?.noInstructor ?? L.noInstructor)}
                 </Text>
                 <Text style={styles.detail}>
-                  📍 {item.location ?? "Chưa có phòng"}
+                  {L.locationPrefix} {item.location ?? (t?.schedule?.noLocation ?? L.noLocation)}
                 </Text>
 
                 <View style={styles.actions}>

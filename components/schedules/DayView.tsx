@@ -13,8 +13,7 @@ import {
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
-
-const DAY_NAMES = ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
+import { useLanguage } from "../../context/LanguageContext";
 
 export default function DayView({
   selectedDate,
@@ -31,6 +30,34 @@ export default function DayView({
   showDatePicker: boolean;
   setShowDatePicker: (show: boolean) => void;
 }) {
+  const { language } = useLanguage();
+
+  // localized labels
+  const L = {
+    vi: {
+      dayNames: ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"],
+      yearLabel: (y: number) => `Năm ${y}`,
+      weekLabel: (n: number) => `Tuần ${n}`,
+      weekRangeTpl: (s: string, e: string) => `(${s} – ${e})`,
+      doneBtn: "Xong",
+      pickDateBtn: "Chọn ngày",
+      weekTitle: (y: number, n: number) => `Năm ${y} - Tuần ${n}`,
+      today: "Hôm nay",
+      weekPrefix: "Tuần",
+    },
+    en: {
+      dayNames: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+      yearLabel: (y: number) => `Year ${y}`,
+      weekLabel: (n: number) => `Week ${n}`,
+      weekRangeTpl: (s: string, e: string) => `(${s} – ${e})`,
+      doneBtn: "Done",
+      pickDateBtn: "Pick date",
+      weekTitle: (y: number, n: number) => `${y} - Week ${n}`,
+      today: "Today",
+      weekPrefix: "Week",
+    },
+  }[language];
+
   const today = new Date();
   const [weekPickerVisible, setWeekPickerVisible] = useState(false);
   const [selectedYear, setSelectedYear] = useState(today.getFullYear());
@@ -48,7 +75,7 @@ export default function DayView({
     return new Date(date.setDate(diff));
   }
 
-  // --- Danh sách tuần ---
+  // --- Weeks list ---
   const weeksOfYear = useMemo(() => {
     const weeks: { number: number; start: Date; end: Date }[] = [];
     let d = getFirstMondayOfYear(selectedYear);
@@ -64,7 +91,7 @@ export default function DayView({
     return weeks;
   }, [selectedYear]);
 
-  // --- Auto chọn tuần chứa ngày hiện tại khi vào app ---
+  // auto select week containing today when entering week view
   useEffect(() => {
     if (viewMode === "week") {
       const monday = getMonday(today);
@@ -73,7 +100,7 @@ export default function DayView({
     }
   }, [viewMode, selectedYear]);
 
-  const displayDate = `${DAY_NAMES[selectedDate.getDay()]}, ${selectedDate.toLocaleDateString("vi-VN")}`;
+  const displayDate = `${L.dayNames[selectedDate.getDay()]}, ${selectedDate.toLocaleDateString(language === "vi" ? "vi-VN" : undefined)}`;
 
   const currentWeekNumber = useMemo(() => {
     const monday = getMonday(selectedDate);
@@ -90,7 +117,7 @@ export default function DayView({
     setWeekPickerVisible(false);
   }
 
-  // --- Scroll tới tuần hiện tại ---
+  // scroll to current week
   const flatListRef = useRef<FlatList>(null);
   const currentIndex = weeksOfYear.findIndex(
     (w) => w.number === currentWeekNumber && selectedYear === today.getFullYear()
@@ -118,7 +145,7 @@ export default function DayView({
       ) : (
         <TouchableOpacity style={styles.dateSelector} onPress={() => setWeekPickerVisible(true)}>
           <Text style={styles.dateText}>
-            Năm {selectedYear} - Tuần {currentWeekNumber}
+            {L.weekTitle(selectedYear, currentWeekNumber)}
           </Text>
           <Ionicons name="chevron-down" size={18} color="#1D4ED8" />
         </TouchableOpacity>
@@ -128,7 +155,7 @@ export default function DayView({
       <View style={styles.viewToggle}>
         <TouchableOpacity
           onPress={() => {
-            setSelectedDate(today); // ✅ reset về hôm nay khi về day view
+            setSelectedDate(today);
             setViewMode("day");
           }}
         >
@@ -144,7 +171,7 @@ export default function DayView({
         </TouchableOpacity>
       </View>
 
-      {/* Date Picker cho view ngày */}
+      {/* Date Picker for day view */}
       {showDatePicker &&
         (Platform.OS === "ios" ? (
           <Modal transparent animationType="slide" visible={showDatePicker}>
@@ -156,7 +183,7 @@ export default function DayView({
                   display="inline"
                   onChange={(_, date) => date && setSelectedDate(date)}
                 />
-                <Button title="Xong" onPress={() => setShowDatePicker(false)} />
+                <Button title={L.doneBtn} onPress={() => setShowDatePicker(false)} />
               </View>
             </View>
           </Modal>
@@ -172,19 +199,19 @@ export default function DayView({
           />
         ))}
 
-      {/* Modal chọn tuần */}
+      {/* Week picker modal */}
       <Modal visible={weekPickerVisible} transparent animationType="fade">
         <TouchableWithoutFeedback onPress={() => setWeekPickerVisible(false)}>
           <View style={styles.modalOverlay}>
             <View style={styles.weekModal}>
-              {/* Chọn năm */}
+              {/* Year selector */}
               <View style={styles.yearRow}>
                 <TouchableOpacity
                   onPress={() => setSelectedYear((y) => Math.max(y - 1, today.getFullYear() - 1))}
                 >
                   <MaterialIcons name="chevron-left" size={24} color="#1D4ED8" />
                 </TouchableOpacity>
-                <Text style={styles.yearText}>{selectedYear}</Text>
+                <Text style={styles.yearText}>{L.yearLabel(selectedYear)}</Text>
                 <TouchableOpacity
                   onPress={() => setSelectedYear((y) => Math.min(y + 1, today.getFullYear() + 1))}
                 >
@@ -192,7 +219,7 @@ export default function DayView({
                 </TouchableOpacity>
               </View>
 
-              {/* Danh sách tuần */}
+              {/* Weeks list */}
               <FlatList
                 ref={flatListRef}
                 data={weeksOfYear}
@@ -202,28 +229,19 @@ export default function DayView({
                   offset: 50 * index,
                   index,
                 })}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={[
-                      styles.weekItem,
-                      item.number === currentWeekNumber && selectedYear === today.getFullYear()
-                        ? styles.weekItemActive
-                        : null,
-                    ]}
-                    onPress={() => handleSelectWeek(item)}
-                  >
-                    <Text
-                      style={[
-                        styles.weekText,
-                        item.number === currentWeekNumber && selectedYear === today.getFullYear()
-                          ? styles.weekTextActive
-                          : null,
-                      ]}
+                renderItem={({ item }) => {
+                  const isActive = item.number === currentWeekNumber && selectedYear === today.getFullYear();
+                  return (
+                    <TouchableOpacity
+                      style={[styles.weekItem, isActive ? styles.weekItemActive : null]}
+                      onPress={() => handleSelectWeek(item)}
                     >
-                      Tuần {item.number} ({formatDate(item.start)} – {formatDate(item.end)})
-                    </Text>
-                  </TouchableOpacity>
-                )}
+                      <Text style={[styles.weekText, isActive ? styles.weekTextActive : null]}>
+                        {L.weekLabel(item.number)} {L.weekRangeTpl(formatDate(item.start), formatDate(item.end))}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                }}
               />
             </View>
           </View>

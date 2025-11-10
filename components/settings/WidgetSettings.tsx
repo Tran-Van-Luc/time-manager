@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "../../context/ThemeContext";
+import { useLanguage } from "../../context/LanguageContext";
 
 const STORAGE_KEY_WIDGET_THEME = "widgetTheme";
 
@@ -27,13 +28,10 @@ export default function WidgetSettings({
   onClose: () => void;
 }) {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const isDark = theme === "dark";
 
   const [selected, setSelected] = useState("blue");
-  const [labels, setLabels] = useState({
-    title: "Tiện ích",
-    close: "Đóng",
-  });
 
   useEffect(() => {
     (async () => {
@@ -52,17 +50,15 @@ export default function WidgetSettings({
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <SafeAreaView style={s.safe}>
-        {/* Header */}
         <View style={s.header}>
           <TouchableOpacity onPress={onClose}>
-            <Text style={s.close}>{labels.close}</Text>
+            <Text style={s.close}>{t.widgetSettings.close}</Text>
           </TouchableOpacity>
-          <Text style={s.title}>{labels.title}</Text>
+          <Text style={s.title}>{t.widgetSettings.title}</Text>
           <View style={{ width: 40 }} />
         </View>
 
         <ScrollView style={s.scroll}>
-          {/* Widget Preview */}
           <View style={s.previewContainer}>
             <View style={[s.widgetBox, { borderColor: "#E5E7EB" }]}>
               <View style={s.widgetHeader}>
@@ -78,25 +74,24 @@ export default function WidgetSettings({
             </View>
           </View>
 
-          {/* Theme list */}
           <View style={s.container}>
-            {THEMES.map((t, i) => (
+            {THEMES.map((thm, i) => (
               <TouchableOpacity
-                key={t.id}
+                key={thm.id}
                 style={[
                   s.row,
                   { borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth },
                 ]}
-                onPress={() => selectTheme(t.id)}
+                onPress={() => selectTheme(thm.id)}
                 activeOpacity={0.7}
               >
                 <View style={s.rowLeft}>
-                  <View style={[s.iconBox, { backgroundColor: t.color }]}>
+                  <View style={[s.iconBox, { backgroundColor: thm.color }]}>
                     <Text style={s.iconText}>📅</Text>
                   </View>
-                  <Text style={s.label}>{t.name}</Text>
+                  <Text style={s.label}>{thm.name}</Text>
                 </View>
-                {selected === t.id && <Text style={s.check}>✓</Text>}
+                {selected === thm.id && <Text style={s.check}>✓</Text>}
               </TouchableOpacity>
             ))}
           </View>
@@ -108,10 +103,7 @@ export default function WidgetSettings({
 
 const createStyles = (isDark: boolean) =>
   StyleSheet.create({
-    safe: {
-      flex: 1,
-      backgroundColor: isDark ? "#071226" : "#F6F7FB",
-    },
+    safe: { flex: 1, backgroundColor: isDark ? "#071226" : "#F6F7FB" },
     header: {
       flexDirection: "row",
       alignItems: "center",
@@ -122,21 +114,10 @@ const createStyles = (isDark: boolean) =>
       borderColor: isDark ? "#0f1724" : "#e5e7eb",
       backgroundColor: isDark ? "#071226" : "#F6F7FB",
     },
-    close: {
-      color: isDark ? "#60A5FA" : "#2563EB",
-      fontWeight: "700",
-      fontSize: 16,
-    },
-    title: {
-      fontSize: 18,
-      fontWeight: "700",
-      color: isDark ? "#E6EEF8" : "#111",
-    },
+    close: { color: isDark ? "#60A5FA" : "#2563EB", fontWeight: "700", fontSize: 16 },
+    title: { fontSize: 18, fontWeight: "700", color: isDark ? "#E6EEF8" : "#111" },
     scroll: { flex: 1 },
-
-    previewContainer: {
-      padding: 16,
-    },
+    previewContainer: { padding: 16 },
     widgetBox: {
       backgroundColor: "#fff",
       borderRadius: 16,
@@ -147,30 +128,11 @@ const createStyles = (isDark: boolean) =>
       shadowRadius: 5,
       elevation: 2,
     },
-    widgetHeader: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-    },
-    dateText: {
-      fontWeight: "600",
-      fontSize: 16,
-      color: "#111",
-    },
-    weekText: {
-      color: "#DC2626",
-      fontWeight: "500",
-    },
-    eventText: {
-      fontSize: 14,
-      marginTop: 4,
-      fontWeight: "500",
-      color: "#111",
-    },
-    eventSub: {
-      fontSize: 13,
-      color: "#6B7280",
-    },
-
+    widgetHeader: { flexDirection: "row", justifyContent: "space-between" },
+    dateText: { fontWeight: "600", fontSize: 16, color: "#111" },
+    weekText: { color: "#DC2626", fontWeight: "500" },
+    eventText: { fontSize: 14, marginTop: 4, fontWeight: "500", color: "#111" },
+    eventSub: { fontSize: 13, color: "#6B7280" },
     container: {
       backgroundColor: isDark ? "#071226" : "#fff",
       borderRadius: 12,
@@ -189,10 +151,7 @@ const createStyles = (isDark: boolean) =>
       borderColor: isDark ? "#0f1724" : "#E5E7EB",
       backgroundColor: isDark ? "#071226" : "#fff",
     },
-    rowLeft: {
-      flexDirection: "row",
-      alignItems: "center",
-    },
+    rowLeft: { flexDirection: "row", alignItems: "center" },
     iconBox: {
       width: 26,
       height: 26,
@@ -201,16 +160,7 @@ const createStyles = (isDark: boolean) =>
       alignItems: "center",
       marginRight: 10,
     },
-    iconText: {
-      fontSize: 12,
-    },
-    label: {
-      fontSize: 16,
-      color: isDark ? "#E6EEF8" : "#111",
-    },
-    check: {
-      color: isDark ? "#60A5FA" : "#22C55E",
-      fontSize: 18,
-      fontWeight: "600",
-    },
+    iconText: { fontSize: 12 },
+    label: { fontSize: 16, color: isDark ? "#E6EEF8" : "#111" },
+    check: { color: isDark ? "#60A5FA" : "#22C55E", fontSize: 18, fontWeight: "600" },
   });

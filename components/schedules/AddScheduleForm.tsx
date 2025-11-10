@@ -1,3 +1,4 @@
+// components/schedules/AddScheduleForm.tsx
 import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
@@ -18,8 +19,8 @@ import {
 } from "../../database/schedule";
 import { useSchedules } from "../../hooks/useSchedules";
 import VoiceScheduleInput from "./VoiceScheduleInput";
-
 import { getAllTasks } from "../../database/task";
+import { useLanguage } from "../../context/LanguageContext";
 
 // Các loại lịch
 const ADD_TYPES: ScheduleType[] = [
@@ -87,6 +88,61 @@ export default function AddScheduleForm({
   initialValues,
 }: Props) {
   const { schedules, loadSchedules } = useSchedules();
+  const { language } = useLanguage();
+
+  // localized labels (vi / en)
+  const L = {
+    vi: {
+      titleNew: "Thêm lịch mới",
+      titleEdit: "Chỉnh sửa lịch",
+      courseLabel: "📚 Tên môn học *",
+      coursePlaceholder: "VD: Toán cao cấp",
+      typeLabel: "📋 Loại lịch",
+      instructorLabel: "👨‍🏫 Giảng viên",
+      instructorPlaceholder: "VD: TS. Nguyễn Kiều Anh",
+      locationLabel: "📍 Địa điểm",
+      locationPlaceholder: "VD: Phòng G3",
+      startEndDateLabel: "📅 Ngày bắt đầu – kết thúc *",
+      dateLabel: "📅 Ngày",
+      startEndTimeLabel: "⏰ Giờ bắt đầu – kết thúc *",
+      saveNew: "✓ Lưu lịch",
+      saveEdit: "✓ Cập nhật",
+      conflictTitle: "Trùng lịch",
+      conflictMsg: (s: string, a: string, b: string) => `Bạn đã có "${s}" từ ${a} đến ${b}`,
+      invalidTitle: "Lỗi",
+      invalidMsg: "Vui lòng kiểm tra lại thông tin",
+      successCreate: (n: number, name: string) => `Tạo ${n} buổi cho "${name}"`,
+      successUpdate: (n: number) => `Đã cập nhật ${n} buổi`,
+      errorSave: "Không thể lưu lịch",
+      voiceNote: "Ghi âm lịch (nhập bằng giọng nói)",
+      pickDateBtn: "Chọn ngày",
+    },
+    en: {
+      titleNew: "Add schedule",
+      titleEdit: "Edit schedule",
+      courseLabel: "📚 Course name *",
+      coursePlaceholder: "e.g. Advanced Mathematics",
+      typeLabel: "📋 Type",
+      instructorLabel: "👨‍🏫 Instructor",
+      instructorPlaceholder: "e.g. Dr. Nguyen",
+      locationLabel: "📍 Location",
+      locationPlaceholder: "e.g. Room G3",
+      startEndDateLabel: "📅 Start – End date *",
+      dateLabel: "📅 Date",
+      startEndTimeLabel: "⏰ Start – End time *",
+      saveNew: "✓ Save",
+      saveEdit: "✓ Update",
+      conflictTitle: "Schedule conflict",
+      conflictMsg: (s: string, a: string, b: string) => `You already have "${s}" from ${a} to ${b}`,
+      invalidTitle: "Error",
+      invalidMsg: "Please check the information",
+      successCreate: (n: number, name: string) => `Created ${n} sessions for "${name}"`,
+      successUpdate: (n: number) => `Updated ${n} sessions`,
+      errorSave: "Cannot save schedule",
+      voiceNote: "Voice schedule input",
+      pickDateBtn: "Pick date",
+    },
+  }[language];
 
   const types = onSave ? EDIT_TYPES : ADD_TYPES;
 
@@ -134,7 +190,7 @@ export default function AddScheduleForm({
         const t = await getAllTasks();
         setTasks(t || []);
       } catch (e) {
-        // nếu không thể lấy tasks ở client, bỏ qua; server vẫn kiểm tra khi lưu
+        // ignore
       }
     })();
   }, []);
@@ -225,7 +281,7 @@ export default function AddScheduleForm({
           if (overlaps(slot.start, slot.end, existingStart, existingEnd)) {
             return {
               source: "schedule" as const,
-              subject: getField(evt as any, "subject", "title") ?? "Môn học",
+              subject: getField(evt as any, "subject", "title") ?? (language === "vi" ? "Môn học" : "Subject"),
               existingStart,
               existingEnd,
             };
@@ -247,7 +303,7 @@ export default function AddScheduleForm({
           if (overlaps(slot.start, slot.end, existingStart, existingEnd)) {
             return {
               source: "task" as const,
-              subject: getField(t, "title") ?? "Công việc",
+              subject: getField(t, "title") ?? (language === "vi" ? "Công việc" : "Task"),
               existingStart,
               existingEnd,
             };
@@ -257,7 +313,7 @@ export default function AddScheduleForm({
     }
 
     return undefined;
-  }, [type, startDate, endDate, singleDate, startTime, endTime, schedules, tasks, initialValues?.id]);
+  }, [type, startDate, endDate, singleDate, startTime, endTime, schedules, tasks, initialValues?.id, language]);
 
   const isValid =
     courseName.trim() !== "" &&
@@ -308,11 +364,15 @@ export default function AddScheduleForm({
     if (!isValid) {
       if (conflictDetail) {
         return Alert.alert(
-          "Trùng lịch",
-          `Bạn đã có "${conflictDetail.subject}" từ ${conflictDetail.existingStart.toLocaleTimeString()} đến ${conflictDetail.existingEnd.toLocaleTimeString()}`
+          L.conflictTitle,
+          L.conflictMsg(
+            conflictDetail.subject,
+            conflictDetail.existingStart.toLocaleTimeString(),
+            conflictDetail.existingEnd.toLocaleTimeString()
+          )
         );
       }
-      return Alert.alert("Lỗi", "Vui lòng kiểm tra lại thông tin");
+      return Alert.alert(L.invalidTitle, L.invalidMsg);
     }
 
     const base: Partial<CreateScheduleParams> = {
@@ -338,15 +398,15 @@ export default function AddScheduleForm({
     try {
       if (onSave) {
         const count = await onSave(params);
-        Alert.alert("Cập nhật thành công", `Đã cập nhật ${count} buổi`);
+        Alert.alert(L.titleEdit, L.successUpdate ? L.successUpdate(count) : `${count} updated`);
       } else {
         const { sessionsCreated } = await createSchedule(params);
         await loadSchedules();
-        Alert.alert("Thành công", `Tạo ${sessionsCreated} buổi cho "${courseName}"`);
+        Alert.alert(L.titleNew, L.successCreate ? L.successCreate(sessionsCreated, courseName) : `Created ${sessionsCreated}`);
       }
       onClose();
     } catch (err: any) {
-      Alert.alert("Lỗi", err?.message ?? "Không thể lưu lịch");
+      Alert.alert(L.invalidTitle, err?.message ?? L.errorSave);
     }
   }
 
@@ -369,7 +429,7 @@ export default function AddScheduleForm({
     <View style={s.overlay}>
       <View style={s.modal}>
         <View style={s.header}>
-          <Text style={s.title}>{onSave ? "Chỉnh sửa lịch" : "Thêm lịch mới"}</Text>
+          <Text style={s.title}>{onSave ? L.titleEdit : L.titleNew}</Text>
           <TouchableOpacity onPress={onClose} style={s.closeBtn}>
             <Text style={s.closeBtnText}>✕</Text>
           </TouchableOpacity>
@@ -381,10 +441,10 @@ export default function AddScheduleForm({
           <View style={s.divider} />
           
           <View style={s.inputGroup}>
-            <Text style={s.label}>📚 Tên môn học *</Text>
+            <Text style={s.label}>{L.courseLabel}</Text>
             <TextInput 
               style={s.input} 
-              placeholder="VD: Toán cao cấp" 
+              placeholder={L.coursePlaceholder} 
               placeholderTextColor="#999"
               value={courseName} 
               onChangeText={setCourseName} 
@@ -392,7 +452,7 @@ export default function AddScheduleForm({
           </View>
 
           <View style={s.inputGroup}>
-            <Text style={s.label}>📋 Loại lịch</Text>
+            <Text style={s.label}>{L.typeLabel}</Text>
             <View style={s.picker}>
               <Picker selectedValue={type} onValueChange={(v) => setType(v as ScheduleType)}>
                 {types.map((t) => <Picker.Item key={t} label={t} value={t} />)}
@@ -401,10 +461,10 @@ export default function AddScheduleForm({
           </View>
 
           <View style={s.inputGroup}>
-            <Text style={s.label}>👨‍🏫 Giảng viên</Text>
+            <Text style={s.label}>{L.instructorLabel}</Text>
             <TextInput 
               style={s.input} 
-              placeholder="VD: TS. Nguyễn Kiều Anh" 
+              placeholder={L.instructorPlaceholder} 
               placeholderTextColor="#999"
               value={instructor} 
               onChangeText={setInstructor} 
@@ -412,10 +472,10 @@ export default function AddScheduleForm({
           </View>
 
           <View style={s.inputGroup}>
-            <Text style={s.label}>📍 Địa điểm</Text>
+            <Text style={s.label}>{L.locationLabel}</Text>
             <TextInput 
               style={s.input} 
-              placeholder="VD: Phòng G3" 
+              placeholder={L.locationPlaceholder} 
               placeholderTextColor="#999"
               value={location} 
               onChangeText={setLocation} 
@@ -424,7 +484,7 @@ export default function AddScheduleForm({
 
           {isRecurringType(type) ? (
             <View style={s.inputGroup}>
-              <Text style={s.label}>📅 Ngày bắt đầu – kết thúc *</Text>
+              <Text style={s.label}>{L.startEndDateLabel}</Text>
               <View style={s.row}>
                 <TouchableOpacity style={s.dateBtn} onPress={() => openPicker("startDate", "date")}>
                   <Text style={s.dateBtnText}>{formatVietnameseDate(startDate)}</Text>
@@ -438,7 +498,7 @@ export default function AddScheduleForm({
             </View>
           ) : (
             <View style={s.inputGroup}>
-              <Text style={s.label}>📅 Ngày</Text>
+              <Text style={s.label}>{L.dateLabel}</Text>
               <TouchableOpacity style={s.dateBtn} onPress={() => openPicker("singleDate", "date")}>
                 <Text style={s.dateBtnText}>{formatVietnameseDate(singleDate)}</Text>
                 <Text style={s.icon}>📆</Text>
@@ -447,7 +507,7 @@ export default function AddScheduleForm({
           )}
 
           <View style={s.inputGroup}>
-            <Text style={s.label}>⏰ Giờ bắt đầu – kết thúc *</Text>
+            <Text style={s.label}>{L.startEndTimeLabel}</Text>
             <View style={s.row}>
               <TouchableOpacity style={s.dateBtn} onPress={() => openPicker("startTime", "time")}>
                 <Text style={s.dateBtnText}>{formatLocalTime(startTime)}</Text>
@@ -464,7 +524,9 @@ export default function AddScheduleForm({
             <View style={s.errorContainer}>
               <Text style={s.errorIcon}>⚠️</Text>
               <Text style={s.error}>
-                Trùng lịch với {conflictDetail.source === "task" ? "công việc" : "lịch"}: "{conflictDetail.subject}" từ {conflictDetail.existingStart.toLocaleTimeString()} đến {conflictDetail.existingEnd.toLocaleTimeString()}
+                {language === "vi"
+                  ? `Trùng lịch với ${conflictDetail.source === "task" ? "công việc" : "lịch"}: "${conflictDetail.subject}" từ ${conflictDetail.existingStart.toLocaleTimeString()} đến ${conflictDetail.existingEnd.toLocaleTimeString()}`
+                  : `Conflict with ${conflictDetail.source === "task" ? "task" : "schedule"}: "${conflictDetail.subject}" from ${conflictDetail.existingStart.toLocaleTimeString()} to ${conflictDetail.existingEnd.toLocaleTimeString()}`}
               </Text>
             </View>
           )}
@@ -485,7 +547,7 @@ export default function AddScheduleForm({
             disabled={!isValid}
           >
             <Text style={s.saveBtnText}>
-              {onSave ? "✓ Cập nhật" : "✓ Lưu lịch"}
+              {onSave ? L.saveEdit : L.saveNew}
             </Text>
           </TouchableOpacity>
         </ScrollView>
