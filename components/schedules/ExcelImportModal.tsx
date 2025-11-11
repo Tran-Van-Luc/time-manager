@@ -131,7 +131,7 @@ export default function ExcelImportModal({ visible, onClose, onImport, importing
 
       // Tạo workbook
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Lịch học / Schedule");
+      XLSX.utils.book_append_sheet(wb, ws, "Lịch học - Schedule");
 
       // Ghi file
       const wbout = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
@@ -141,17 +141,11 @@ export default function ExcelImportModal({ visible, onClose, onImport, importing
       });
 
       // Chia sẻ file
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(uri, {
-          mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          dialogTitle: L.dialogSaveTitle,
-          UTI: "com.microsoft.excel.xlsx",
-        });
-        Alert.alert(L.successTitle, L.successMsg);
-      } else {
-        Alert.alert(L.shareErrorTitle, L.shareErrorMsg);
-      }
+      await Sharing.shareAsync(uri, {
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        dialogTitle: L.dialogSaveTitle,
+        UTI: "com.microsoft.excel.xlsx",
+      });
     } catch (error: any) {
       console.error("Download template error:", error);
       Alert.alert(L.createErrorTitle, error?.message ?? L.createErrorMsg);
