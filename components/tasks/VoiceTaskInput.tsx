@@ -11,7 +11,7 @@ import {
   PermissionsAndroid,
   Platform,
 } from 'react-native';
-import { parseVoiceWithGemini } from '../../utils/voiceScheduleService';
+import axios from 'axios';
 
 // Note: NewTaskData type above is not exported in that hook file currently. The component
 // uses a loose typing for the parsed payload to avoid tight coupling. Parent should
@@ -47,6 +47,7 @@ export default function VoiceTaskInput({ onParsed }: Props) {
   const [tempInput, setTempInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [voiceAvailable, setVoiceAvailable] = useState(false);
+  const [hasMicPermission, setHasMicPermission] = useState<boolean | null>(null);
   const VoiceRef = useRef<any>(null);
 
   useEffect(() => {
@@ -60,6 +61,17 @@ export default function VoiceTaskInput({ onParsed }: Props) {
       VoiceRef.current = null;
       setVoiceAvailable(false);
     }
+    // Check mic permission status on Android to avoid re-prompting if already granted
+    (async () => {
+      if (Platform.OS === 'android') {
+        try {
+          const granted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+          setHasMicPermission(granted);
+        } catch {
+          setHasMicPermission(null);
+        }
+      }
+    })();
     return () => {
       try {
         if (VoiceRef.current && VoiceRef.current.destroy) VoiceRef.current.destroy();
@@ -70,14 +82,23 @@ export default function VoiceTaskInput({ onParsed }: Props) {
   const requestAndroidRecordPermission = async () => {
     if (Platform.OS !== 'android') return true;
     try {
+      // First check current status to avoid asking again unnecessarily
+      const already = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+      if (already) {
+        setHasMicPermission(true);
+        return true;
+      }
       const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO, {
         title: 'Quyền ghi âm',
         message: 'Ứng dụng cần quyền ghi âm để nhận diện giọng nói',
         buttonPositive: 'Cho phép',
         buttonNegative: 'Hủy',
       });
-      return granted === PermissionsAndroid.RESULTS.GRANTED;
+      const ok = granted === PermissionsAndroid.RESULTS.GRANTED;
+      setHasMicPermission(ok);
+      return ok;
     } catch (err) {
+      setHasMicPermission(false);
       return false;
     }
   };
@@ -86,8 +107,10 @@ export default function VoiceTaskInput({ onParsed }: Props) {
     try {
       const parts = e?.value || e?.results || [];
       const text = Array.isArray(parts) ? parts.join(' ') : String(parts || '');
+      // Do not auto-analyze; show full transcript in the input modal for user confirmation
       setTranscript(text);
-      handleProcess(text);
+      setTempInput(text);
+      setShowInputModal(true);
     } catch (err) {
       console.warn('speech results error', err);
     } finally {
@@ -114,6 +137,7 @@ export default function VoiceTaskInput({ onParsed }: Props) {
     try {
       const V = VoiceRef.current;
       if (V && V.onSpeechResults) V.onSpeechResults = onSpeechResults;
+      if (V && V.onSpeechEnd) V.onSpeechEnd = () => setIsRecording(false);
       if (V && V.onSpeechError) V.onSpeechError = onSpeechError;
       const locale = Platform.OS === 'ios' ? 'vi_VN' : 'vi-VN';
       await V.start(locale).catch(async () => await V.start('en-US'));
@@ -140,6 +164,35 @@ export default function VoiceTaskInput({ onParsed }: Props) {
   const handleProcess = async (text: string) => {
     setIsProcessing(true);
     try {
+      // Local Gemini caller for task parsing (no external import)
+      const parseTaskWithGemini = async (prompt: string): Promise<any> => {
+        const GEMINI_API_KEY = String(process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? "");
+        if (!GEMINI_API_KEY) {
+          throw new Error('Thiếu khóa Gemini. Hãy đặt EXPO_PUBLIC_GEMINI_API_KEY trong môi trường.');
+        }
+        const MODEL = 'gemini-2.0-flash';
+        try { console.log('[AI] Sending prompt:', prompt); } catch {}
+        const resp = await axios.post(
+          `https://generativelanguage.googleapis.com/v1/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            contents: [
+              { parts: [ { text: prompt } ] }
+            ],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 700 },
+          }
+        );
+        const textOut: string = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+        try { console.log('[AI] Raw response text:', textOut); } catch {}
+        const jsonStr = textOut.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        try {
+          const parsed = JSON.parse(jsonStr);
+          try { console.log('[AI] Parsed JSON:', parsed); } catch {}
+          return parsed;
+        } catch (e) {
+          try { console.warn('[AI] JSON parse failed. Raw string:', jsonStr); } catch {}
+          throw new Error('AI trả về không đúng JSON.');
+        }
+      };
       // --- Helpers for extended mappings (minimal, local) ---
       const mapFrequency = (s: any): RecurrenceConfig["frequency"] | undefined => {
         if (s == null) return undefined;
@@ -158,25 +211,80 @@ export default function VoiceTaskInput({ onParsed }: Props) {
       };
       const mapDowToken = (t: string) => {
         if (!t) return null;
-        const v = String(t).trim().toLowerCase();
-        if (v === "t2" || v.includes("thứ 2") || v.includes("thu 2")) return "Mon";
-        if (v === "t3" || v.includes("thứ 3")) return "Tue";
-        if (v === "t4" || v.includes("thứ 4")) return "Wed";
-        if (v === "t5" || v.includes("thứ 5")) return "Thu";
-        if (v === "t6" || v.includes("thứ 6")) return "Fri";
-        if (v === "t7" || v.includes("thứ 7")) return "Sat";
-        if (v === "cn" || v.includes("chủ nhật") || v.includes("chu nhat")) return "Sun";
+        const vRaw = String(t).trim().toLowerCase();
+        // normalize common variants
+        let v = vRaw
+          .replace(/chủ nhật|chu nhat/g, "cn")
+          .replace(/thứ|thu/g, "t");
+        // accept single digits 2..7
+        if (v === "2" || v === "t2") return "Mon";
+        if (v === "3" || v === "t3") return "Tue";
+        if (v === "4" || v === "t4") return "Wed";
+        if (v === "5" || v === "t5") return "Thu";
+        if (v === "6" || v === "t6") return "Fri";
+        if (v === "7" || v === "t7") return "Sat";
+        if (v === "cn" || v.includes("cn")) return "Sun";
+        // english fallbacks
+        if (v.includes("mon")) return "Mon";
+        if (v.includes("tue")) return "Tue";
+        if (v.includes("wed")) return "Wed";
+        if (v.includes("thu") && !v.includes("thur")) return "Thu"; // handle overlap with từ/thu
+        if (v.includes("fri")) return "Fri";
+        if (v.includes("sat")) return "Sat";
+        if (v.includes("sun")) return "Sun";
         return null;
       };
       const parseDowsFromString = (s: any): string[] => {
         if (!s) return [];
-        if (Array.isArray(s)) return s.map(String).map(mapDowToken).filter(Boolean) as string[];
-        return String(s).split(",").map(mapDowToken).filter(Boolean) as string[];
+        const out: string[] = [];
+        const pushToken = (tok: string) => {
+          const mapped = mapDowToken(tok);
+          if (mapped && !out.includes(mapped)) out.push(mapped);
+        };
+        if (Array.isArray(s)) {
+          (s as any[]).forEach((item) => {
+            if (typeof item === "string") {
+              // tokenize strings inside arrays as well (e.g., "T2 T4")
+              const v = item.toLowerCase();
+              // special case: compact digits like "234"
+              if (/^[234567]+$/.test(v)) v.split("").forEach(pushToken);
+              else v.split(/[^a-z0-9]+/g).filter(Boolean).forEach(pushToken);
+            } else pushToken(String(item));
+          });
+          return out;
+        }
+        const v0 = String(s).toLowerCase().trim()
+          .replace(/chủ nhật|chu nhat/g, "cn")
+          .replace(/và|&/g, ",")
+          .replace(/[\/;\-]/g, ",")
+          .replace(/\s+/g, ",")
+          .replace(/thứ|thu/g, "t");
+        if (/^[234567]+$/.test(v0)) {
+          v0.split("").forEach(pushToken);
+        } else {
+          v0.split(/,+/).filter(Boolean).forEach((tok) => {
+            if (/^[234567]$/.test(tok)) pushToken(tok);
+            else pushToken(tok);
+          });
+        }
+        return out;
       };
       const parseDomFromString = (s: any): string[] => {
         if (!s) return [];
-        if (Array.isArray(s)) return s.map(String).map(x => x.trim()).filter(Boolean);
-        return String(s).split(",").map(x => x.trim()).filter(Boolean);
+        const push = (arr: string[], val: string) => { if (!arr.includes(val)) arr.push(val); };
+        if (Array.isArray(s)) return (s as any[]).reduce<string[]>((acc, it) => {
+          const v = String(it).trim();
+          // extract all 1..31 numbers from token
+          const m = v.match(/\b(3[01]|[12]?\d)\b/g);
+          if (m) m.forEach((d) => push(acc, String(Number(d))));
+          else if (/^\d+$/.test(v)) push(acc, String(Math.min(31, Math.max(1, Number(v)))));
+          return acc;
+        }, []);
+        const v = String(s).toLowerCase();
+        const matches = v.match(/\b(3[01]|[12]?\d)\b/g) || [];
+        const result: string[] = [];
+        matches.forEach((d) => push(result, String(Number(d))));
+        return result;
       };
       const parseDateOnly = (s: any): number | undefined => {
         if (s == null) return undefined;
@@ -222,12 +330,72 @@ export default function VoiceTaskInput({ onParsed }: Props) {
       };
       // --- end helpers ---
 
-      // Call the looser Gemini parser but include today's date in a hidden form
-      // so the model can resolve relative dates like "hôm nay", "thứ 3", "tuần sau".
+      // Build strict task prompt and include today's markers for resolving relative dates
       const todayISO = new Date().toISOString().split('T')[0];
       const todayHuman = new Date().toLocaleDateString('vi-VN');
-      const augmented = `${text}\n\nHIDDEN_TODAY_ISO: ${todayISO}\nHIDDEN_TODAY_HUMAN: ${todayHuman}`;
-      const parsedAny: any = await parseVoiceWithGemini(augmented);
+      const composedText = `${text}\n\nHIDDEN_TODAY_ISO: ${todayISO}\nHIDDEN_TODAY_HUMAN: ${todayHuman}`;
+      const fullTaskPrompt = `Bạn là trợ lý phân tích cho MODAL THÊM CÔNG VIỆC dưới đây. Các trường thực tế người dùng có trong giao diện:
+1. Tiêu đề (title)
+2. Mô tả (description)
+3. Ngày bắt đầu (date) + Giờ bắt đầu (time)
+4. Giờ kết thúc (end time) hoặc ngày+giờ kết thúc nếu được nói rõ
+5. Mức độ ưu tiên: thấp | trung bình | cao (map sang low | medium | high)
+6. Nhắc trước (reminder): bật/tắt + số phút trước (5,15,30,60,120,1440, hoặc người dùng nói "39 phút", "2 giờ", "1 ngày", "2 ngày" v.v.) + phương thức ("chuông" => alarm, mặc định notification)
+7. Lặp lại (recurrence): bật/tắt + kiểu (ngày/tuần/tháng/năm) => daily/weekly/monthly/yearly + interval nếu nói "mỗi 2 tuần", "3 tháng một lần" (interval=2,3 ...). Nếu tuần và nói cụ thể thứ thì trả về daysOfWeek array (Mon..Sun). Nếu tháng và nói "ngày 5,10" thì trả về daysOfMonth ["5","10"].
+8. Ngày kết thúc lặp (recurrence end date) nếu nói rõ ("đến hết tháng 12", "đến ngày 25/12/2025"). Nếu nói "đến hết năm 2026" đặt endDateMs = cuối ngày 31/12/2026.
+9. Tùy chọn "Gộp các ngày lặp thành một lần hoàn thành" => habitMerge true/false nếu người dùng nói "gộp", "tính một lần", "gom lại".
+10. Tùy chọn "Tự động đánh hoàn thành nếu hết hạn" => habitAuto true/false nếu người dùng nói "tự động hoàn thành", "hết hạn tự đánh xong", hoặc "không tự động" => false.
+
+Bạn PHẢI TRẢ VỀ CHỈ JSON theo schema sau (đầy đủ khóa, dùng null khi không có):
+{
+  "title": string | null,
+  "description": string | null,
+  "startAtMs": number | null,
+  "endAtMs": number | null,
+  "startDate": string | null,      // YYYY-MM-DD nếu chỉ có ngày
+  "startTime": string | null,      // HH:mm nếu chỉ có giờ
+  "endDate": string | null,
+  "endTime": string | null,
+  "priority": "high" | "medium" | "low" | null,
+  "reminder": {
+    "enabled": boolean,
+    // minutesBefore là tổng phút trước (chuyển mọi đơn vị giờ/ngày sang phút). VD "2 giờ" => 120, "1 ngày" => 1440
+    "minutesBefore": number | null,
+    "method": "notification" | "alarm" | null
+  },
+  "recurrence": {
+    "enabled": boolean,
+    "frequency": "daily" | "weekly" | "monthly" | "yearly" | null,
+    "interval": number | null,
+    "daysOfWeek": ("Mon"|"Tue"|"Wed"|"Thu"|"Fri"|"Sat"|"Sun")[] | null,
+    "daysOfMonth": string[] | null,
+    "endDateMs": number | null,
+    "habitMerge": boolean | null
+  },
+  "habitMerge": boolean | null,
+  "habitAuto": boolean | null
+}
+
+QUY TẮC:
+- Không tự suy diễn. Chỉ điền khi người dùng nói rõ. Nếu không nhắc tới REMINDER hoặc LẶP thì đặt reminder.enabled=false, recurrence.enabled=false.
+- Nếu chỉ nói "14:00" và không có ngày, cố gắng dùng ngày hôm nay (HIDDEN_TODAY_ISO) làm startDate + tạo startAtMs nếu cả giờ và ngày có. Nếu chỉ có ngày mà không có giờ, trả về startDate, startTime=null.
+- Nếu nói "kết thúc lúc 16:00" cùng ngày => endAtMs dùng cùng ngày với startDate. Nếu nói "đến ngày mai 10 giờ" => tạo endAtMs từ ngày mai + 10:00.
+- Nếu khoảng giờ nói như "14:00-16:00" => startTime=14:00, endTime=16:00 và nếu có ngày thì tạo startAtMs/endAtMs.
+- Ưu tiên: "cao" => high, "trung bình" => medium, "thấp" => low.
+- Reminder diễn đạt ví dụ: "nhắc 30 phút trước" => reminder.enabled=true, minutesBefore=30. "nhắc 2 giờ trước" => 120. "nhắc 1 ngày trước" => 1440.
+- Nếu nói "chuông" hoặc "chuông báo" => method="alarm"; nếu chỉ nói "nhắc" không có chuông => method="notification".
+- Recurrence: "hàng ngày" => daily interval=1; "mỗi 2 tuần" => weekly interval=2; "3 tháng một lần" => monthly interval=3. Nếu nói "thứ 2 và thứ 4" => daysOfWeek=["Mon","Wed"]. Nếu nói "ngày 5,10" trong ngữ cảnh tháng => daysOfMonth=["5","10"].
+- Ngày kết thúc lặp: chuyển lời nói thành endDateMs bằng epoch millis cuối ngày đó (23:59). "đến hết tháng 12" (trong năm hiện tại) => 31/12 (năm hiện tại) 23:59.
+- habitMerge: nếu có từ khóa "gộp", "gom", "tính một lần" => true.
+- habitAuto: nếu có từ khóa "tự động hoàn thành", "hết hạn tự đánh xong" => true; "không tự động" => false; nếu không nói => null.
+- Luôn trả về tất cả khóa (dùng null) để UI dễ mapping. Không bỏ sót.
+- HIDDEN_TODAY_ISO và HIDDEN_TODAY_HUMAN cung cấp ngày hôm nay để hiểu "hôm nay", "mai", "tuần này", "tháng này".
+
+CHỈ JSON, KHÔNG GIẢI THÍCH:
+VĂN BẢN GỐC:
+"${composedText}"`;
+  const parsedAny: any = await parseTaskWithGemini(fullTaskPrompt);
+  try { console.log('[AI] Parsed Any (before mapping):', parsedAny); } catch {}
       const parsed: any = (typeof parsedAny === 'string' || parsedAny == null) ? { summary: String(parsedAny || text) } : parsedAny;
       // If parsed is still a string or missing expected keys, normalize below.
       const payload: ParsedTaskPayload = {
@@ -256,11 +424,10 @@ export default function VoiceTaskInput({ onParsed }: Props) {
 
       // Title / description
       if (parsed.title) payload.task!.title = String(parsed.title).trim();
-      else if (parsed.taskTitle) payload.task!.title = String(parsed.taskTitle).trim();
-      else if (parsed.courseName) payload.task!.title = String(parsed.courseName).trim(); // fallback
+  // Only use explicitly provided title; do not infer from other fields
 
       if (parsed.description) payload.task!.description = String(parsed.description).trim();
-      else if (parsed.note) payload.task!.description = String(parsed.note).trim();
+  // Only use explicitly provided description; do not infer
 
       // Dates/times: if the strict parser was used it may provide epoch ms fields
       const toMs = (v: any): number | undefined => {
@@ -282,7 +449,7 @@ export default function VoiceTaskInput({ onParsed }: Props) {
       if (startDate) payload.task!.start_at = startDate;
       if (endDate) payload.task!.end_at = endDate;
 
-      // Also attempt to capture separate date-only / time-only pieces if provided
+  // Also accept separate date-only / time-only pieces if AI provided them
       const maybeStartDateOnly = parseDateOnly(parsed.startDate ?? parsed.start_date ?? parsed.date);
       const maybeStartTimeOnly = parseTimeOnly(parsed.startTime ?? parsed.start_time ?? parsed.time);
       const maybeEndDateOnly = parseDateOnly(parsed.endDate ?? parsed.end_date);
@@ -298,74 +465,58 @@ export default function VoiceTaskInput({ onParsed }: Props) {
       if (maybeStartTimeOnly) payload.task!['startTime'] = maybeStartTimeOnly;
       if (maybeEndTimeOnly) payload.task!['endTime'] = maybeEndTimeOnly;
 
-      // Fallback: if no startDate / recurrence / reminder found from AI structured output,
-      // try to heuristically parse the original text (Vietnamese-friendly) to extract weekday, time, reminder and weekly repeat.
-      const maybeText = (parsed.summary || parsed.text || text || '').toString();
-      const needsStart = !payload.task!.start_at;
-      const needsRecurrence = !payload.recurrence && /lặp|hàng tuần|mỗi tuần|tuần/i.test(maybeText);
-      const needsReminder = !payload.reminder && /nhắc|nhắc nhở|nhắc trước/i.test(maybeText);
-      if (needsStart || needsRecurrence || needsReminder) {
-        const heur = parseTaskFromFreeText(maybeText);
-        if (needsStart && heur.startAt) payload.task!.start_at = heur.startAt;
-        if (needsStart && heur.endAt) payload.task!.end_at = heur.endAt;
-        if (needsReminder && heur.reminderMinutes != null) payload.reminder = { enabled: true, time: heur.reminderMinutes, method: 'notification' };
-        if (needsRecurrence && heur.recurrence) payload.recurrence = { ...heur.recurrence, enabled: true };
+      // CONSISTENCY OVERRIDE (epoch vs textual pieces)
+      // If AI supplied both date + time pieces AND an epoch (start_at) that disagrees by calendar day
+      // or drifts >= 30 minutes, prefer the recomputed epoch from pieces. This fixes cases where
+      // startAtMs comes back (e.g. 2024) but startDate/startTime indicate another date (e.g. 2025 09:00).
+      const recomputedStart = (maybeStartDateOnly && maybeStartTimeOnly)
+        ? combineDateTime(maybeStartDateOnly, maybeStartTimeOnly)
+        : undefined;
+      if (recomputedStart && payload.task!.start_at) {
+        try {
+          const original = new Date(payload.task!.start_at);
+          const recomputed = new Date(recomputedStart);
+          const calendarMismatch = original.getFullYear() !== recomputed.getFullYear() || original.getMonth() !== recomputed.getMonth() || original.getDate() !== recomputed.getDate();
+          const diffMinutes = Math.abs(payload.task!.start_at - recomputedStart) / 60000;
+          if (calendarMismatch || diffMinutes >= 30) {
+            console.log('[AI] Consistency override start_at. originalEpoch:', payload.task!.start_at, '-> recomputedFromPieces:', recomputedStart, 'calendarMismatch?', calendarMismatch, 'diffMinutes:', diffMinutes);
+            payload.task!.start_at = recomputedStart;
+          }
+        } catch (e) { console.warn('[AI] start override error', e); }
+      } else if (recomputedStart && !payload.task!.start_at) {
+        // If we never set start_at from epoch but have pieces, set it now.
+        payload.task!.start_at = recomputedStart;
+        try { console.log('[AI] Applied start_at from pieces (no epoch provided):', recomputedStart); } catch {}
       }
 
-      // --- EXTRA heuristics: extract description, priority, recurrence end date, habitMerge from free text ---
-      // 1) description in quotes after "mô tả" or first quoted string
-      if (!payload.task!.description) {
-        const descMatch =
-          maybeText.match(/mô tả\s*(?:là|:)?\s*[“"«']([^“"«']+)[”"»']?/i) ||
-          maybeText.match(/[“"«']([^“"«']+)[”"»']/);
-        if (descMatch) payload.task!.description = String(descMatch[1]).trim();
-      }
-      
-      // 2) priority keywords in free text
-      if (!payload.task!.priority) {
-        const prMatch = maybeText.match(/(?:mức độ|ưu tiên|ưu tiên là|mức độ ưu tiên)\s*(cao|trung bình|trung binh|thấp)/i)
-          || maybeText.match(/\b(cao|trung bình|trung binh|thấp)\b/i);
-        if (prMatch) {
-          const tok = String(prMatch[1] || prMatch[0]).toLowerCase();
-          if (tok.includes('cao')) payload.task!.priority = 'high';
-          else if (tok.includes('trung')) payload.task!.priority = 'medium';
-          else if (tok.includes('thấp')) payload.task!.priority = 'low';
-        }
-      }
-      
-      // 3) recurrence end date: accept dd/mm/yyyy and "dd tháng mm năm yyyy" and variants like "kết thúc chu kỳ lặp vào ngày ..."
-      const recEndRegex1 = /(?:kết thúc(?: chu kỳ)?(?: lặp)?(?: vào ngày)?|ngày kết thúc lặp|kết thúc vào ngày|kết thúc)\s*[:\s]*([0-3]?\d\/[0-1]?\d\/\d{4})/i;
-      const recEndRegex2 = /(?:kết thúc(?: chu kỳ)?(?: lặp)?(?: vào ngày)?|ngày kết thúc lặp|kết thúc vào ngày|kết thúc)\s*[:\s]*((\d{1,2})\s*(?:tháng|thang)\s*(\d{1,2})\s*(?:năm|nam)?\s*(\d{4}))/i;
-      const recEndMatch1 = maybeText.match(recEndRegex1);
-      const recEndMatch2 = maybeText.match(recEndRegex2);
-      if (recEndMatch1) {
-        const ed = parseDateOnly(recEndMatch1[1]);
-        if (ed) {
-          payload.recurrence = payload.recurrence || { enabled: true };
-          payload.recurrence.endDate = ed;
-          payload.recurrence.enabled = true;
-        }
-      } else if (recEndMatch2) {
-        const dd = Number(recEndMatch2[2]), mm = Number(recEndMatch2[3]), yyyy = Number(recEndMatch2[4]);
-        const ed = new Date(yyyy, mm - 1, dd).getTime();
-        payload.recurrence = payload.recurrence || { enabled: true };
-        payload.recurrence.endDate = ed;
-        payload.recurrence.enabled = true;
+      // Attempt to compute end from pieces; if only end time but no end date given, assume same date as start.
+      const recomputedEnd = (() => {
+        if (maybeEndDateOnly && maybeEndTimeOnly) return combineDateTime(maybeEndDateOnly, maybeEndTimeOnly);
+        if (!maybeEndDateOnly && maybeStartDateOnly && maybeEndTimeOnly) return combineDateTime(maybeStartDateOnly, maybeEndTimeOnly);
+        return undefined;
+      })();
+      if (recomputedEnd && payload.task!.end_at) {
+        try {
+          const originalE = new Date(payload.task!.end_at);
+          const recomputedE = new Date(recomputedEnd);
+          const calendarMismatchE = originalE.getFullYear() !== recomputedE.getFullYear() || originalE.getMonth() !== recomputedE.getMonth() || originalE.getDate() !== recomputedE.getDate();
+          const diffMinutesE = Math.abs(payload.task!.end_at - recomputedEnd) / 60000;
+          if (calendarMismatchE || diffMinutesE >= 30) {
+            console.log('[AI] Consistency override end_at. originalEpoch:', payload.task!.end_at, '-> recomputedFromPieces:', recomputedEnd, 'calendarMismatch?', calendarMismatchE, 'diffMinutes:', diffMinutesE);
+            payload.task!.end_at = recomputedEnd;
+          }
+        } catch (e) { console.warn('[AI] end override error', e); }
+      } else if (recomputedEnd && !payload.task!.end_at) {
+        payload.task!.end_at = recomputedEnd;
+        try { console.log('[AI] Applied end_at from pieces (no epoch provided):', recomputedEnd); } catch {}
       }
 
-      // 4) habit merge: detect "gộp nhiều ngày" / "gộp"
-      if (/(gộp nhiều ngày|gop nhieu ngay|gộp ngày|gộp)/i.test(maybeText)) {
-        payload.recurrence = payload.recurrence || { enabled: true };
-        payload.recurrence.habitMerge = true;
-        payload.task!['habitMerge'] = true;
-        payload.recurrence.enabled = true;
-      }
-      
-      // ensure recurrence.enabled true if explicit repeat words present but no structured recurrence set
-      if (!payload.recurrence.enabled && /\b(lặp|lặp lại|lặp theo|hàng tuần|mỗi tuần|tuần|hàng ngày|mỗi ngày|ngày|tháng|năm)\b/i.test(maybeText)) {
-        payload.recurrence.enabled = true;
-      }
-      // --- end EXTRA heuristics ---
+      // Expose end date only piece if present (parallel to startDateOnly)
+      if (maybeEndDateOnly) payload.task!['endDateOnly'] = maybeEndDateOnly;
+
+      // No heuristic fallback: do not parse from raw text
+
+      // No extra heuristics from free text
 
       // Priority / status (try normalized values from parsed data)
       const p = mapPriority(parsed.priority || parsed.priorityLevel || parsed.level || parsed.urgency || parsed.importance);
@@ -373,38 +524,26 @@ export default function VoiceTaskInput({ onParsed }: Props) {
       const st = mapStatus(parsed.status || parsed.state || parsed.statusText);
       if (st) payload.task!.status = st;
 
-      // Reminder: structured or free-form; always ensure payload.reminder.enabled boolean present
+      // Reminder: use only AI-structured values. Do not infer from plain text.
       if (parsed.reminder && typeof parsed.reminder === "object") {
         const r = parsed.reminder;
         const minutes = r?.minutesBefore ?? r?.minutes ?? r?.time ?? null;
         const method = r?.method ?? r?.type ?? null;
-        payload.reminder = { enabled: minutes != null || !!method, time: minutes != null ? Number(minutes) : undefined, method: mapMethod(method) ?? "notification" };
-      } else if (parsed.reminderEnabled === true || parsed.reminderEnabled === false) {
-        payload.reminder.enabled = !!parsed.reminderEnabled;
-        if (parsed.reminderMinutes != null) payload.reminder.time = Number(parsed.reminderMinutes);
-        if (parsed.reminderMethod) payload.reminder.method = mapMethod(parsed.reminderMethod) ?? payload.reminder.method;
-      } else if (parsed.reminder || parsed.reminders) {
-        const r = parsed.reminder || (Array.isArray(parsed.reminders) ? parsed.reminders[0] : parsed.reminders);
-        const minutes = r?.minutesBefore ?? r?.minutes ?? r?.time ?? null;
-        const method = r?.method ?? r?.type ?? null;
-        payload.reminder = { enabled: minutes != null || !!method, time: minutes != null ? Number(minutes) : undefined, method: mapMethod(method) ?? "notification" };
-      } else {
-        const txt = (parsed.text || parsed.summary || text || "").toString().toLowerCase();
-        if (/nhắc|nhắc trước|thông báo|chuông|alarm/.test(txt)) {
-          payload.reminder.enabled = true;
-          if (/(\d+)\s*phút/.test(txt)) {
-            const mm = txt.match(/(\d+)\s*phút/);
-            if (mm) payload.reminder.time = Number(mm[1]);
-          }
-          if (/chuông|alarm/.test(txt)) payload.reminder.method = "alarm";
-        }
+        payload.reminder.time = minutes != null ? Number(minutes) : undefined;
+        if (method) payload.reminder.method = mapMethod(method) ?? "notification";
+        if (typeof r.enabled === 'boolean') payload.reminder.enabled = !!r.enabled;
       }
+      if (parsed.reminderEnabled === true || parsed.reminderEnabled === false) {
+        payload.reminder.enabled = !!parsed.reminderEnabled;
+      }
+      if (parsed.reminderMinutes != null) payload.reminder.time = Number(parsed.reminderMinutes);
+      if (parsed.reminderMethod) payload.reminder.method = mapMethod(parsed.reminderMethod) ?? payload.reminder.method;
 
       // Recurrence: try to map common props and detect interval/period keywords
       // Recurrence: prefer strict parser shape (frequency, interval, daysOfWeek, daysOfMonth, endDateMs)
       if (parsed.recurrence && typeof parsed.recurrence === "object") {
          const rec = parsed.recurrence;
-         const rc: RecurrenceConfig = { enabled: true };
+         const rc: RecurrenceConfig = { enabled: false };
          if (rec.frequency) rc.frequency = mapFrequency(rec.frequency) ?? String(rec.frequency);
          if (rec.interval) rc.interval = Number(rec.interval) || 1;
          if (rec.daysOfWeek) rc.daysOfWeek = parseDowsFromString(rec.daysOfWeek);
@@ -418,63 +557,28 @@ export default function VoiceTaskInput({ onParsed }: Props) {
          }
          if (rec.yearlyCount || rec.yearly_count) rc.yearlyCount = Number(rec.yearlyCount ?? rec.yearly_count) || undefined;
          if (typeof rec.habitMerge === "boolean") rc.habitMerge = rec.habitMerge;
-         if (!rc.interval) rc.interval = 1;
-         payload.recurrence = rc;
-       } else if (parsed.recurrence || parsed.repeat || parsed.repeatConfig) {
-         const rec = parsed.recurrence || parsed.repeat || parsed.repeatConfig;
-         const rc: RecurrenceConfig = { enabled: true };
-         if (rec.frequency) rc.frequency = mapFrequency(rec.frequency) ?? String(rec.frequency);
-         if (rec.interval) rc.interval = Number(rec.interval) || 1;
-         if (rec.daysOfWeek) rc.daysOfWeek = parseDowsFromString(rec.daysOfWeek);
-         if (rec.daysOfMonth) rc.daysOfMonth = parseDomFromString(rec.daysOfMonth);
-         if (rec.endDate) {
-           const ed = toMs(rec.endDate) ?? parseDateOnly(rec.endDate) ?? parseDateVietnameseLong(rec.endDate);
-           if (ed) rc.endDate = ed;
-         }
-         if (rec.yearlyCount || rec.yearly_count) rc.yearlyCount = Number(rec.yearlyCount ?? rec.yearly_count) || undefined;
-         if (typeof rec.habitMerge === "boolean") rc.habitMerge = rec.habitMerge;
+         if (typeof rec.enabled === 'boolean') rc.enabled = !!rec.enabled;
          if (!rc.interval) rc.interval = 1;
          payload.recurrence = rc;
        }
 
-      // habitMerge if provided by strict parser
+      // Habit flags: only accept explicit AI booleans
       if (parsed.habitMerge === true || parsed.habitMerge === false) {
         payload.task!['habitMerge'] = parsed.habitMerge;
       }
-      // also try recurrence.habitMerge -> task.habitMerge (mirror)
-      if (payload.recurrence && typeof payload.recurrence.habitMerge === "boolean") {
-        payload.task!['habitMerge'] = payload.recurrence.habitMerge;
+      if (parsed.habitAuto === true || parsed.habitAuto === false) {
+        (payload as any).habitAuto = parsed.habitAuto;
+        (payload.task as any).habitAuto = parsed.habitAuto;
       }
 
       // If AI didn't provide a title, but provided a short text, use it as title
-      if (!payload.task!.title && parsed.title) payload.task!.title = String(parsed.title).trim();
-      if (!payload.task!.title && parsed.summary) payload.task!.title = String(parsed.summary).slice(0, 200);
-      if (!payload.task!.title && transcript) payload.task!.title = transcript.slice(0, 140);
+  // Do not infer title from summary/transcript
 
-      // --- Sanitize description: remove trailing scheduling sentences and noisy fragments ---
-      if (payload.task!.description) {
-        let d = String(payload.task!.description).trim();
-        // Remove segments that start with common segue phrases indicating scheduling/details rather than description
-        // e.g. "Công việc này sẽ ...", "Bạn muốn ...", "Bạn sẽ ..." etc.
-        d = d.replace(/\b(Công việc này|Bạn muốn|Bạn sẽ|Công việc này sẽ|Bạn cần)\b[\s\S]*$/i, '').trim();
-        // Remove any trailing sentence that contains explicit date/time patterns (dd/mm/yyyy or HH:MM or 'ngày' 'giờ')
-        d = d.replace(/([.?!]\s*)(?=[^\n]*\d{1,2}\/\d{1,2}\/\d{4}|[0-2]?\d[:h]\d{2}|ngày|giờ)[\s\S]*$/i, '').trim();
-        // If description now empty, clear it
-        if (!d) delete payload.task!['description'];
-        else {
-          // limit length and avoid identical to title
-          d = d.slice(0, 300).trim();
-          if (payload.task!.title && String(payload.task!.title).trim() === d) {
-            delete payload.task!['description'];
-          } else {
-            payload.task!.description = d;
-          }
-        }
-      }
-      // --- end sanitize ---
+      // Do not sanitize or infer anything from free text
 
-      setTranscript(text);
-      onParsed(payload);
+  setTranscript(text);
+  try { console.log('[AI] Final payload to modal:', payload); } catch {}
+  onParsed(payload);
     } catch (err: any) {
       console.error('Process error (task)', err);
       Alert.alert('Lỗi', err?.message || 'Không thể phân tích. Vui lòng thử lại.');
@@ -483,88 +587,7 @@ export default function VoiceTaskInput({ onParsed }: Props) {
     }
   };
 
-  // Heuristic parser for Vietnamese short commands like "Gặp khách hàng, thứ 3 lúc 14:00, nhắc 30 phút trước, lặp hàng tuần"
-  function parseTaskFromFreeText(src: string): { startAt?: number; endAt?: number; reminderMinutes?: number | null; recurrence?: any } {
-    const out: any = { reminderMinutes: null, recurrence: null };
-    const s = src.toLowerCase();
-
-    // weekday: match 'thứ 2' .. 'thứ 7' or 'thứ hai' etc., and 'cn' / 'chủ nhật'
-    const weekdayMap: Record<string, number> = {
-      'thứ 2': 1, 'thu 2': 1, 'thứ 3': 2, 'thu 3': 2, 'thứ 4': 3, 'thu 4': 3,
-      'thứ 5': 4, 'thu 5': 4, 'thứ 6': 5, 'thu 6': 5, 'thứ 7': 6, 'thu 7': 6,
-      'thứ 8': 0, // unlikely
-      'chủ nhật': 0, 'chu nhat': 0, 'cn': 0,
-    };
-    let foundWeekday: number | null = null;
-    for (const k of Object.keys(weekdayMap)) {
-      if (s.includes(k)) { foundWeekday = weekdayMap[k]; break; }
-    }
-
-    // time patterns: HH:MM or H giờ MM hoặc H giờ
-    let hour: number | null = null, minute: number | null = 0;
-    const timeMatch = s.match(/(\d{1,2})\s*[:h giờH]\s*(\d{1,2})?/i) || s.match(/(\d{1,2})h(?:\s*(\d{1,2}))?/i) || s.match(/(\d{1,2})\:(\d{2})/);
-    if (timeMatch) {
-      hour = Number(timeMatch[1]);
-      if (timeMatch[2]) minute = Number(timeMatch[2]);
-      if (isNaN(hour)) hour = null;
-      if (isNaN(minute as number)) minute = 0;
-    }
-
-    // reminder: 'nhắc 30 phút' or 'nhắc 30 phút trước'
-    const remMatch = s.match(/nhắc\s*(?:trước\s*)?(\d{1,4})\s*phút/);
-    if (remMatch) {
-      out.reminderMinutes = Number(remMatch[1]);
-    }
-
-    // recurrence: weekly/daily/monthly/yearly
-    let recurrence: any = null;
-    if (/hàng tuần|mỗi tuần|tuần|hằng tuần/i.test(s)) {
-      recurrence = { enabled: true, frequency: 'weekly', interval: 1 };
-      // try include weekday key in daysOfWeek using TaskModal mapping: Mon/Tue/... based on foundWeekday
-      const dowNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-      if (foundWeekday !== null) {
-        recurrence.daysOfWeek = [dowNames[foundWeekday]];
-      }
-    } else if (/hàng ngày|mỗi ngày|ngày/i.test(s)) {
-      recurrence = { enabled: true, frequency: 'daily', interval: 1 };
-    } else if (/hàng tháng|mỗi tháng|tháng/i.test(s)) {
-      recurrence = { enabled: true, frequency: 'monthly', interval: 1 };
-    } else if (/hàng năm|mỗi năm|năm/i.test(s)) {
-      recurrence = { enabled: true, frequency: 'yearly', interval: 1 };
-    }
-
-    // compute next date for found weekday + time
-    const now = new Date();
-    let startAt: number | undefined;
-    if (foundWeekday !== null || hour !== null) {
-      let target = new Date(now.getTime());
-      if (foundWeekday !== null) {
-        // JS: 0=Sun..6=Sat, our map uses same
-        const targetDow = foundWeekday;
-        const delta = (targetDow - target.getDay() + 7) % 7 || 7; // next occurrence (not today)
-        target.setDate(target.getDate() + delta);
-      }
-      if (hour !== null) {
-        target.setHours(hour, minute ?? 0, 0, 0);
-        // if we matched weekday and delta computed as 7 when same day, we already moved to next; if not weekday, ensure time in future
-        if (foundWeekday === null && target.getTime() <= now.getTime()) {
-          // schedule for next day
-          target.setDate(target.getDate() + 1);
-        }
-      }
-      startAt = target.getTime();
-    }
-
-    // default end at +1h if startAt
-    let endAt: number | undefined;
-    if (startAt) endAt = startAt + 60 * 60 * 1000;
-
-    if (recurrence) out.recurrence = recurrence;
-    if (startAt) out.startAt = startAt;
-    if (endAt) out.endAt = endAt;
-
-    return out;
-  }
+  // No heuristic parser; rely strictly on AI structured fields
 
   const handleOpenInput = () => {
     setTempInput('');
@@ -640,16 +663,17 @@ export default function VoiceTaskInput({ onParsed }: Props) {
             </View>
 
             <TextInput
-              style={styles.textInput}
-              placeholder="VD: Gặp khách hàng, thứ 3 lúc 14:00, nhắc 30 phút trước, lặp hàng tuần"
-              placeholderTextColor="#999"
-              value={tempInput}
-              onChangeText={setTempInput}
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-              autoFocus
-            />
+            style={styles.textInput}
+            placeholder="VD: Chuẩn bị báo cáo tiến độ tuần — bắt đầu 09:00, kết thúc 11:30 ngày 15/11, ưu tiên cao, nhắc 40 phút trước, lặp hàng tháng, tự động hoàn thành."
+            placeholderTextColor="#999"
+            value={tempInput}
+            onChangeText={setTempInput}
+            multiline
+            numberOfLines={4}
+            textAlignVertical="top"
+            autoFocus
+          />
+
 
             <View style={styles.modalButtons}>
               <TouchableOpacity

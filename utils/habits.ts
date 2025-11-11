@@ -6,6 +6,38 @@ import { generateOccurrences } from './taskValidation';
 import { getHabitData, setHabitData } from '../database/habit';
 import { getRecurrenceById, updateRecurrence } from '../database/recurrence';
 
+// ---------------------------------------------------------------------------
+// Lightweight global event bus for habit progress changes so UI can update
+// immediately without needing to reload tasks or rely on polling.
+// ---------------------------------------------------------------------------
+type HabitListener = (recurrenceId: number) => void;
+declare global { // augment global for TypeScript
+  // eslint-disable-next-line no-var
+  var __habitProgressListeners: Set<HabitListener> | undefined;
+}
+
+function getListenerSet(): Set<HabitListener> {
+  if (!global.__habitProgressListeners) {
+    global.__habitProgressListeners = new Set();
+  }
+  return global.__habitProgressListeners;
+}
+
+export function subscribeHabitProgress(listener: HabitListener) {
+  getListenerSet().add(listener);
+}
+export function unsubscribeHabitProgress(listener: HabitListener) {
+  getListenerSet().delete(listener);
+}
+function emitHabitProgress(recurrenceId: number) {
+  // Fire inside next microtask to avoid interfering with current state updates
+  Promise.resolve().then(() => {
+    for (const fn of getListenerSet()) {
+      try { fn(recurrenceId); } catch { /* ignore */ }
+    }
+  });
+}
+
 // --- PATCH START: Thêm hàm chuẩn hóa timestamp ---
 /**
  * Chuẩn hóa các giá trị thời gian có thể không nhất quán (ms, seconds, ISO string) thành milliseconds.
@@ -117,6 +149,7 @@ export async function markHabitToday(recurrenceId: number, date?: Date) {
   completions.add(key);
   times[key] = Date.now(); // Luôn là ms
   await setHabitData(recurrenceId, completions, times);
+  emitHabitProgress(recurrenceId);
 }
 export async function unmarkHabitToday(recurrenceId: number, date?: Date) {
   const d = date || new Date();
@@ -125,6 +158,7 @@ export async function unmarkHabitToday(recurrenceId: number, date?: Date) {
   if (completions.has(key)) completions.delete(key);
   if (times[key] != null) delete times[key];
   await setHabitData(recurrenceId, completions, times);
+  emitHabitProgress(recurrenceId);
 }
 
 export async function isHabitDoneOnDate(recurrenceId: number, date?: Date): Promise<boolean> {
@@ -164,6 +198,7 @@ export async function markHabitRange(recurrenceId: number, from: Date, to: Date,
     cur.setDate(cur.getDate() + 1);
   }
   await setHabitData(recurrenceId, completions, times);
+  emitHabitProgress(recurrenceId);
 }
 
 export async function unmarkHabitRange(recurrenceId: number, from: Date, to: Date) {
@@ -180,6 +215,7 @@ export async function unmarkHabitRange(recurrenceId: number, from: Date, to: Dat
     cur.setDate(cur.getDate() + 1);
   }
   await setHabitData(recurrenceId, completions, times);
+  emitHabitProgress(recurrenceId);
 }
 
 export async function autoCompletePastIfEnabled(task: Task, rec: Recurrence) {
@@ -199,12 +235,20 @@ export async function autoCompletePastIfEnabled(task: Task, rec: Recurrence) {
     endAt: normalizeTimestampToMs(o.endAt)!,
   })).filter(o => o.startAt && o.endAt);
 
+  // Chính sách: KHÔNG backfill ngược quá khứ. Chỉ tự động hoàn thành
+  // những lần lặp có hạn (endAt) >= thời điểm bật (enabledAtMs) và đã kết thúc (endAt <= now).
+
   if (rec.merge_streak === 1) {
     const last = normalizedOccs[normalizedOccs.length - 1];
+    // Chỉ auto-complete khi chu kỳ đã kết thúc và hạn cuối của chu kỳ >= enabledAt
     if (last.endAt <= nowMs && last.endAt >= enabledAtMs) {
-      const from = new Date(normalizedOccs[0].startAt);
-      const to = new Date(last.endAt);
-      await markHabitRange(rec.id, from, to, task, rec);
+      const idx = normalizedOccs.findIndex(o => o.endAt >= enabledAtMs);
+      if (idx !== -1) {
+        const from = new Date(normalizedOccs[idx].startAt);
+        const to = new Date(last.endAt);
+        await markHabitRange(rec.id, from, to, task, rec);
+        emitHabitProgress(rec.id);
+      }
     }
     return;
   }
@@ -212,6 +256,7 @@ export async function autoCompletePastIfEnabled(task: Task, rec: Recurrence) {
   const { completions, times } = await getHabitData(rec.id);
   let changed = false;
   for (const occ of normalizedOccs) {
+    // endAt <= now và endAt >= enabledAtMs => chỉ tự động hoàn thành các lần lặp kể từ khi bật
     if (occ.endAt <= nowMs && occ.endAt >= enabledAtMs) {
       const d = new Date(occ.startAt);
       d.setHours(0, 0, 0, 0);
@@ -229,6 +274,7 @@ export async function autoCompletePastIfEnabled(task: Task, rec: Recurrence) {
 
   if (changed) {
     await setHabitData(rec.id, completions, times);
+    emitHabitProgress(rec.id);
   }
 }
 
@@ -268,12 +314,33 @@ export async function getTodayCompletionDelta(
       return { status: null, diffMinutes: null };
   }
   
-  const diffMinutes = Math.round((completionMs - endAtMs) / 60000);
+  // Apply fixed 23:59 cutoff semantics for the occurrence day
+  const dueDate = new Date(endAtMs);
+  const cutoffMs = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate(), 23, 59, 0, 0).getTime();
+  // Determine if completion and due are on the same calendar day
+  const sameDay = (() => {
+    const c = new Date(completionMs);
+    return c.getFullYear() === dueDate.getFullYear() && c.getMonth() === dueDate.getMonth() && c.getDate() === dueDate.getDate();
+  })();
+
   let status: 'early' | 'late' | 'on_time';
-  if (diffMinutes < -1) status = 'early';
-  else if (diffMinutes > 1) status = 'late';
-  else status = 'on_time';
-  
+  let diffMinutes: number;
+
+  if (completionMs <= endAtMs) {
+    // Early: diff vs due (negative or zero)
+    diffMinutes = Math.round((completionMs - endAtMs) / 60000);
+    status = 'early';
+  } else if (sameDay && completionMs <= cutoffMs) {
+    // On-time window: 0 minutes
+    diffMinutes = 0;
+    status = 'on_time';
+  } else {
+    // Late: diff vs cutoff
+    diffMinutes = Math.round((completionMs - cutoffMs) / 60000);
+    if (diffMinutes < 0) diffMinutes = 0; // guard against odd clocks
+    status = 'late';
+  }
+
   return { status, diffMinutes };
 }
 

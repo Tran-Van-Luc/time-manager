@@ -7,8 +7,10 @@ import {
   Modal,
   ScrollView,
   Switch,
+  ActivityIndicator,
   Platform as RNPlatform,
 } from "react-native";
+import axios from "axios";
 import DateTimePicker, {
   DateTimePickerAndroid,
 } from "@react-native-community/datetimepicker";
@@ -72,12 +74,37 @@ export default function TaskModal({
   const prevRepeatFrequencyRef = useRef<string | null>(null);
   // Habit options (apply to any recurrence)
   const [habitMergeStreak, setHabitMergeStreak] = useState(false);
-  // Controlled toggle helpers: prevent enabling auto when merge is enabled
+  // Auto-complete option: tự động đánh hoàn thành khi hết hạn
+  const [habitAutoCompleteExpired, setHabitAutoCompleteExpired] = useState(false);
+  // Toggle handlers: allow auto-complete and merge to be independent
+  const toggleHabitAuto = (val: boolean) => {
+    setHabitAutoCompleteExpired(val);
+    // Cập nhật global flag ngay lập tức để tránh bị trễ khi người dùng ấn Lưu ngay sau khi bật/tắt
+    try {
+      (global as any).__habitFlags = {
+        ...( (global as any).__habitFlags || {} ),
+        auto: !!val,
+        // giữ nguyên merge hiện tại
+        merge: !!habitMergeStreak,
+      };
+    } catch {}
+  };
   const toggleHabitMerge = (val: boolean) => {
     setHabitMergeStreak(val);
+    // Cập nhật global flag ngay lập tức
+    try {
+      (global as any).__habitFlags = {
+        ...( (global as any).__habitFlags || {} ),
+        merge: !!val,
+        auto: !!habitAutoCompleteExpired,
+      };
+    } catch {}
   };
   // Track the original start time to know if user changed it during edit
   const originalStartAtRef = useRef<number | undefined>(undefined);
+  // Track last evaluated title+description to avoid redundant AI calls
+  const lastAutoEvalRef = useRef<string>("\n");
+  const isEvaluatingAutoRef = useRef<boolean>(false);
 
   // Removed 5-minute constraint per request
   // Custom reminder state
@@ -88,6 +115,10 @@ export default function TaskModal({
   const [savedCustomMeta, setSavedCustomMeta] = useState<null | { unit: string; value: string }>(null);
   const MAX_CUSTOM_MINUTES = 7 * 24 * 60; // 7 days
   const [reminderWarning, setReminderWarning] = useState<string>("");
+  // Smooth permission handling for reminder toggle
+  const [notificationPermissionChecked, setNotificationPermissionChecked] = useState<boolean>(false);
+  const [notificationPermissionGranted, setNotificationPermissionGranted] = useState<boolean>(false);
+  const [reminderTogglePending, setReminderTogglePending] = useState<boolean>(false);
   // Bỏ nhập từ file trong modal; chỉ còn thêm thủ công
 
   const formatLead = (mins: number) => {
@@ -115,53 +146,96 @@ export default function TaskModal({
   const handleAIPopulate = (payload: { task?: Record<string, any>; reminder?: any; recurrence?: any }) => {
     if (!payload) return;
     const { task: t, reminder: r, recurrence: rec } = payload;
-r    // habit merge flag may be present on payload or inside task
+    try { console.log('[AI->Modal] Incoming task payload:', t); } catch {}
+    // habit merge flag may be present on payload or inside task
     const habitFlag = (payload as any).habitMerge ?? t?.habitMerge ?? t?.habit_merge ?? null;
     if (habitFlag !== null && habitFlag !== undefined) {
       try {
         setHabitMergeStreak(Boolean(habitFlag));
       } catch {}
     }
+    // auto-complete flag from payload
+    const autoFlag = (payload as any).habitAuto ?? t?.habitAuto ?? t?.habit_auto ?? null;
+    if (autoFlag !== null && autoFlag !== undefined) {
+      try {
+        setHabitAutoCompleteExpired(Boolean(autoFlag));
+      } catch {}
+    }
     // Populate basic fields
     if (t) {
-      setNewTask((prev: any) => ({
-        ...prev,
-        title: t.title ?? prev.title ?? '',
-        description: t.description ?? prev.description ?? prev.description,
-        start_at: t.start_at ?? t.startAt ?? t.start_time ?? prev.start_at,
-        end_at: t.end_at ?? t.endAt ?? t.end_time ?? prev.end_at,
-        priority: t.priority ?? prev.priority,
-        status: t.status ?? prev.status,
-      }));
+      const nextStart = (t.start_at ?? t.startAt ?? t.start_time) ?? undefined;
+      const nextEnd = (t.end_at ?? t.endAt ?? t.end_time) ?? undefined;
+      setNewTask((prev: any) => {
+        const next = {
+          ...prev,
+          title: t.title ?? prev.title ?? '',
+          description: t.description ?? prev.description ?? prev.description,
+          start_at: typeof nextStart === 'number' ? nextStart : prev.start_at,
+          end_at: typeof nextEnd === 'number' ? nextEnd : prev.end_at,
+          priority: t.priority ?? prev.priority,
+          status: t.status ?? prev.status,
+        };
+        try { console.log('[AI->Modal] After first setNewTask(next):', next); } catch {}
+        return next;
+      });
+      // Ensure AI times win over any concurrent default-set in useEffect
+      if (typeof nextStart === 'number' || typeof nextEnd === 'number') {
+        setTimeout(() => {
+          setNewTask((prev: any) => {
+            const next = {
+              ...prev,
+              start_at: typeof nextStart === 'number' ? nextStart : prev.start_at,
+              end_at: typeof nextEnd === 'number' ? nextEnd : prev.end_at,
+            };
+            try { console.log('[AI->Modal] Reinforced times (timeout 0):', { start_at: next.start_at, end_at: next.end_at }); } catch {}
+            return next;
+          });
+        }, 0);
+      }
     }
 
-    // Reminder
+    // Reminder: only enable if AI explicitly sets enabled true
     if (r) {
       try {
-        setReminder(true);
-        const minutes = r.time ?? r.minutes ?? r.minutesBefore ?? r.remind_before ?? null;
-        if (minutes != null) setReminderTime(Number(minutes));
-        if (r.method) setReminderMethod(String(r.method));
+        if (typeof r.enabled === 'boolean') setReminder(!!r.enabled);
+        if (r.enabled) {
+          const minutes = r.time ?? r.minutes ?? r.minutesBefore ?? r.remind_before ?? null;
+          if (minutes != null) setReminderTime(Number(minutes));
+          if (r.method) setReminderMethod(String(r.method));
+        }
       } catch {}
     }
 
-    // Recurrence
+    // Recurrence: only enable if AI explicitly sets enabled true
     if (rec) {
       try {
-        setRepeat(true);
-        if (rec.frequency) setRepeatFrequency(String(rec.frequency));
-        if (rec.interval) setRepeatInterval(Number(rec.interval));
-        if (rec.daysOfWeek) setRepeatDaysOfWeek(Array.isArray(rec.daysOfWeek) ? rec.daysOfWeek : []);
-        if (rec.daysOfMonth) setRepeatDaysOfMonth(Array.isArray(rec.daysOfMonth) ? rec.daysOfMonth : []);
-        if (rec.endDate) setRepeatEndDate(Number(rec.endDate));
-        // If yearly, attempt to hydrate yearlyCount
-        if (rec.frequency === 'yearly' && rec.endDate && newTask.start_at) {
-          const derived = deriveYearlyCountFromDates(newTask.start_at, Number(rec.endDate));
-          if (derived !== null) setYearlyCount(derived);
+        if (typeof rec.enabled === 'boolean') setRepeat(!!rec.enabled);
+        if (rec.enabled) {
+          if (rec.frequency) setRepeatFrequency(String(rec.frequency));
+          if (rec.interval) setRepeatInterval(Number(rec.interval));
+          if (rec.daysOfWeek) setRepeatDaysOfWeek(Array.isArray(rec.daysOfWeek) ? rec.daysOfWeek : []);
+          if (rec.daysOfMonth) setRepeatDaysOfMonth(Array.isArray(rec.daysOfMonth) ? rec.daysOfMonth : []);
+          if (rec.endDate) setRepeatEndDate(Number(rec.endDate));
+          if (rec.frequency === 'yearly' && rec.endDate && newTask.start_at) {
+            const derived = deriveYearlyCountFromDates(newTask.start_at, Number(rec.endDate));
+            if (derived !== null) setYearlyCount(derived);
+          }
         }
       } catch {}
     }
   };
+
+  // Observe time changes for debugging
+  useEffect(() => {
+    try {
+      console.log('[Modal] newTask times updated:', {
+        start_at: newTask.start_at,
+        end_at: newTask.end_at,
+        start_local: newTask.start_at ? new Date(newTask.start_at).toString() : null,
+        end_local: newTask.end_at ? new Date(newTask.end_at).toString() : null,
+      });
+    } catch {}
+  }, [newTask.start_at, newTask.end_at]);
 
   // Đồng bộ giá trị custom (nếu người dùng chỉnh)
   useEffect(() => {
@@ -193,6 +267,25 @@ r    // habit merge flag may be present on payload or inside task
     // Không set warning nào nữa
     setReminderWarning("");
   }, [reminderTime, reminder, newTask.start_at, customReminderMode]);
+
+  // Prefetch notification permission status once when modal opens for smoother toggle
+  useEffect(() => {
+    if (!visible) return;
+    let mounted = true;
+    (async () => {
+      try {
+        const Notifications = await import('expo-notifications');
+        const perms = await Notifications.getPermissionsAsync();
+        // On iOS: perms.status; On Android: perms.granted boolean
+        const granted = (perms as any).granted === true || (perms as any).status === 'granted' || (perms as any).ios?.status === 3; // AUTHORIZED = 3
+        if (mounted) {
+          setNotificationPermissionGranted(!!granted);
+        }
+      } catch {}
+      if (mounted) setNotificationPermissionChecked(true);
+    })();
+    return () => { mounted = false; };
+  }, [visible]);
 
   // If reminder time isn't one of presets, auto-select custom mode and prefill value/unit
   useEffect(() => {
@@ -245,6 +338,179 @@ r    // habit merge flag may be present on payload or inside task
     return years;
   };
 
+  // Helper: compute the next occurrence after start based on frequency + interval
+  const getNextOccurrenceMs = (startMs?: number, freq?: string, interval?: number): number | null => {
+    if (!startMs || !freq) return null;
+    const intv = Math.max(1, Number(interval) || 1);
+    const start = new Date(startMs);
+    switch ((freq || "").toString().toLowerCase()) {
+      case "yearly": {
+        const d = new Date(start);
+        d.setFullYear(d.getFullYear() + intv);
+        return d.getTime();
+      }
+      case "monthly": {
+        const d = new Date(start);
+        d.setMonth(d.getMonth() + intv);
+        return d.getTime();
+      }
+      case "weekly": {
+        return startMs + intv * 7 * 24 * 60 * 60 * 1000;
+      }
+      case "daily":
+      case "day":
+      default: {
+        return startMs + intv * 24 * 60 * 60 * 1000;
+      }
+    }
+  };
+
+  // Helper: next weekly occurrence taking specific daysOfWeek into account
+  const getNextWeeklyOccurrenceMsWithDays = (
+    startMs: number,
+    daysOfWeek: string[],
+    interval: number
+  ): number | null => {
+    if (!startMs || !daysOfWeek || daysOfWeek.length === 0) return null;
+    const idxMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    const selected = Array.from(new Set(daysOfWeek.map((d) => idxMap[d]).filter((n) => n !== undefined))).sort((a, b) => a - b);
+    if (selected.length === 0) return null;
+    const intv = Math.max(1, Number(interval) || 1);
+    const start = new Date(startMs);
+    const startIdx = start.getDay();
+    // same-cycle week (weekIndex=0): pick first selected day strictly after start day
+    const sameWeek = selected.find((d) => d > startIdx);
+    if (sameWeek !== undefined) {
+      const deltaDays = sameWeek - startIdx;
+      const next = new Date(start);
+      next.setDate(start.getDate() + deltaDays);
+      return next.getTime();
+    }
+    // next valid cycle week (weekIndex = interval)
+    const minSel = selected[0];
+    const deltaDays = intv * 7 + ((minSel - startIdx + 7) % 7);
+    const next = new Date(start);
+    next.setDate(start.getDate() + deltaDays);
+    return next.getTime();
+  };
+
+  // Helper: next monthly occurrence taking specific daysOfMonth into account
+  const getNextMonthlyOccurrenceMsWithDays = (
+    startMs: number,
+    daysOfMonth: string[],
+    interval: number
+  ): number | null => {
+    if (!startMs || !daysOfMonth || daysOfMonth.length === 0) return null;
+    const dom = Array.from(new Set(
+      daysOfMonth.map((d) => Math.max(1, Math.min(31, parseInt(String(d).replace(/[^0-9]/g, ''), 10) || 0)))
+    ))
+      .filter((n) => !isNaN(n) && n >= 1 && n <= 31)
+      .sort((a, b) => a - b);
+    if (dom.length === 0) return null;
+    const intv = Math.max(1, Number(interval) || 1);
+    const start = new Date(startMs);
+    const year = start.getFullYear();
+    const month = start.getMonth();
+    const day = start.getDate();
+    const hours = start.getHours();
+    const minutes = start.getMinutes();
+    // Try same month: pick smallest dom > current day and valid for this month
+    const daysInMonth = (y: number, m: number) => new Date(y, m + 1, 0).getDate();
+    const thisMonthMax = daysInMonth(year, month);
+    const sameMonthCandidate = dom.find((d) => d > day && d <= thisMonthMax);
+    if (sameMonthCandidate !== undefined) {
+      return new Date(year, month, sameMonthCandidate, hours, minutes, 0, 0).getTime();
+    }
+    // Move to next allowed month(s) until a valid day exists
+    let step = intv;
+    for (let tries = 0; tries < 24; tries += 1) {
+      const target = new Date(year, month + step, 1, hours, minutes, 0, 0);
+      const maxDay = daysInMonth(target.getFullYear(), target.getMonth());
+      const cand = dom.find((d) => d <= maxDay);
+      if (cand !== undefined) {
+        return new Date(target.getFullYear(), target.getMonth(), cand, hours, minutes, 0, 0).getTime();
+      }
+      step += intv;
+    }
+    return null;
+  };
+
+  // Evaluate title/description to decide auto-complete using AI
+  const evaluateAutoCompleteAI = async (title: string, description: string) => {
+    const t = (title || "").trim();
+    const d = (description || "").trim();
+    const key = `${t}\n${d}`;
+    if (!t && !d) return; // nothing to evaluate
+    if (key === lastAutoEvalRef.current) return; // avoid redundant
+    if (isEvaluatingAutoRef.current) return; // avoid overlap
+    isEvaluatingAutoRef.current = true;
+    try {
+      const GEMINI_API_KEY = String(process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? "");
+      if (!GEMINI_API_KEY) {
+        console.warn('[AI-Auto] Missing EXPO_PUBLIC_GEMINI_API_KEY');
+        return;
+      }
+    const MODEL = 'gemini-2.0-flash';
+    const prompt = `Bạn là một trợ lý AI giúp phân tích công việc để quyết định **mức độ tự động hoàn thành** dựa trên tiêu đề và mô tả, và đưa ra quyết định **BẬT/TẮT** tính năng tự động hoàn thành.
+
+Trước khi phân tích, hãy hiểu rõ các khái niệm sau:
+
+1) Tự động hoàn thành (Auto-complete / Auto-finish)
+  - Là công việc được hệ thống tự động đánh dấu hoàn tất, không cần con người thực hiện hay ra quyết định.
+  - Thường áp dụng cho công việc lặp đi lặp lại, theo quy tắc, không rủi ro.
+
+2) Hoàn thành thủ công
+  - Là công việc cần con người trực tiếp thực hiện hoặc kiểm tra; có thể cần đánh giá, quyết định, sáng tạo.
+  - Thường áp dụng khi có hậu quả quan trọng hoặc yêu cầu quyết định con người.
+
+3) Mức độ tự động (%)
+  - 100%: hoàn toàn tự động, không cần con người.
+  - 70–90%: phần lớn tự động, còn một ít cần kiểm tra.
+  - 40–60%: có yếu tố con người đáng kể.
+  - 0–30%: gần như hoàn toàn dựa vào con người.
+
+Quy tắc ra quyết định (map sang BẬT/TẮT):
+1) Nếu công việc lặp lại, theo quy tắc, thực hiện hoàn toàn bằng hệ thống/ứng dụng, không cần con người quyết định hay kiểm tra → mức độ = 100% → TRẢ LỜI: BẬT.
+2) Nếu phần lớn tự động nhưng vẫn cần ít kiểm tra hoặc điều kiện/phán đoán nhỏ của con người → mức độ = 70–90% → TRẢ LỜI: BẬT.
+3) Nếu cần đánh giá, quyết định, kiểm tra, sáng tạo hoặc có hậu quả quan trọng → mức độ = 0–40% → TRẢ LỜI: TẮT.
+4) Nếu mô tả trống hoặc không đủ chi tiết, mặc định mức độ = 80%, trừ khi tiêu đề thể hiện rõ công việc chắc chắn cần con người → TRẢ LỜI: BẬT.
+
+Lưu ý:
+- Chỉ sử dụng thông tin trong tiêu đề và mô tả; không suy diễn ngoài nội dung có sẵn.
+- Không giải thích lý do; chỉ trả về đúng một từ: BẬT hoặc TẮT.
+
+Công việc:
+- Tiêu đề: "${t}"
+- Mô tả: "${d}"
+
+Chỉ trả lời: BẬT hoặc TẮT`;
+      try { console.log('[AI-Auto] Sending prompt:', { title: t, description: d }); } catch {}
+      const resp = await axios.post(
+        `https://generativelanguage.googleapis.com/v1/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          contents: [ { parts: [ { text: prompt } ] } ],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 20 },
+        }
+      );
+      const raw = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+      const ans = String(raw).trim().replace(/[`*_\s]/g, '').toUpperCase();
+      try { console.log('[AI-Auto] Raw:', raw, '=> normalized:', ans); } catch {}
+      if (ans.includes('BAT') || ans.includes('BẬT')) {
+        toggleHabitAuto(true);
+      } else if (ans.includes('TAT') || ans.includes('TẮT')) {
+        toggleHabitAuto(false);
+      } else {
+        // If unclear, prefer OFF for safety
+        toggleHabitAuto(false);
+      }
+      lastAutoEvalRef.current = key;
+    } catch (e) {
+      console.warn('[AI-Auto] Evaluate failed', e);
+    } finally {
+      isEvaluatingAutoRef.current = false;
+    }
+  };
+
   // Keep repeatEndDate in sync when start_at or yearlyCount changes in yearly mode
   useEffect(() => {
     if (!repeat || repeatFrequency !== "yearly") return;
@@ -256,22 +522,64 @@ r    // habit merge flag may be present on payload or inside task
     }
   }, [newTask.start_at, yearlyCount, repeat, repeatFrequency]);
 
-  // Reset habit toggles when repeat off
+  // NOTE: habit flags (auto / merge) are controlled only by their switches now.
+  // Keep global transient flags in sync so add/edit handlers see latest values.
   useEffect(() => {
-    if (!repeat) {
-      setHabitMergeStreak(false);
-    }
-  }, [repeat]);
+    try {
+      (global as any).__habitFlags = {
+        ...( (global as any).__habitFlags || {} ),
+        merge: !!habitMergeStreak,
+        auto: !!habitAutoCompleteExpired,
+      };
+    } catch {}
+  }, [habitMergeStreak, habitAutoCompleteExpired]);
+
+  // Helper: đồng bộ ngay trước khi gọi handleAddTask/handleEditTask để chắc chắn không bị race
+  const syncHabitFlagsNow = () => {
+    try {
+      (global as any).__habitFlags = {
+        merge: !!habitMergeStreak,
+        auto: !!habitAutoCompleteExpired,
+      };
+    } catch {}
+  };
 
   // When modal becomes visible, hydrate recurrence type from global (set by parent)
   useEffect(() => {
     if (visible) {
-      const flags = (global as any).__habitFlags as { merge?: boolean } | undefined;
-      if (flags) {
-        setHabitMergeStreak(!!flags.merge);
+      // Only hydrate saved habit flags when editing an existing task.
+      // For "add new" modal opens (editId === null) we want defaults to be OFF.
+      if (editId !== null) {
+        const flags = (global as any).__habitFlags as { merge?: boolean; auto?: boolean } | undefined;
+        if (flags) {
+          setHabitMergeStreak(!!flags.merge);
+          setHabitAutoCompleteExpired(!!flags.auto);
+        }
+      } else {
+        // Ensure defaults for a fresh "Add" modal open
+        setHabitMergeStreak(false);
+        setHabitAutoCompleteExpired(false);
       }
       // Capture current frequency on modal open to detect transitions later
       prevRepeatFrequencyRef.current = repeatFrequency;
+      // If editing and the repeat end date is the same calendar day as the
+      // start date, treat this as not repeating in the UI (hide/turn off Repeat).
+      // This makes single-day stored recurrences behave like non-recurring tasks
+      // from the modal perspective.
+      try {
+        if (editId !== null && repeatEndDate && newTask.start_at) {
+          const s = new Date(newTask.start_at);
+          const e = new Date(repeatEndDate);
+          if (
+            s.getFullYear() === e.getFullYear() &&
+            s.getMonth() === e.getMonth() &&
+            s.getDate() === e.getDate()
+          ) {
+            // Force Repeat off in the modal UI
+            setRepeat(false);
+          }
+        }
+      } catch {}
       // Capture original start when opening in edit mode
       if (editId !== null) {
         originalStartAtRef.current = newTask.start_at;
@@ -305,7 +613,7 @@ r    // habit merge flag may be present on payload or inside task
       if (prev && prev !== "yearly") {
         // Switched from another frequency to yearly -> default to 1 and sync end date to start date
         const base = newTask.start_at ? new Date(newTask.start_at) : new Date();
-        setYearlyCount(1);
+        setYearlyCount(2);
         setRepeatEndDate(base.getTime());
       } else {
         // Already yearly (e.g., editing existing) -> hydrate once if empty
@@ -376,6 +684,8 @@ r    // habit merge flag may be present on payload or inside task
 
   // Wrapper to enforce start time at least 1 hour from now when adding
   const handleAddWithConstraint = () => {
+    // đảm bảo flag đã đồng bộ trước khi lưu
+    syncHabitFlagsNow();
     const nowPlus1h = oneHourFromNow().getTime();
     const startMs = newTask.start_at ?? Date.now();
     if (startMs < nowPlus1h) {
@@ -409,6 +719,42 @@ r    // habit merge flag may be present on payload or inside task
           return;
         }
       }
+      // Ensure the recurrence yields at least 2 occurrences.
+      // Yearly: require yearlyCount >= 2. Others: require repeatEndDate to be at or after the next occurrence.
+      if (repeatFrequency === 'yearly') {
+        if (yearlyCount === '' || typeof yearlyCount !== 'number' || yearlyCount < 2) {
+          onInlineAlert?.({ tone: 'warning', title: 'Số lần lặp không hợp lệ', message: 'Lặp theo năm phải ít nhất 2 lần.' });
+          return;
+        }
+      } else {
+        // For non-yearly frequencies, require end date
+        if (!repeatEndDate) {
+          onInlineAlert?.({ tone: 'warning', title: 'Thiếu ngày kết thúc lặp', message: 'Vui lòng chọn ngày kết thúc lặp để có ít nhất 2 lần.' });
+          return;
+        }
+        // Enforce "at least 2 occurrences". For weekly/monthly use the actual next date from selected days.
+        const needsMinTwo = (() => {
+          if (repeatFrequency === 'daily') return true;
+          if (repeatFrequency === 'weekly') return (repeatDaysOfWeek?.length || 0) >= 1;
+          if (repeatFrequency === 'monthly') return (repeatDaysOfMonth?.length || 0) >= 1;
+          return false;
+        })();
+        if (needsMinTwo) {
+          let nextMs: number | null = null;
+          if (repeatFrequency === 'daily') {
+            nextMs = getNextOccurrenceMs(startMs, 'daily', repeatInterval);
+          } else if (repeatFrequency === 'weekly') {
+            nextMs = getNextWeeklyOccurrenceMsWithDays(startMs, repeatDaysOfWeek || [], repeatInterval);
+          } else if (repeatFrequency === 'monthly') {
+            nextMs = getNextMonthlyOccurrenceMsWithDays(startMs, repeatDaysOfMonth || [], repeatInterval);
+          }
+          const endLimit = endOfDay(new Date(repeatEndDate)).getTime();
+          if (!nextMs || !endLimit || endLimit < nextMs) {
+            onInlineAlert?.({ tone: 'warning', title: 'Ngày kết thúc quá sớm', message: 'Ngày kết thúc lặp phải cho ít nhất 2 lần lặp.' });
+            return;
+          }
+        }
+      }
     }
     // Optional: ensure end_at exists and is after start
     if (!newTask.end_at || newTask.end_at <= startMs) {
@@ -423,6 +769,8 @@ r    // habit merge flag may be present on payload or inside task
 
   // Wrapper to enforce constraints when editing: only apply 1-hour rule if start time was changed
   const handleEditWithConstraint = () => {
+    // đảm bảo flag đã đồng bộ trước khi lưu
+    syncHabitFlagsNow();
     const nowPlus1h = oneHourFromNow().getTime();
     const startMs = newTask.start_at ?? Date.now();
     const originalStart = originalStartAtRef.current;
@@ -454,6 +802,39 @@ r    // habit merge flag may be present on payload or inside task
         if (startMs > endLimit) {
           onInlineAlert?.({ tone: 'warning', title: 'Thời gian không hợp lệ', message: 'Ngày bắt đầu không thể sau ngày kết thúc lặp!' });
           return;
+        }
+      }
+      // Ensure the recurrence yields at least 2 occurrences.
+      if (repeatFrequency === 'yearly') {
+        if (yearlyCount === '' || typeof yearlyCount !== 'number' || yearlyCount < 2) {
+          onInlineAlert?.({ tone: 'warning', title: 'Số lần lặp không hợp lệ', message: 'Lặp theo năm phải ít nhất 2 lần.' });
+          return;
+        }
+      } else {
+        if (!repeatEndDate) {
+          onInlineAlert?.({ tone: 'warning', title: 'Thiếu ngày kết thúc lặp', message: 'Vui lòng chọn ngày kết thúc lặp để có ít nhất 2 lần.' });
+          return;
+        }
+        const needsMinTwo = (() => {
+          if (repeatFrequency === 'daily') return true;
+          if (repeatFrequency === 'weekly') return (repeatDaysOfWeek?.length || 0) >= 1;
+          if (repeatFrequency === 'monthly') return (repeatDaysOfMonth?.length || 0) >= 1;
+          return false;
+        })();
+        if (needsMinTwo) {
+          let nextMs: number | null = null;
+          if (repeatFrequency === 'daily') {
+            nextMs = getNextOccurrenceMs(startMs, 'daily', repeatInterval);
+          } else if (repeatFrequency === 'weekly') {
+            nextMs = getNextWeeklyOccurrenceMsWithDays(startMs, repeatDaysOfWeek || [], repeatInterval);
+          } else if (repeatFrequency === 'monthly') {
+            nextMs = getNextMonthlyOccurrenceMsWithDays(startMs, repeatDaysOfMonth || [], repeatInterval);
+          }
+          const endLimit = endOfDay(new Date(repeatEndDate)).getTime();
+          if (!nextMs || !endLimit || endLimit < nextMs) {
+            onInlineAlert?.({ tone: 'warning', title: 'Ngày kết thúc quá sớm', message: 'Ngày kết thúc lặp phải cho ít nhất 2 lần lặp.' });
+            return;
+          }
         }
       }
     }
@@ -500,6 +881,7 @@ r    // habit merge flag may be present on payload or inside task
                   required
                   value={newTask.title}
                   onChangeText={(t) => setNewTask((prev: any) => ({ ...prev, title: t }))}
+                  onBlur={() => evaluateAutoCompleteAI(newTask.title, newTask.description)}
                   autoCapitalize="sentences"
                   returnKeyType="next"
                 />
@@ -507,6 +889,7 @@ r    // habit merge flag may be present on payload or inside task
                   label="Mô tả"
                   value={newTask.description}
                   onChangeText={(t) => setNewTask((prev: any) => ({ ...prev, description: t }))}
+                  onBlur={() => evaluateAutoCompleteAI(newTask.title, newTask.description)}
                   multiline
                 />
                 {/* Ngày bắt đầu */}
@@ -781,8 +1164,49 @@ r    // habit merge flag may be present on payload or inside task
 
                 {/* Nhắc nhở */}
                 <View className="flex-row items-center mb-2">
-                  <Switch value={reminder} onValueChange={setReminder} />
+                  <Switch
+                    value={reminder}
+                    disabled={reminderTogglePending}
+                    onValueChange={async (v) => {
+                      if (!v) {
+                        // Turning off is immediate
+                        setReminder(false);
+                        return;
+                      }
+                      // Turning ON
+                      if (notificationPermissionGranted) {
+                        // Permission already granted -> instant
+                        setReminder(true);
+                        return;
+                      }
+                      // Optimistic ON while requesting permission
+                      setReminder(true);
+                      setReminderTogglePending(true);
+                      try {
+                        const { ensureNotificationPermission } = await import('../../utils/notificationScheduler');
+                        const ok = await ensureNotificationPermission();
+                        if (!ok) {
+                          // Revert if denied
+                          setReminder(false);
+                          onInlineAlert?.({
+                            tone: 'warning',
+                            title: 'Cần quyền thông báo',
+                            message: 'Vui lòng cấp quyền thông báo để bật nhắc nhở.'
+                          });
+                        } else {
+                          setNotificationPermissionGranted(true);
+                        }
+                      } catch (e) {
+                        // In case of error, keep it ON (best-effort) but mark permission as unknown
+                      } finally {
+                        setReminderTogglePending(false);
+                      }
+                    }}
+                  />
                   <Text className="ml-2">Bật nhắc nhở</Text>
+                  {reminderTogglePending ? (
+                    <ActivityIndicator size="small" color="#1d4ed8" style={{ marginLeft: 8 }} />
+                  ) : null}
                 </View>
                 {reminder ? (
                   <>
@@ -898,8 +1322,44 @@ r    // habit merge flag may be present on payload or inside task
                 ) : null}
                 {/* Lặp lại */}
                 <View className="flex-row items-center mb-2">
-                  <Switch value={repeat} onValueChange={setRepeat} />
+                  <Switch
+                    value={repeat}
+                    onValueChange={(v) => {
+                      // propagate repeat state to parent
+                      try { setRepeat(v); } catch {}
+                      // If user turns repeat OFF, also disable merge (gộp)
+                      if (!v) {
+                        try {
+                          setHabitMergeStreak(false);
+                        } catch {}
+                        try {
+                          (global as any).__habitFlags = {
+                            ...( (global as any).__habitFlags || {} ),
+                            merge: false,
+                          };
+                        } catch {}
+                      }
+                    }}
+                  />
                   <Text className="ml-2">Lặp lại</Text>
+                </View>
+                {/* Tuỳ chọn hoàn thành: luôn hiển thị. Khi repeat = true sẽ cho phép cả merge; khi repeat = false chỉ cho phép auto-complete */}
+                <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2">
+                  <Text className="ml-1 mt-0.5 mb-1 font-medium">Tuỳ chọn hoàn thành</Text>
+                  <View className="mt-1 gap-2">
+                    <View className="flex-row items-center justify-between mb-2">
+                      <View className="flex-row items-center">
+                        <Switch value={habitAutoCompleteExpired} onValueChange={toggleHabitAuto} />
+                        <Text className="ml-2">Tự động đánh hoàn thành nếu hết hạn</Text>
+                      </View>
+                    </View>
+                    {repeat ? (
+                      <View className="flex-row items-center">
+                        <Switch value={habitMergeStreak} onValueChange={(v) => { toggleHabitMerge(v); }} />
+                        <Text className="ml-2">Gộp các ngày lặp thành một lần hoàn thành</Text>
+                      </View>
+                    ) : null}
+                  </View>
                 </View>
                 {repeat ? (
                   <>
@@ -1044,12 +1504,12 @@ r    // habit merge flag may be present on payload or inside task
                     {/* Kết thúc lặp: Yearly dùng số lần; các loại khác dùng ngày kết thúc */}
                     {repeatFrequency === "yearly" ? (
                       <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2">
-                        <Text className="ml-1 mt-0.5 mb-1 font-medium">Số lần lặp (1-100) *</Text>
+                        <Text className="ml-1 mt-0.5 mb-1 font-medium">Số lần lặp (2-100) *</Text>
                         <TextInput
                           className="border p-2 rounded bg-white"
                           keyboardType="number-pad"
                           value={yearlyCount === "" ? "" : String(yearlyCount)}
-                          placeholder="Nếu không nhập mặc định là 1"
+                          placeholder="Nếu không nhập mặc định là 2"
                           onChangeText={updateYearlyCount}
                         />
                         <Text className="text-xs text-gray-500 mt-1 ml-1">
@@ -1103,12 +1563,7 @@ r    // habit merge flag may be present on payload or inside task
                           />
                         )}
                         {/* Move merge toggle next to repeat end date so user can choose to collapse cycle completion */}
-                        <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2 mt-2">
-                          <View className="flex-row items-center">
-                            <Switch value={habitMergeStreak} onValueChange={toggleHabitMerge} />
-                            <Text className="ml-2">Gộp các ngày lặp thành một lần hoàn thành</Text>
-                          </View>
-                        </View>
+                                              {/* (merge toggle removed here; rendered in the main "Tuỳ chọn hoàn thành" block) */}
                       </View>
                     )}
                   </>
@@ -1117,7 +1572,7 @@ r    // habit merge flag may be present on payload or inside task
                   <TouchableOpacity
                     className={`bg-blue-600 p-3 rounded-lg mt-2 ${!newTask.title.trim() ? 'opacity-50' : ''}`}
                     onPress={() => {
-                      (global as any).__habitFlags = { merge: habitMergeStreak };
+                      (global as any).__habitFlags = { merge: habitMergeStreak, auto: habitAutoCompleteExpired };
                       handleAddWithConstraint();
                     }}
                     disabled={!newTask.title.trim()}
@@ -1128,7 +1583,7 @@ r    // habit merge flag may be present on payload or inside task
                   <TouchableOpacity
                     className={`bg-blue-600 p-3 rounded-lg mt-2 ${!newTask.title.trim() ? 'opacity-50' : ''}`}
                     onPress={() => {
-                      (global as any).__habitFlags = { merge: habitMergeStreak };
+                      (global as any).__habitFlags = { merge: habitMergeStreak, auto: habitAutoCompleteExpired };
                       handleEditWithConstraint();
                     }}
                     disabled={!newTask.title.trim()}

@@ -271,6 +271,15 @@ export default function TasksScreen() {
     loadReminders();
     loadRecurrences();
     loadSchedules();
+    // Expose reload helpers so background timers/scanners can request a UI refresh
+    try {
+      (global as any).__reloadTasks = loadTasks;
+      (global as any).__reloadRecurrences = loadRecurrences;
+    } catch {}
+    return () => {
+      try { delete (global as any).__reloadTasks; } catch {}
+      try { delete (global as any).__reloadRecurrences; } catch {}
+    };
   }, []);
 
   // Lọc task theo search, priority, status và sắp xếp theo thời gian bắt đầu
@@ -350,19 +359,32 @@ export default function TasksScreen() {
     if (item.recurrence_id) {
       const rec = recurrences.find((r) => r.id === item.recurrence_id);
       if (rec) {
-        setRepeat(true);
-        setRepeatFrequency(rec.type ?? 'daily');
-        setRepeatInterval(rec.interval ?? 1);
-        setRepeatDaysOfWeek(rec.days_of_week ? JSON.parse(rec.days_of_week) : []);
-        setRepeatDaysOfMonth(rec.day_of_month ? JSON.parse(rec.day_of_month) : []);
-        setRepeatStartDate(rec.start_date ? new Date(rec.start_date).getTime() : undefined);
-        setRepeatEndDate(rec.end_date ? new Date(rec.end_date).getTime() : undefined);
-        // Prefill habit flags for TaskModal switches
-            // If merge is enabled, preserve that; auto-complete feature removed so only set merge
-            const mergeFlag = rec.merge_streak === 1;
-            (global as any).__habitFlags = {
-              merge: mergeFlag,
-            };
+        // Detect single-day auto-only recurrence (persisted to store auto flag).
+        const isAutoOnlySingle = rec.auto_complete_expired === 1 && rec.start_date && rec.end_date && rec.start_date === rec.end_date;
+        // Prefill habit flags for TaskModal switches (merge/auto)
+        const mergeFlag = rec.merge_streak === 1;
+        const autoFlag = rec.auto_complete_expired === 1;
+        const prevFlags = (global as any).__habitFlags || {};
+        (global as any).__habitFlags = { ...prevFlags, merge: mergeFlag, auto: autoFlag };
+
+        if (isAutoOnlySingle) {
+          // Keep Repeat UI off but hydrate internal recurrence values
+          setRepeat(false);
+          setRepeatFrequency(rec.type ?? 'daily');
+          setRepeatInterval(rec.interval ?? 1);
+          setRepeatDaysOfWeek(rec.days_of_week ? JSON.parse(rec.days_of_week) : []);
+          setRepeatDaysOfMonth(rec.day_of_month ? JSON.parse(rec.day_of_month) : []);
+          setRepeatStartDate(rec.start_date ? new Date(rec.start_date).getTime() : undefined);
+          setRepeatEndDate(rec.end_date ? new Date(rec.end_date).getTime() : undefined);
+        } else {
+          setRepeat(true);
+          setRepeatFrequency(rec.type ?? 'daily');
+          setRepeatInterval(rec.interval ?? 1);
+          setRepeatDaysOfWeek(rec.days_of_week ? JSON.parse(rec.days_of_week) : []);
+          setRepeatDaysOfMonth(rec.day_of_month ? JSON.parse(rec.day_of_month) : []);
+          setRepeatStartDate(rec.start_date ? new Date(rec.start_date).getTime() : undefined);
+          setRepeatEndDate(rec.end_date ? new Date(rec.end_date).getTime() : undefined);
+        }
       } else {
         setRepeat(false);
         setRepeatFrequency('daily');
@@ -488,8 +510,13 @@ export default function TasksScreen() {
       }
       return r.repeatEndDate;
     })());
-  // Auto-complete removed; only set merge flag
-  (global as any).__habitFlags = { merge: !!r.habitMerge };
+  // Đồng bộ cờ thói quen từ dữ liệu import: luôn set merge; nếu có cung cấp habitAuto thì set, nếu không thì giữ nguyên
+  {
+    const prev = (global as any).__habitFlags || {};
+    const next: any = { ...prev, merge: !!r.habitMerge };
+    if (typeof r.habitAuto === 'boolean') next.auto = r.habitAuto;
+    (global as any).__habitFlags = next;
+  }
   };
 
   const computeImportErrors = (r: ParsedRow): string[] => {
@@ -676,8 +703,15 @@ export default function TasksScreen() {
         // All rows validated -> add them sequentially (no per-row modal). If any add fails, stop and report.
         const failedAdds: { row: number; reason: string }[] = [];
         for (const r of rowsToImport) {
-          // set habit flags for recurrence creation (only merge flag remains)
-          (global as any).__habitFlags = { merge: !!r.habitMerge };
+          // set habit flags for recurrence creation (preserve any existing auto flag)
+          {
+            const prevFlags = (global as any).__habitFlags || {};
+            (global as any).__habitFlags = {
+              ...prevFlags,
+              merge: !!r.habitMerge,
+              ...(typeof r.habitAuto === 'boolean' ? { auto: r.habitAuto } : {}),
+            };
+          }
           const newTaskPayload: any = {
             title: r.title,
             description: r.description || '',
@@ -860,6 +894,15 @@ export default function TasksScreen() {
           openEditModal={openEditModal}
           handleDeleteTask={onDeleteTask}
           loading={loading}
+          onInlineAlert={({ tone, title, message }) =>
+            setAlertState({
+              visible: true,
+              tone,
+              title,
+              message,
+              buttons: [{ text: 'Đóng', onPress: () => {}, tone: 'cancel' }],
+            })
+          }
         />
       )}
 
@@ -925,9 +968,19 @@ export default function TasksScreen() {
       <TaskDetailModal
         visible={showDetail}
         task={detailTask}
+        allTasks={tasks}
         reminders={reminders}
         recurrences={recurrences}
         onClose={() => setShowDetail(false)}
+        onInlineAlert={({ tone, title, message }) =>
+          setAlertState({
+            visible: true,
+            tone,
+            title,
+            message,
+            buttons: [{ text: 'Đóng', onPress: () => {}, tone: 'cancel' }],
+          })
+        }
         onStatusChange={async (taskId, status) => {
           // compute cutoff-aware metadata when marking completed
           const extra: any = { status };

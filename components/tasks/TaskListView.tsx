@@ -5,10 +5,10 @@ import type { Task } from "../../types/Task";
 import type { Reminder} from "../../types/Reminder";
 import type { Recurrence } from "../../types/Recurrence";
 import TaskItem from "./TaskItem";
-import CompactSelect from "./CompactSelect";
 
 interface TaskListViewProps {
   filteredTasks: Task[];
+  // allTasks: Task[]; // Removed to simplify the props
   reminders: Reminder[];
   recurrences: Recurrence[];
   REPEAT_OPTIONS: { label: string; value: string }[];
@@ -16,10 +16,12 @@ interface TaskListViewProps {
   openEditModal: (task: Task) => void;
   handleDeleteTask: (id: number) => void;
   loading: boolean;
+  onInlineAlert?: (info: { tone: 'error'|'warning'|'success'|'info'; title: string; message: string }) => void;
 }
 
 export default function TaskListView({
   filteredTasks,
+  // allTasks, // Removed to simplify the props
   reminders,
   recurrences,
   REPEAT_OPTIONS,
@@ -27,6 +29,7 @@ export default function TaskListView({
   openEditModal,
   handleDeleteTask,
   loading,
+  onInlineAlert,
 }: TaskListViewProps) {
   if (loading) {
     return <Text>Đang tải...</Text>;
@@ -47,8 +50,6 @@ export default function TaskListView({
   // State for selected date
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showAll, setShowAll] = useState(false);
-  const [todayBtnWidth, setTodayBtnWidth] = useState<number | undefined>(undefined);
 
   // Utils
   const isSameDay = (a: Date, b: Date) =>
@@ -173,7 +174,6 @@ export default function TaskListView({
 
   // Date navigation handlers
   const goPrevDay = () => {
-    setShowAll(false);
     setSelectedDate(prev => {
       const d = new Date(prev);
       d.setDate(d.getDate() - 1);
@@ -181,7 +181,6 @@ export default function TaskListView({
     });
   };
   const goNextDay = () => {
-    setShowAll(false);
     setSelectedDate(prev => {
       const d = new Date(prev);
       d.setDate(d.getDate() + 1);
@@ -190,11 +189,9 @@ export default function TaskListView({
   };
   const onPressToday = () => {
     // Always return to today's date in day mode
-    setShowAll(false);
     setSelectedDate(new Date());
   };
   const goToday = () => {
-    setShowAll(false);
     setSelectedDate(new Date());
   };
 
@@ -203,58 +200,25 @@ export default function TaskListView({
   const isTodaySelected = isSameDay(selectedDate, new Date());
 
   // Prepare items and title based on mode
-  const listItems = showAll ? [...filteredTasks].sort((a, b) => {
-    const aStartRaw = a.start_at ? (typeof a.start_at === "string" ? new Date(a.start_at).getTime() : a.start_at) : Number.POSITIVE_INFINITY;
-    const bStartRaw = b.start_at ? (typeof b.start_at === "string" ? new Date(b.start_at).getTime() : b.start_at) : Number.POSITIVE_INFINITY;
-    if (aStartRaw !== bStartRaw) return aStartRaw - bStartRaw;
-    return (a.title || "").localeCompare(b.title || "");
-  }) : selectedItems;
-  const sectionTitle = showAll ? 'Toàn bộ' : dateLabel;
+  const listItems = selectedItems;
+  const sectionTitle = dateLabel;
 
   return (
     <View style={{ flex: 1 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 as any, marginVertical: 8 }}>
-        {!showAll && (
-          <TouchableOpacity onPress={goPrevDay} style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}>
-            <Text style={{ fontSize: 18 }}>{'<'}</Text>
-          </TouchableOpacity>
-        )}
-        {!showAll && (
-          <TouchableOpacity onPress={() => { setShowAll(false); setShowDatePicker(true); }} style={{ paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: '#ddd', borderRadius: 20, backgroundColor: '#f5f5f5' }}>
-            <Text style={{ fontWeight: '600', fontSize: 16 }}>{dateLabel}</Text>
-          </TouchableOpacity>
-        )}
-        {!showAll && (
-          <TouchableOpacity onPress={goNextDay} style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}>
-            <Text style={{ fontSize: 18 }}>{'>'}</Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity onPress={goPrevDay} style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}>
+          <Text style={{ fontSize: 18 }}>{'<'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => { setShowDatePicker(true); }} style={{ paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: '#ddd', borderRadius: 20, backgroundColor: '#f5f5f5' }}>
+          <Text style={{ fontWeight: '600', fontSize: 16 }}>{dateLabel}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={goNextDay} style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}>
+          <Text style={{ fontSize: 18 }}>{'>'}</Text>
+        </TouchableOpacity>
         <View style={{ position: 'relative', marginHorizontal: 6 }}>
-          <TouchableOpacity onLayout={(e) => setTodayBtnWidth(e.nativeEvent.layout.width)} onPress={onPressToday} style={{ paddingVertical: 6, paddingHorizontal: 16, paddingRight: 40, borderWidth: 1, borderColor: (isTodaySelected && !showAll) ? '#007AFF' : (showAll ? '#007AFF' : '#ddd'), borderRadius: 20, backgroundColor: (isTodaySelected && !showAll) ? '#007AFF' : '#f5f5f5' }}>
-            <Text style={{ fontSize: 16, fontWeight: '600', color: (isTodaySelected && !showAll) ? '#fff' : '#000' }}>{showAll ? 'Toàn bộ' : 'Hôm nay'}</Text>
+          <TouchableOpacity onPress={onPressToday} style={{ paddingVertical: 6, paddingHorizontal: 16, borderWidth: 1, borderColor: isTodaySelected ? '#007AFF' : '#ddd', borderRadius: 20, backgroundColor: isTodaySelected ? '#007AFF' : '#f5f5f5' }}>
+            <Text style={{ fontSize: 16, fontWeight: '600', color: isTodaySelected ? '#fff' : '#000' }}>Hôm nay</Text>
           </TouchableOpacity>
-          {/* Arrow overlay at the right end of the same button; only tapping arrow opens dropdown */}
-          <View style={{ position: 'absolute', top: 0, right: 0 }}>
-            <CompactSelect
-              value={showAll ? 'all' : 'today'}
-              onChange={(v) => {
-                if (v === 'today') {
-                  setShowAll(false);
-                  setSelectedDate(new Date());
-                } else if (v === 'all') {
-                  setShowAll(true);
-                }
-              }}
-              options={[
-                { label: 'Hôm nay', value: 'today' },
-                { label: 'Toàn bộ', value: 'all' },
-              ]}
-              fontSizeClassName="text-base"
-              iconOnly
-              buttonStyle={{ borderWidth: 0, backgroundColor: 'transparent', paddingVertical: 6, paddingHorizontal: 12 }}
-              menuWidth={todayBtnWidth}
-            />
-          </View>
         </View>
       </View>
       {showDatePicker && (
@@ -265,7 +229,6 @@ export default function TaskListView({
           onChange={(event, date) => {
             setShowDatePicker(false);
             if (date) {
-              setShowAll(false);
               setSelectedDate(date);
             }
           }}
@@ -287,14 +250,16 @@ export default function TaskListView({
         renderItem={({ item }) => (
           <TaskItem
             item={item}
+            allTasks={filteredTasks} // Use filteredTasks for conflict detection
             reminders={reminders}
             recurrences={recurrences}
             REPEAT_OPTIONS={REPEAT_OPTIONS}
             editTask={editTask}
             openEditModal={openEditModal}
             handleDeleteTask={handleDeleteTask}
-            hideDate={!showAll}
-            allMode={showAll}
+            onInlineAlert={onInlineAlert}
+            hideDate={true}
+            allMode={false}
             selectedDate={selectedDate}
           />
         )}

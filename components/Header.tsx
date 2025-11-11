@@ -1,10 +1,11 @@
 // components/Header.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { View, Text, TouchableOpacity, Image, StyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
+import { usePathname } from "expo-router";
 
 export default function Header() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -12,6 +13,7 @@ export default function Header() {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     let mounted = true;
@@ -36,9 +38,14 @@ export default function Header() {
   };
 
   const showNotifications = () => {
-    // Navigate to the completed screen instead of showing an alert
+    // If we're already on /completed, don't push another copy.
+    if (pathname === "/completed") return;
+
+    // Navigate normally — pathname check prevents stacking when already there.
     router.push('/completed');
   };
+
+  // No navigation cooldown; pathname check prevents duplicate pushes when already on the same screen.
 
   return (
     <LinearGradient
@@ -71,7 +78,7 @@ export default function Header() {
         </TouchableOpacity>
 
         <TouchableOpacity onPress={showNotifications} style={styles.iconButton}>
-          <Text style={styles.iconText}>🔔</Text>
+          <Text style={styles.iconText}>✅</Text>
           {notifications > 0 && (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{notifications}</Text>

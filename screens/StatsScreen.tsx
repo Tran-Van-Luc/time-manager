@@ -1,5 +1,5 @@
 // app/stats.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -32,12 +32,15 @@ import {
   endOfMonth,
   isSameMonth,
   subMonths,
+  subYears,
 } from "date-fns";
 import { useTheme } from "../context/ThemeContext";
 import AIChatModal from '../components/AIChatModal';
+import { useLanguage } from "../context/LanguageContext";
 
 const screenWidth = Dimensions.get("window").width;
-const WEEK_PICKER_COUNT = 12;
+const WEEK_PICKER_COUNT = 52;
+const MONTH_PICKER_COUNT = 12;
 
 export default function StatsScreen() {
   const { tasks, loadTasks } = useTasks();
@@ -46,6 +49,7 @@ export default function StatsScreen() {
 
   const { theme } = useTheme();
   const isDark = theme === "dark";
+  const { language } = useLanguage();
 
   const colors = {
     background: isDark ? "#071226" : "#fff",
@@ -82,17 +86,55 @@ export default function StatsScreen() {
 
   const weekOptions = useMemo(() => {
     const now = startOfWeek(new Date(), { weekStartsOn: 1 });
-    return Array.from({ length: WEEK_PICKER_COUNT }).map((_, i) =>
-      subWeeks(now, i)
-    );
+    const minWeekStart = startOfWeek(subYears(now, 1), { weekStartsOn: 1 });
+    return Array.from({ length: WEEK_PICKER_COUNT })
+      .map((_, i) => subWeeks(now, i))
+      .filter((d) => d.getTime() >= minWeekStart.getTime());
   }, []);
+
+  // ref to the week picker scroll so we can auto-scroll to the selected week
+  const weekScrollRef = useRef<any>(null);
+  const WEEK_ITEM_HEIGHT = 48; // approximate item height used for scrolling
+
+  // when the picker opens for weeks, scroll to the selected week so it's visible
+  useEffect(() => {
+    if (!showPicker || viewMode !== "week") return;
+    try {
+      const idx = weekOptions.findIndex((w) => isSameDay(w, selectedWeekStart));
+      if (idx >= 0 && weekScrollRef.current && typeof weekScrollRef.current.scrollTo === 'function') {
+        const y = Math.max(0, idx * WEEK_ITEM_HEIGHT - WEEK_ITEM_HEIGHT * 2);
+        weekScrollRef.current.scrollTo({ y, animated: true });
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [showPicker, viewMode, weekOptions, selectedWeekStart]);
+
+  
 
   const monthOptions = useMemo(() => {
     const now = startOfMonth(new Date());
-    return Array.from({ length: WEEK_PICKER_COUNT }).map((_, i) =>
-      subMonths(now, i)
-    );
+    const minMonthStart = startOfMonth(subYears(now, 1));
+    return Array.from({ length: MONTH_PICKER_COUNT })
+      .map((_, i) => subMonths(now, i))
+      .filter((d) => d.getTime() >= minMonthStart.getTime());
   }, []);
+
+  // month picker scroll ref + auto-scroll
+  const monthScrollRef = useRef<any>(null);
+  const MONTH_ITEM_HEIGHT = 48;
+  useEffect(() => {
+    if (!showPicker || viewMode !== "month") return;
+    try {
+      const idx = monthOptions.findIndex((m) => m.getTime() === selectedMonthStart.getTime());
+      if (idx >= 0 && monthScrollRef.current && typeof monthScrollRef.current.scrollTo === 'function') {
+        const y = Math.max(0, idx * MONTH_ITEM_HEIGHT - MONTH_ITEM_HEIGHT * 2);
+        monthScrollRef.current.scrollTo({ y, animated: true });
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [showPicker, viewMode, monthOptions, selectedMonthStart]);
 
   const recurrenceMap = useMemo(() => {
     const m: Record<number, any> = {};
@@ -158,8 +200,20 @@ export default function StatsScreen() {
               tmp.setHours(23, 59, 59, 999);
               return tmp.getTime();
             })();
+        // Normalize recurrence end date to end-of-day so the last day is included
         const recEnd = t.recurrence.end_date
-          ? new Date(t.recurrence.end_date).getTime()
+          ? (() => {
+              const d = new Date(t.recurrence.end_date);
+              return new Date(
+                d.getFullYear(),
+                d.getMonth(),
+                d.getDate(),
+                23,
+                59,
+                59,
+                999
+              ).getTime();
+            })()
           : undefined;
         const recConfig = {
           enabled: true,
@@ -231,8 +285,20 @@ export default function StatsScreen() {
               tmp.setHours(23, 59, 59, 999);
               return tmp.getTime();
             })();
+        // Normalize recurrence end date to end-of-day so the last day is included
         const recEnd = t.recurrence.end_date
-          ? new Date(t.recurrence.end_date).getTime()
+          ? (() => {
+              const d = new Date(t.recurrence.end_date);
+              return new Date(
+                d.getFullYear(),
+                d.getMonth(),
+                d.getDate(),
+                23,
+                59,
+                59,
+                999
+              ).getTime();
+            })()
           : undefined;
         const recConfig = {
           enabled: true,
@@ -303,8 +369,16 @@ export default function StatsScreen() {
   const [aiModalVisible, setAiModalVisible] = useState(false);
 
   const buildAiPrompt = () => {
-    const header = `Tôi có ${computedCounts.total} công việc trong phạm vi này, trong đó ${computedCounts.done} đã hoàn thành, ${computedCounts.doing} đang thực hiện và ${computedCounts.overdue} trễ hạn. (Chờ thực hiện: ${computedCounts.upcoming || 0}).`;
-    const lines: string[] = [header, "\nChi tiết từng công việc (tên — thời gian lên lịch — trạng thái / chênh lệch so với hạn):"];
+    const header =
+      language === "en"
+        ? `I have ${computedCounts.total} tasks in this range, of which ${computedCounts.done} are completed, ${computedCounts.doing} in progress and ${computedCounts.overdue} overdue. (Upcoming: ${computedCounts.upcoming || 0}).`
+        : `Tôi có ${computedCounts.total} công việc trong phạm vi này, trong đó ${computedCounts.done} đã hoàn thành, ${computedCounts.doing} đang thực hiện và ${computedCounts.overdue} trễ hạn. (Chờ thực hiện: ${computedCounts.upcoming || 0}).`;
+    const lines: string[] = [
+      header,
+      language === "en"
+        ? "\nDetails for each task (title — scheduled time — status / difference from due):"
+        : "\nChi tiết từng công việc (tên — thời gian lên lịch — trạng thái / chênh lệch so với hạn):",
+    ];
 
     const allItems = [
       ...doneList.map((i) => ({ ...i, __status: "done" })),
@@ -313,8 +387,42 @@ export default function StatsScreen() {
       ...(upcomingList || []).map((i) => ({ ...i, __status: "upcoming" })),
     ];
 
+    const formatMinutesToVn = (mins: number) => {
+      const absMin = Math.abs(Math.round(mins));
+      const parts: string[] = [];
+      const units: { name: string; value: number }[] = [
+        { name: language === "en" ? 'year' : 'năm', value: 525600 }, // 365*24*60
+        { name: language === "en" ? 'month' : 'tháng', value: 43200 }, // 30*24*60 (approx)
+        { name: language === "en" ? 'week' : 'tuần', value: 10080 }, // 7*24*60
+        { name: language === "en" ? 'day' : 'ngày', value: 1440 },
+        { name: language === "en" ? 'hour' : 'giờ', value: 60 },
+        { name: language === "en" ? 'minute' : 'phút', value: 1 },
+      ];
+      let remaining = absMin;
+      for (const u of units) {
+        if (remaining >= u.value) {
+          const cnt = Math.floor(remaining / u.value);
+          remaining = remaining - cnt * u.value;
+          parts.push(`${cnt} ${u.name}`);
+        }
+      }
+      if (parts.length === 0) return language === "en" ? '0 minutes' : '0 phút';
+      return parts.join(' ');
+    };
+
+    // Helpers for AI prompt diff computations with fixed cutoff
+    const parseCutoffMs = (msDate: number) => {
+      const d = new Date(msDate);
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0, 0).getTime();
+    };
+    const isSameLocalDate = (aMs: number, bMs: number) => {
+      const a = new Date(aMs);
+      const b = new Date(bMs);
+      return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    };
+
     allItems.forEach((it, idx) => {
-      const title = it.title || "(không tên)";
+  const title = it.title || (language === "en" ? "(no title)" : "(không tên)");
       const scheduled = (() => {
         try {
           if (it.start && it.end) {
@@ -325,26 +433,86 @@ export default function StatsScreen() {
           if (it.start) return `${format(it.start, "dd/MM")}, ${format(it.start, "HH:mm")}`;
           if (it.end) return `${format(it.end, "dd/MM")}, ${format(it.end, "HH:mm")}`;
         } catch (e) {}
-        return "(không có thời gian)";
+        return language === "en" ? "(no time)" : "(không có thời gian)";
       })();
-      // best-effort: if completion diff is available on the item, use it; otherwise mark unknown
-      const diff = (it as any).completion_diff_minutes ?? (it.completed_at ? Math.round((new Date(it.completed_at).getTime() - (it.end ? it.end.getTime() : it.start ? it.start.getTime() : 0)) / 60000) : null);
+      // best-effort: if completion diff is available on the item, use it;
+      // otherwise if completed_at exists compute relative to due; otherwise
+      // compute a live diff (now vs due) so overdue/upcoming items also show a minutes delta
+      let diff: number | null = null;
+      if ((it as any).completion_diff_minutes != null) {
+        diff = (it as any).completion_diff_minutes;
+      } else if (it.completed_at) {
+        // Completed but without stored diff: compute using fixed cutoff semantics
+        try {
+          const compMs = new Date(it.completed_at).getTime();
+          const dueMs = it.end ? it.end.getTime() : it.start ? it.start.getTime() : null;
+          if (dueMs != null) {
+            const cutoffForDue = parseCutoffMs(dueMs);
+            if (compMs <= dueMs) {
+              diff = Math.round((compMs - dueMs) / 60000);
+            } else if (isSameLocalDate(compMs, dueMs) && compMs <= cutoffForDue) {
+              diff = 0;
+            } else {
+              diff = Math.round((compMs - cutoffForDue) / 60000);
+            }
+          }
+        } catch {
+          diff = null;
+        }
+      } else {
+        // Not completed: live diff vs effective deadline (extend to 23:59 when same day)
+        try {
+          const dueMs = it.end ? it.end.getTime() : it.start ? it.start.getTime() : null;
+          if (dueMs != null) {
+            const nowMs = Date.now();
+            const cutoffForDue = parseCutoffMs(dueMs);
+            const effective = isSameLocalDate(dueMs, nowMs) ? Math.max(dueMs, cutoffForDue) : dueMs;
+            diff = Math.round((nowMs - effective) / 60000);
+          }
+        } catch {
+          diff = null;
+        }
+      }
       let statusLabel = "";
       if (it.__status === "done") {
-        if (diff == null) statusLabel = "Đã hoàn thành (không có dữ liệu chênh lệch)";
-        else if (diff <= 0) statusLabel = `Đã hoàn thành đúng hạn/ sớm ${Math.abs(diff)} phút`;
-        else statusLabel = `Đã hoàn thành trễ ${diff} phút`;
+        statusLabel = language === "en" ? "Completed" : "Đã hoàn thành";
       } else if (it.__status === "doing") {
-        statusLabel = "Đang thực hiện";
+        statusLabel = language === "en" ? "Doing" : "Đang thực hiện";
       } else if (it.__status === "overdue") {
-        statusLabel = "Trễ hạn";
+        statusLabel = language === "en" ? "Overdue" : "Trễ hạn";
       } else {
-        statusLabel = "Chờ thực hiện";
+        statusLabel = language === "en" ? "Upcoming" : "Chờ thực hiện";
       }
-      lines.push(`${idx + 1}. ${title} — ${scheduled} — ${statusLabel}`);
-    });
 
-    lines.push("\nDựa trên danh sách trên, vui lòng đưa ra:\n1) Hãy đánh giá thời gian biểu của tôi một cách chi tiết phù hợp hay không hợp lý gì không\n2) Đánh giá tỷ lệ hoàn thành, trễ hạn, đúng hạn\n3) Rút ra kết luận, đưa ra hướng khắc phục");
+      let diffPart = "";
+      if (diff != null) {
+        const human = formatMinutesToVn(diff);
+        // For completed items, prefer 'sớm/trễ/đúng hạn'; for others use 'còn' or 'trễ'
+        if (it.__status === 'done') {
+          if (language === 'en') {
+            const when = diff > 0 ? 'late' : diff < 0 ? 'early' : 'on time';
+            diffPart = ` — diff: ${when} ${human}`;
+          } else {
+            const when = diff > 0 ? 'trễ' : diff < 0 ? 'sớm' : 'đúng hạn';
+            diffPart = ` — chênh lệch: ${when} ${human}`;
+          }
+        } else {
+          if (language === 'en') {
+            const when = diff > 0 ? 'late' : 'remaining';
+            diffPart = ` — diff: ${when} ${human}`;
+          } else {
+            const when = diff > 0 ? 'trễ' : 'còn';
+            diffPart = ` — chênh lệch: ${when} ${human}`;
+          }
+        }
+      }
+      lines.push(`${idx + 1}. ${title} — ${scheduled} — ${statusLabel}${diffPart}`);
+    });
+    lines.push(
+      language === "en"
+        ? "\nBased on the list above, please: \n1) Evaluate whether my schedule is reasonable or not and provide details.\n2) Assess completion, overdue and on-time rates.\n3) Draw conclusions and suggest improvements."
+        : "\nDựa trên danh sách trên, vui lòng đưa ra:\n1) Hãy đánh giá thời gian biểu của tôi một cách chi tiết phù hợp hay không hợp lý gì không.\n2) Đánh giá tỷ lệ hoàn thành, trễ hạn, đúng hạn.\n3) Rút ra kết luận, đưa ra hướng khắc phục."
+    );
     return lines.join("\n");
   };
   const aiPrompt = buildAiPrompt();
@@ -364,21 +532,21 @@ export default function StatsScreen() {
 
   const tasksPieData = [
     {
-      name: "Hoàn thành",
+      name: language === "en" ? "Completed" : "Hoàn thành",
       population: doneTasks,
       color: colors.positive,
       legendFontColor: colors.text,
       legendFontSize: 12,
     },
     {
-      name: "Đang thực hiện",
+      name: language === "en" ? "Doing" : "Đang thực hiện",
       population: doingTasks,
       color: colors.warn,
       legendFontColor: colors.text,
       legendFontSize: 12,
     },
     {
-      name: "Trễ hạn",
+      name: language === "en" ? "Overdue" : "Trễ hạn",
       population: overdueTasks,
       color: colors.danger,
       legendFontColor: colors.text,
@@ -391,7 +559,7 @@ export default function StatsScreen() {
     ? [
         ...tasksPieData,
         {
-          name: "Chờ thực hiện",
+          name: language === "en" ? "Upcoming" : "Chờ thực hiện",
           population: computedCounts.upcoming || 0,
           color: "#60a5fa",
           legendFontColor: colors.text,
@@ -404,7 +572,7 @@ export default function StatsScreen() {
     () => Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i)),
     [weekStart]
   );
-  const weekLabels = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
+  const weekLabels = language === "en" ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] : ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
   const weekCounts = weekDays.map(
     (d) => weekData.occsForBar.filter((o) => isSameDay(o.start, d)).length
   );
@@ -445,29 +613,16 @@ export default function StatsScreen() {
           (viewMode === "week" ? weekData.occsForBar : monthData.occsForBar) ||
           [];
 
-        // Load cutoff settings (treat explicit 'true' as enabled; missing -> disabled)
-        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-        const CUT_OFF_KEY = 'endOfDayCutoff';
-        const CUT_OFF_ENABLED_KEY = 'endOfDayCutoffEnabled';
-        let cutoffEnabled = false;
-        let cutoffString = '23:00';
-        try {
-          const [cs, en] = await Promise.all([
-            AsyncStorage.getItem(CUT_OFF_KEY),
-            AsyncStorage.getItem(CUT_OFF_ENABLED_KEY),
-          ]);
-          if (cs) cutoffString = cs;
-          cutoffEnabled = en === 'true';
-        } catch (e) {
-          // ignore storage failures and use defaults
-        }
+        // Fixed cutoff policy: always use 23:59 as the end-of-day cutoff
+        const cutoffEnabled = true;
+        const cutoffString = '23:59';
 
         const parseCutoffMs = (msDate: number, cs: string) => {
           try {
             const d = new Date(msDate);
-            const [hStr, mStr] = (cs || '23:00').split(':');
+            const [hStr, mStr] = (cs || '23:59').split(':');
             const h = parseInt(hStr || '23', 10);
-            const m = parseInt(mStr || '0', 10);
+            const m = parseInt(mStr || '59', 10);
             if (Number.isNaN(h) || Number.isNaN(m)) return null;
             return new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m).getTime();
           } catch (e) {
@@ -587,23 +742,22 @@ export default function StatsScreen() {
               const completionMs = typeof completionTs === 'number' ? completionTs : Date.parse(String(completionTs));
               if (!isNaN(completionMs)) {
                 item.completed_at = new Date(completionMs).toISOString();
-                // Compute diff relative to effective deadline (cutoff-aware)
+                // Apply fixed cutoff semantics: early vs due; due->cutoff on_time (0p); late vs cutoff
                 try {
-                  const diffEffective = Math.round((completionMs - effectiveDeadlineRec) / 60000);
-                  // If cutoff extended the deadline for today, use dual-check like TaskItem: completion vs due and vs effective
-                  if (cutoffEnabled && (() => { const c = parseCutoffMs(dueMs, cutoffString); return c != null && c > dueMs && isSameLocalDate(dueMs, now); })()) {
-                    const diffDue = Math.round((completionMs - dueMs) / 60000);
-                    if (diffDue < -1) item.completion_status = 'early';
-                    else if (diffEffective > 1) item.completion_status = 'late';
-                    else item.completion_status = 'on_time';
-                    item.completion_diff_minutes = diffEffective;
+                  const cutoffForDue = parseCutoffMs(dueMs, cutoffString);
+                  const withinSameDay = isSameLocalDate(completionMs, dueMs);
+                  if (completionMs <= dueMs) {
+                    item.completion_status = 'early';
+                    item.completion_diff_minutes = Math.round((completionMs - dueMs) / 60000);
+                  } else if (withinSameDay && cutoffForDue != null && completionMs <= cutoffForDue) {
+                    item.completion_status = 'on_time';
+                    item.completion_diff_minutes = 0;
                   } else {
-                    item.completion_diff_minutes = diffEffective;
-                    if (diffEffective < -1) item.completion_status = 'early';
-                    else if (diffEffective > 1) item.completion_status = 'late';
-                    else item.completion_status = 'on_time';
+                    const lateBase = cutoffForDue != null ? cutoffForDue : dueMs;
+                    item.completion_status = 'late';
+                    item.completion_diff_minutes = Math.round((completionMs - lateBase) / 60000);
                   }
-              } catch { /* ignore compute errors */ }
+                } catch {}
               }
             }
 
@@ -666,12 +820,6 @@ export default function StatsScreen() {
                 (viewMode === "week" ? weekEnd.getTime() : monthEnd.getTime())
             ) {
               const dueMs = last.endAt;
-              // cutoff-aware effective deadline
-              let effectiveDeadline = dueMs;
-              if (cutoffEnabled && isSameLocalDate(dueMs, now)) {
-                const cutoffForDate = parseCutoffMs(dueMs, cutoffString);
-                if (cutoffForDate != null) effectiveDeadline = Math.max(effectiveDeadline, cutoffForDate);
-              }
               const item: any = {
                 id: `merge-${rid}`,
                 title: baseTask.title,
@@ -682,18 +830,18 @@ export default function StatsScreen() {
                 completed_at: new Date(completionTimestamp).toISOString(),
               };
               try {
-                const diffEffective = Math.round((completionTimestamp - effectiveDeadline) / 60000);
-                if (cutoffEnabled && (() => { const c = parseCutoffMs(dueMs, cutoffString); return c != null && c > dueMs && isSameLocalDate(dueMs, now); })()) {
-                  const diffDue = Math.round((completionTimestamp - dueMs) / 60000);
-                  if (diffDue < -1) item.completion_status = 'early';
-                  else if (diffEffective > 1) item.completion_status = 'late';
-                  else item.completion_status = 'on_time';
-                  item.completion_diff_minutes = diffEffective;
+                const cutoffForDue = parseCutoffMs(dueMs, cutoffString);
+                const withinSameDay = isSameLocalDate(completionTimestamp, dueMs);
+                if (completionTimestamp <= dueMs) {
+                  item.completion_status = 'early';
+                  item.completion_diff_minutes = Math.round((completionTimestamp - dueMs) / 60000);
+                } else if (withinSameDay && cutoffForDue != null && completionTimestamp <= cutoffForDue) {
+                  item.completion_status = 'on_time';
+                  item.completion_diff_minutes = 0;
                 } else {
-                  item.completion_diff_minutes = diffEffective;
-                  if (diffEffective < -1) item.completion_status = 'early';
-                  else if (diffEffective > 1) item.completion_status = 'late';
-                  else item.completion_status = 'on_time';
+                  const lateBase = cutoffForDue != null ? cutoffForDue : dueMs;
+                  item.completion_status = 'late';
+                  item.completion_diff_minutes = Math.round((completionTimestamp - lateBase) / 60000);
                 }
               } catch {}
               done.push(item);
@@ -789,7 +937,7 @@ export default function StatsScreen() {
   // update effect dependencies to include monthData and viewMode
 
   const renderTaskItem = ({ item }: { item: any }) => {
-    const time = item.start ? `${item.start.toLocaleString()}` : "Không có giờ";
+  const time = item.start ? `${item.start.toLocaleString()}` : (language === "en" ? "No time" : "Không có giờ");
     const statusColor = item.completedFlag
       ? colors.positive
       : item.end && item.end.getTime() < Date.now()
@@ -809,10 +957,10 @@ export default function StatsScreen() {
             : "#94a3b8";
     const indicatorColor = item.priority ? priorityColor : statusColor;
     let priorityLabel = "";
-    if (item.priority === "high") priorityLabel = "Cao";
-    else if (item.priority === "medium") priorityLabel = "Trung bình";
+    if (item.priority === "high") priorityLabel = language === "en" ? "High" : "Cao";
+    else if (item.priority === "medium") priorityLabel = language === "en" ? "Medium" : "Trung bình";
     else if (item.priority === "low" || item.priority === "green")
-      priorityLabel = "Thấp";
+      priorityLabel = language === "en" ? "Low" : "Thấp";
     else if (item.priority) priorityLabel = String(item.priority);
     if (priorityLabel)
       priorityLabel =
@@ -825,8 +973,9 @@ export default function StatsScreen() {
       const cStatus = (item as any).completion_status;
       const completedAt = item.completed_at || (item.completed_at === null ? null : undefined);
       if (cDiff != null) {
-        if (cStatus === 'on_time' || cDiff <= 0) return `đúng hạn / sớm ${Math.abs(cDiff)} phút`;
-        return `trễ ${cDiff} phút`;
+        if (cStatus === 'on_time' || cDiff <= 0)
+          return language === "en" ? `on time / early ${Math.abs(cDiff)} minutes` : `đúng hạn / sớm ${Math.abs(cDiff)} phút`;
+        return language === "en" ? `late ${cDiff} minutes` : `trễ ${cDiff} phút`;
       }
       // If we have a completed timestamp but no diff, compute best-effort
       if (item.completed_at) {
@@ -835,8 +984,8 @@ export default function StatsScreen() {
           const dueMs = item.end ? item.end.getTime() : item.start ? item.start.getTime() : null;
           if (dueMs) {
             const diff = Math.round((compMs - dueMs) / 60000);
-            if (diff <= 0) return `đúng hạn / sớm ${Math.abs(diff)} phút`;
-            return `trễ ${diff} phút`;
+            if (diff <= 0) return language === "en" ? `on time / early ${Math.abs(diff)} minutes` : `đúng hạn / sớm ${Math.abs(diff)} phút`;
+            return language === "en" ? `late ${diff} minutes` : `trễ ${diff} phút`;
           }
         } catch {}
       }
@@ -846,8 +995,8 @@ export default function StatsScreen() {
           const nowMs = Date.now();
           const dueMs = item.end.getTime();
           const diffNow = Math.round((nowMs - dueMs) / 60000);
-          if (diffNow > 0) return `trễ ${diffNow} phút`;
-          return `còn ${Math.abs(diffNow)} phút`;
+          if (diffNow > 0) return language === "en" ? `late ${diffNow} minutes` : `trễ ${diffNow} phút`;
+          return language === "en" ? `remaining ${Math.abs(diffNow)} minutes` : `còn ${Math.abs(diffNow)} phút`;
         } catch {}
       }
       return null;
@@ -877,11 +1026,7 @@ export default function StatsScreen() {
         </View>
         <View style={styles.itemMeta}>
           <Text style={[styles.rowTime, { color: colors.muted }]}>{time}</Text>
-          {minuteLabel ? (
-            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>
-              {minuteLabel}
-            </Text>
-          ) : null}
+          {/* minute diff moved to AI prompt; do not show 'trễ/sớm/đúng hạn X phút' on the card */}
           {item.priority ? (
             <View
               style={[styles.priorityPill, { backgroundColor: priorityColor }]}
@@ -891,6 +1036,8 @@ export default function StatsScreen() {
           ) : null}
         </View>
       </View>
+
+      
     );
   };
 
@@ -1051,7 +1198,10 @@ export default function StatsScreen() {
     ).length;
   }, [mappedSchedules]);
 
-  const weekDayLabels = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
+  const weekDayLabels =
+    language === "en"
+      ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+      : ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
   const weekCountsSched = useMemo(() => {
     const counts = [0, 0, 0, 0, 0, 0, 0];
     mappedSchedules.forEach((s: any) => {
@@ -1083,7 +1233,7 @@ export default function StatsScreen() {
       contentContainerStyle={{ paddingBottom: 30 }}
     >
       <Text style={[styles.header, { color: colors.text }]}>
-        Báo cáo & Thống kê
+        {language === "en" ? "Reports & Stats" : "Báo cáo & Thống kê"}
       </Text>
 
       <View
@@ -1117,14 +1267,14 @@ export default function StatsScreen() {
             ]}
             onPress={() => setSelectedKind("tasks")}
           >
-            <Text
-              style={[
-                styles.kindBtnText,
-                selectedKind === "tasks" && styles.kindBtnTextActive,
-                { color: selectedKind === "tasks" ? "#fff" : colors.text },
-              ]}
-            >
-              Công việc
+              <Text
+                style={[
+                  styles.kindBtnText,
+                  selectedKind === "tasks" && styles.kindBtnTextActive,
+                  { color: selectedKind === "tasks" ? "#fff" : colors.text },
+                ]}
+              >
+              {language === "en" ? "Tasks" : "Công việc"}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -1139,18 +1289,30 @@ export default function StatsScreen() {
             ]}
             onPress={() => setSelectedKind("schedules")}
           >
-            <Text
-              style={[
-                styles.kindBtnText,
-                selectedKind === "schedules" && styles.kindBtnTextActive,
-                { color: selectedKind === "schedules" ? "#fff" : colors.text },
-              ]}
-            >
-              Lịch học
+              <Text
+                style={[
+                  styles.kindBtnText,
+                  selectedKind === "schedules" && styles.kindBtnTextActive,
+                  { color: selectedKind === "schedules" ? "#fff" : colors.text },
+                ]}
+              >
+              {language === "en" ? "Schedules" : "Lịch học"}
             </Text>
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* AI suggestion quick action - only visible on Tasks view */}
+      {selectedKind === "tasks" && (
+        <View style={{ marginBottom: 12 }}>
+          <TouchableOpacity
+            style={[styles.aiSuggestBtn, { backgroundColor: isDark ? "#2563EB" : "#2563EB" }]}
+            onPress={() => setAiModalVisible(true)}
+          >
+            <Text style={styles.aiSuggestBtnText}>{language === "en" ? "🤖 AI review tasks" : "🤖 Nhận xét công việc từ AI"}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <Modal
         visible={showPicker && selectedKind === "tasks"}
@@ -1162,7 +1324,7 @@ export default function StatsScreen() {
           style={[styles.modalOverlay, { backgroundColor: colors.modalBg }]}
           onPress={() => setShowPicker(false)}
         >
-          <View style={[styles.weekModal, { backgroundColor: colors.panel }]}>
+          <View style={[styles.weekModal, { backgroundColor: colors.panel }]}> 
             <View
               style={{
                 flexDirection: "row",
@@ -1175,8 +1337,8 @@ export default function StatsScreen() {
                 style={{ fontWeight: "700", fontSize: 16, color: colors.text }}
               >
                 {viewMode === "week"
-                  ? `Chọn tuần (${format(selectedWeekStart, "MM/yyyy")})`
-                  : `Chọn tháng (${format(selectedMonthStart, "yyyy")})`}
+                  ? (language === "en" ? `Select week (${format(selectedWeekStart, "MM/yyyy")})` : `Chọn tuần (${format(selectedWeekStart, "MM/yyyy")})`)
+                  : (language === "en" ? `Select month (${format(selectedMonthStart, "yyyy")})` : `Chọn tháng (${format(selectedMonthStart, "yyyy")})`)}
               </Text>
               <View style={{ flexDirection: "row" }}>
                 <TouchableOpacity
@@ -1195,7 +1357,7 @@ export default function StatsScreen() {
                       fontWeight: "700",
                     }}
                   >
-                    Tuần
+                    {language === "en" ? "Week" : "Tuần"}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -1213,53 +1375,62 @@ export default function StatsScreen() {
                       fontWeight: "700",
                     }}
                   >
-                    Tháng
+                    {language === "en" ? "Month" : "Tháng"}
                   </Text>
                 </TouchableOpacity>
               </View>
             </View>
             {viewMode === "week"
-              ? weekOptions.map((week) => {
-                  const isSelected = isSameDay(week, selectedWeekStart);
-                  const isCurrent = isSameDay(
-                    week,
-                    startOfWeek(new Date(), { weekStartsOn: 1 })
-                  );
-                  return (
-                    <TouchableOpacity
-                      key={week.toISOString()}
-                      style={[
-                        styles.weekModalItem,
-                        isSelected && styles.weekModalItemActive,
-                        !isSelected && isCurrent && styles.weekModalItemCurrent,
-                        {
-                          backgroundColor: isSelected
-                            ? colors.accent
-                            : !isSelected && isCurrent
-                              ? isDark
-                                ? "#07315a"
-                                : "#e0e7ff"
-                              : colors.panel,
-                        },
-                      ]}
-                      onPress={() => onSelectWeek(week)}
-                    >
-                      <Text
+              ? (
+                <ScrollView
+                  ref={weekScrollRef}
+                  style={{ maxHeight: 360 }}
+                  contentContainerStyle={{ paddingVertical: 4 }}
+                  showsVerticalScrollIndicator
+                >
+                  {weekOptions.map((week) => {
+                    const isSelected = isSameDay(week, selectedWeekStart);
+                    const isCurrent = isSameDay(
+                      week,
+                      startOfWeek(new Date(), { weekStartsOn: 1 })
+                    );
+                    return (
+                      <TouchableOpacity
+                        key={week.toISOString()}
                         style={[
-                          styles.weekModalItemText,
-                          isSelected && styles.weekModalItemTextActive,
-                          !isSelected &&
-                            isCurrent &&
-                            styles.weekModalItemTextCurrent,
-                          { color: isSelected ? "#fff" : colors.text },
+                          styles.weekModalItem,
+                          isSelected && styles.weekModalItemActive,
+                          !isSelected && isCurrent && styles.weekModalItemCurrent,
+                          {
+                            backgroundColor: isSelected
+                              ? colors.accent
+                              : !isSelected && isCurrent
+                                ? isDark
+                                  ? "#07315a"
+                                  : "#e0e7ff"
+                                : colors.panel,
+                          },
                         ]}
+                        onPress={() => onSelectWeek(week)}
                       >
-                        {format(week, "dd/MM")} -{" "}
-                        {format(addDays(week, 6), "dd/MM")}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })
+                        <Text
+                          style={[
+                            styles.weekModalItemText,
+                            isSelected && styles.weekModalItemTextActive,
+                            !isSelected &&
+                              isCurrent &&
+                              styles.weekModalItemTextCurrent,
+                            { color: isSelected ? "#fff" : colors.text },
+                          ]}
+                        >
+                          {format(week, "dd/MM")} -{" "}
+                          {format(addDays(week, 6), "dd/MM")}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )
               : monthOptions.map((m) => {
                   const selMonth = startOfMonth(m);
                   const isSelected =
@@ -1316,7 +1487,7 @@ export default function StatsScreen() {
                 {totalTasks}
               </Text>
               <Text style={[styles.kpiLabel, { color: colors.muted }]}>
-                Tổng công việc
+                {language === "en" ? "Total tasks" : "Tổng công việc"}
               </Text>
             </View>
             <View
@@ -1329,7 +1500,7 @@ export default function StatsScreen() {
                 {doneTasks}
               </Text>
               <Text style={[styles.kpiLabel, { color: colors.muted }]}>
-                Đã hoàn thành
+                {language === "en" ? "Completed" : "Đã hoàn thành"}
               </Text>
             </View>
             {(viewMode === "week" ? isCurrentWeek : isCurrentMonth) ? (
@@ -1343,7 +1514,7 @@ export default function StatsScreen() {
                   {computedCounts.upcoming || 0}
                 </Text>
                 <Text style={[styles.kpiLabel, { color: colors.muted }]}>
-                  Chờ thực hiện
+                  {language === "en" ? "Upcoming" : "Chờ thực hiện"}
                 </Text>
               </View>
             ) : null}
@@ -1359,8 +1530,8 @@ export default function StatsScreen() {
               <Text style={[styles.kpiValue, { color: "#ca8a04" }]}>
                 {doingTasks}
               </Text>
-              <Text style={[styles.kpiLabel, { color: colors.muted }]}>
-                Đang thực hiện
+              <Text style={[styles.kpiLabel, { color: colors.muted }]}> 
+                {language === "en" ? "In progress" : "Đang thực hiện"}
               </Text>
             </View>
             <View
@@ -1372,14 +1543,14 @@ export default function StatsScreen() {
               <Text style={[styles.kpiValue, { color: colors.danger }]}>
                 {overdueTasks}
               </Text>
-              <Text style={[styles.kpiLabel, { color: colors.muted }]}>
-                Trễ hạn
+              <Text style={[styles.kpiLabel, { color: colors.muted }]}> 
+                {language === "en" ? "Overdue" : "Trễ hạn"}
               </Text>
             </View>
           </View>
 
           <Text style={[styles.subHeader, { color: colors.text }]}>
-            Tỷ lệ trạng thái
+            {language === "en" ? "Status distribution" : "Tỷ lệ trạng thái"}
           </Text>
           <PieChart
             data={pieDataWithUpcoming}
@@ -1392,10 +1563,10 @@ export default function StatsScreen() {
             absolute
           />
 
-          <Text style={[styles.subHeader, { color: colors.text }]}>
+          <Text style={[styles.subHeader, { color: colors.text }]}> 
             {viewMode === "week"
-              ? "Số công việc theo ngày (tuần)"
-              : `Số công việc theo ngày (tháng ${format(monthStart, "MM/yyyy")})`}
+              ? (language === "en" ? "Tasks per day (week)" : "Số công việc theo ngày (tuần)")
+              : (language === "en" ? `Tasks per day (month ${format(monthStart, "MM/yyyy")})` : `Số công việc theo ngày (tháng ${format(monthStart, "MM/yyyy")})`)}
           </Text>
           {viewMode === "week" ? (
             <BarChart
@@ -1475,12 +1646,12 @@ export default function StatsScreen() {
             }}
           />
 
-          <Text style={[styles.subHeader, { color: "#ca8a04" }]}>
-            Công việc đang thực hiện
+          <Text style={[styles.subHeader, { color: "#ca8a04" }]}> 
+            {language === "en" ? "In progress" : "Công việc đang thực hiện"}
           </Text>
           {doingList.length === 0 ? (
-            <Text style={[styles.empty, { color: colors.muted }]}>
-              Không có
+            <Text style={[styles.empty, { color: colors.muted }]}> 
+              {language === "en" ? "None" : "Không có"}
             </Text>
           ) : (
             <FlatList
@@ -1497,11 +1668,11 @@ export default function StatsScreen() {
               { marginTop: 12, color: colors.positive },
             ]}
           >
-            Công việc đã hoàn thành
+            {language === "en" ? "Completed tasks" : "Công việc đã hoàn thành"}
           </Text>
           {doneList.length === 0 ? (
-            <Text style={[styles.empty, { color: colors.muted }]}>
-              Không có
+            <Text style={[styles.empty, { color: colors.muted }]}> 
+              {language === "en" ? "None" : "Không có"}
             </Text>
           ) : (
             <FlatList
@@ -1515,11 +1686,11 @@ export default function StatsScreen() {
           <Text
             style={[styles.subHeader, { marginTop: 12, color: colors.danger }]}
           >
-            Công việc trễ hạn
+            {language === "en" ? "Overdue tasks" : "Công việc trễ hạn"}
           </Text>
           {overdueList.length === 0 ? (
-            <Text style={[styles.empty, { color: colors.muted }]}>
-              Không có
+            <Text style={[styles.empty, { color: colors.muted }]}> 
+              {language === "en" ? "None" : "Không có"}
             </Text>
           ) : (
             <FlatList
@@ -1535,11 +1706,11 @@ export default function StatsScreen() {
               <Text
                 style={[styles.subHeader, { marginTop: 12, color: "#60a5fa" }]}
               >
-                Công việc chờ thực hiện
+                {language === "en" ? "Upcoming tasks" : "Công việc chờ thực hiện"}
               </Text>
               {upcomingList.length === 0 ? (
-                <Text style={[styles.empty, { color: colors.muted }]}>
-                  Không có
+                <Text style={[styles.empty, { color: colors.muted }]}> 
+                  {language === "en" ? "None" : "Không có"}
                 </Text>
               ) : (
                 <FlatList
@@ -1552,23 +1723,6 @@ export default function StatsScreen() {
             </>
           )}
 
-          <View
-            style={[
-              styles.aiSuggestBox,
-              { backgroundColor: isDark ? "#071226" : "#f1f5f9" },
-            ]}
-          >
-            <Text style={[styles.aiSuggestTitle, { color: colors.accent }]}>
-              Gợi ý cải thiện công việc từ AI
-            </Text>
-            <View style={styles.aiSuggestContent}>
-              <TouchableOpacity style={styles.aiSuggestBtn} onPress={() => setAiModalVisible(true)}>
-                <Text style={styles.aiSuggestBtnText}>
-                  Nhận gợi ý công việc từ AI
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
           <AIChatModal visible={aiModalVisible} onClose={() => setAiModalVisible(false)} initialPrompt={aiPrompt} />
         </>
       )}
@@ -1576,7 +1730,7 @@ export default function StatsScreen() {
       {selectedKind === "schedules" && (
         <>
           <Text style={[styles.subHeader, { color: colors.text }]}>
-            Tổng quan Lịch học
+            {language === "en" ? "Schedules overview" : "Tổng quan Lịch học"}
           </Text>
 
           <View style={styles.kpiRow}>
@@ -1586,11 +1740,11 @@ export default function StatsScreen() {
                 { backgroundColor: isDark ? "#071226" : "#f8fafc" },
               ]}
             >
-              <Text style={[styles.kpiValue, { color: colors.accent }]}>
+              <Text style={[styles.kpiValue, { color: colors.accent }]}> 
                 {totalSessionsLTTH}
               </Text>
-              <Text style={[styles.kpiLabel, { color: colors.muted }]}>
-                Tổng buổi
+              <Text style={[styles.kpiLabel, { color: colors.muted }]}> 
+                {language === "en" ? "Total sessions" : "Tổng buổi"}
               </Text>
             </View>
             <View
@@ -1599,43 +1753,43 @@ export default function StatsScreen() {
                 { backgroundColor: isDark ? "#2b1608" : "#fff7ed" },
               ]}
             >
-              <Text style={[styles.kpiValue, { color: "#c2410c" }]}>
+              <Text style={[styles.kpiValue, { color: "#c2410c" }]}> 
                 {scheduleTypeCounts.thi}
               </Text>
-              <Text style={[styles.kpiLabel, { color: colors.muted }]}>
-                Lịch thi
+              <Text style={[styles.kpiLabel, { color: colors.muted }]}> 
+                {language === "en" ? "Exam sessions" : "Lịch thi"}
               </Text>
             </View>
           </View>
 
           <Text style={[styles.subHeader, { color: colors.text }]}>
-            Tỉ lệ loại buổi
+            {language === "en" ? "Session type distribution" : "Tỉ lệ loại buổi"}
           </Text>
           <PieChart
             data={[
               {
-                name: "Buổi thường",
+                name: language === "en" ? "Regular sessions" : "Buổi thường",
                 population: scheduleTypeCounts.thuong,
                 color: "#3b82f6",
                 legendFontColor: colors.text,
                 legendFontSize: 12,
               },
               {
-                name: "Tạm ngưng",
+                name: language === "en" ? "Paused" : "Tạm ngưng",
                 population: scheduleTypeCounts.tamNgung,
                 color: "#f97316",
                 legendFontColor: colors.text,
                 legendFontSize: 12,
               },
               {
-                name: "Buổi bù",
+                name: language === "en" ? "Makeup sessions" : "Buổi bù",
                 population: scheduleTypeCounts.bu,
                 color: "#7c3aed",
                 legendFontColor: colors.text,
                 legendFontSize: 12,
               },
               {
-                name: "Lịch thi",
+                name: language === "en" ? "Exam sessions" : "Lịch thi",
                 population: scheduleTypeCounts.thi,
                 color: "#ef4444",
                 legendFontColor: colors.text,
@@ -1652,7 +1806,7 @@ export default function StatsScreen() {
           />
 
           <Text style={[styles.subHeader, { color: colors.text }]}>
-            Số buổi theo ngày trong tuần (Tổng dữ liệu)
+            {language === "en" ? "Sessions per day (overall)" : "Số buổi theo ngày trong tuần (Tổng dữ liệu)"}
           </Text>
           <BarChart
             data={{
@@ -1695,12 +1849,12 @@ export default function StatsScreen() {
             }}
           />
 
-          <Text style={[styles.subHeader, { color: colors.accent }]}>
-            Thống kê theo môn{" "}
+          <Text style={[styles.subHeader, { color: colors.accent }]}> 
+            {language === "en" ? "Stats by subject" : "Thống kê theo môn"}
           </Text>
           {perCourseStats.length === 0 ? (
-            <Text style={[styles.empty, { color: colors.muted }]}>
-              Không có lịch
+            <Text style={[styles.empty, { color: colors.muted }]}> 
+              {language === "en" ? "No schedules" : "Không có lịch"}
             </Text>
           ) : (
             perCourseStats.map((c) => (
@@ -1726,8 +1880,8 @@ export default function StatsScreen() {
                     {c.subject}
                   </Text>
                   <Text style={{ color: colors.muted }}>
-                    <Text style={{ fontWeight: "700" }}>LT: </Text>{c.lyThuyet}{"  "}
-                    <Text style={{ fontWeight: "700" }}>TH: </Text>{c.thucHanh}
+                    <Text style={{ fontWeight: "700" }}>{language === "en" ? "Theory: " : "LT: "}</Text>{c.lyThuyet}{"  "}
+                    <Text style={{ fontWeight: "700" }}>{language === "en" ? "Practice: " : "TH: "}</Text>{c.thucHanh}
                   </Text>
                 </View>
 
@@ -1740,15 +1894,15 @@ export default function StatsScreen() {
                   }}
                 >
                   <Text style={{ color: "#06b6d4" }}>
-                    Lý thuyết: Buổi {c.takenLyThuyet || 0}
+                    {language === "en" ? `Theory: Session ${c.takenLyThuyet || 0}` : `Lý thuyết: Buổi ${c.takenLyThuyet || 0}`}
                   </Text>
                   <Text style={{ color: "#16a34a" }}>
-                    Thực hành: Buổi {c.takenThucHanh || 0}
+                    {language === "en" ? `Practice: Session ${c.takenThucHanh || 0}` : `Thực hành: Buổi ${c.takenThucHanh || 0}`}
                   </Text>
                   <Text style={{ color: "#f97316" }}>
-                    Tạm ngưng: {c.tamNgung}
+                    {language === "en" ? `Paused: ${c.tamNgung}` : `Tạm ngưng: ${c.tamNgung}`}
                   </Text>
-                  <Text style={{ color: "#7c3aed" }}>Buổi bù: {c.bu}</Text>
+                  <Text style={{ color: "#7c3aed" }}>{language === "en" ? `Makeup sessions: ${c.bu}` : `Buổi bù: ${c.bu}`}</Text>
                 </View>
               </View>
             ))

@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
+import { generateOccurrences } from "../../utils/taskValidation";
 
 // The type definition for a parsed row remains the same.
 export type ParsedRow = {
@@ -21,6 +22,7 @@ export type ParsedRow = {
   repeatEndDate?: number;
   yearlyCount?: number;
   habitMerge?: boolean;
+  habitAuto?: boolean; // tự động đánh hoàn thành nếu hết hạn
   meta?: {
     usedCombined?: boolean;
     validStartDate?: boolean;
@@ -252,26 +254,78 @@ export async function parseFile(uri: string): Promise<ParseResult> {
   const wb = XLSX.read(base64, { type: "base64", cellDates: true });
 
   const ws_tasks = wb.Sheets["Công việc"];
-  const ws_reminders = wb.Sheets["Nhắc nhở"];
-  const ws_repetition = wb.Sheets["Lặp lại"];
-
   if (!ws_tasks) {
     throw new Error("Sheet 'Công việc' không tồn tại trong file Excel.");
   }
 
-  const taskRows = XLSX.utils.sheet_to_json(ws_tasks, { defval: "", range: 2 });
-  const reminderRows = ws_reminders
-    ? XLSX.utils.sheet_to_json(ws_reminders, { defval: "", range: 2 })
-    : [];
-  const repetitionRows = ws_repetition
-    ? XLSX.utils.sheet_to_json(ws_repetition, { defval: "", range: 2 })
-    : [];
-    
+  // Xác định dòng header linh hoạt (hỗ trợ cả template có 1 hay 2 dòng hướng dẫn)
+  const rawRows: any[] = XLSX.utils.sheet_to_json(ws_tasks, { header: 1, defval: "" }) as any[];
+  const norm = (v: any) => normalize(String(v || ""));
+  let headerRowIdx = 1; // mặc định: dòng 2 là header
+  for (let i = 0; i < Math.min(5, rawRows.length); i++) {
+    const row = rawRows[i] as any[];
+    if (!Array.isArray(row)) continue;
+    const hasTitle = row.some((cell) => {
+      const n = norm(cell);
+      return n === norm("Tiêu đề") || n === norm("Tiêu đề (Title)") || n === norm("Title");
+    });
+    const hasStart = row.some((cell) => {
+      const n = norm(cell);
+      return n === norm("Ngày bắt đầu") || n === norm("Ngày bắt đầu (Start Date)") || n === norm("Start Date");
+    });
+    if (hasTitle && hasStart) { headerRowIdx = i; break; }
+  }
+
+  // Lấy dãy header để xác định cột (A, B, C, ...)
+  const headerCells: any[] = Array.isArray(rawRows[headerRowIdx]) ? (rawRows[headerRowIdx] as any[]) : [];
+  const findHeaderIndex = (names: string[]): number => {
+    for (let idx = 0; idx < headerCells.length; idx++) {
+      const cellVal = headerCells[idx];
+      const nCell = norm(cellVal);
+      for (const name of names) {
+        if (nCell === norm(name)) return idx;
+      }
+    }
+    return -1;
+  };
+  const toColumnLetter = (idx: number): string => {
+    // idx: 0-based
+    let n = idx + 1;
+    let s = "";
+    while (n > 0) {
+      const rem = (n - 1) % 26;
+      s = String.fromCharCode(65 + rem) + s;
+      n = Math.floor((n - rem - 1) / 26);
+    }
+    return s || "";
+  };
+  const cellRef = (idx: number, displayName: string) =>
+    idx >= 0 ? `Cột ${toColumnLetter(idx)} (${displayName})` : `Cột '${displayName}'`;
+
+  // Ghi nhớ vị trí một số cột quan trọng để thông báo lỗi chi tiết
+  const idxTitle = findHeaderIndex(["Tiêu đề", "Title"]);
+  const idxStartDate = findHeaderIndex(["Ngày bắt đầu", "Start Date"]);
+  const idxStartTime = findHeaderIndex(["Giờ bắt đầu", "Start Time"]);
+  const idxEndTime = findHeaderIndex(["Giờ kết thúc", "End Time"]);
+  const idxAuto = findHeaderIndex(["Tự động hoàn thành", "Auto Complete", "Tự động hoàn thành nếu hết hạn"]);
+  const idxFreq = findHeaderIndex(["Lặp theo", "Frequency"]);
+  const idxDows = findHeaderIndex(["Ngày trong tuần", "Days Of Week"]);
+  const idxDoms = findHeaderIndex(["Ngày trong tháng", "Days Of Month"]);
+  const idxRepeatEnd = findHeaderIndex(["Ngày kết thúc lặp", "Repeat End Date"]);
+  const idxYearlyCount = findHeaderIndex(["Số lần lặp/năm", "Yearly Count"]);
+  const idxMerge = findHeaderIndex(["Gộp nhiều ngày", "Merge Streak"]);
+
+  // Đọc JSON với dòng header đã xác định; dòng header sẽ được dùng làm key
+  const taskRows = XLSX.utils.sheet_to_json(ws_tasks, { defval: "", range: headerRowIdx });
+
   const errors: string[] = [];
-  const tasksMap = new Map<string, ParsedRow>();
+  const rowsOut: ParsedRow[] = [];
+  const nowPlus1h = Date.now() + 60 * 60 * 1000;
 
   for (const [index, row] of (taskRows as any[]).entries()) {
-    const excelRowIdx = 4 + index; // Dòng 1-2 là hướng dẫn, 3 là header, 4 là dữ liệu
+    // Tính lại số dòng Excel thực tế cho thông báo lỗi: (headerRowIdx là 0-based)
+    const excelRowIdx = headerRowIdx + 2 + index; // headerRowIdx=1 => bắt đầu từ dòng 3
+
     const title = getCell(row, "Tiêu đề", ["Title"]);
 
     if (!title || !String(title).trim()) {
@@ -279,11 +333,15 @@ export async function parseFile(uri: string): Promise<ParseResult> {
       const rawStartDate = getCell(row, "Ngày bắt đầu", ["Start Date"]);
       const rawStartTime = getCell(row, "Giờ bắt đầu", ["Start Time"]);
       const rawEndTime = getCell(row, "Giờ kết thúc", ["End Time"]);
-      const anyOther = rawStartDate || rawStartTime || rawEndTime || getCell(row, "Mô tả", ["Description"]) || getCell(row, "Mức độ", ["Priority"]);
+      const anyOther =
+        rawStartDate ||
+        rawStartTime ||
+        rawEndTime ||
+        getCell(row, "Mô tả", ["Description"]) ||
+        getCell(row, "Mức độ", ["Priority"]);
       if (anyOther) {
-        errors.push(`Dòng ${excelRowIdx}: Thiếu 'Tiêu đề'`);
+        errors.push(`Dòng ${excelRowIdx}: ${cellRef(idxTitle, "Tiêu đề")} - Thiếu 'Tiêu đề'`);
       }
-      // Skip empty or already-reported rows
       continue;
     }
 
@@ -292,15 +350,15 @@ export async function parseFile(uri: string): Promise<ParseResult> {
     const rawEndTime = getCell(row, "Giờ kết thúc", ["End Time"]);
 
     if (!rawStartDate) {
-      errors.push(`Dòng ${excelRowIdx}: Thiếu 'Ngày bắt đầu'`);
+      errors.push(`Dòng ${excelRowIdx}: ${cellRef(idxStartDate, "Ngày bắt đầu")} - Thiếu 'Ngày bắt đầu'`);
       continue;
     }
     if (!rawStartTime) {
-      errors.push(`Dòng ${excelRowIdx}: Thiếu 'Giờ bắt đầu'`);
+      errors.push(`Dòng ${excelRowIdx}: ${cellRef(idxStartTime, "Giờ bắt đầu")} - Thiếu 'Giờ bắt đầu'`);
       continue;
     }
-     if (!rawEndTime) {
-      errors.push(`Dòng ${excelRowIdx}: Thiếu 'Giờ kết thúc'`);
+    if (!rawEndTime) {
+      errors.push(`Dòng ${excelRowIdx}: ${cellRef(idxEndTime, "Giờ kết thúc")} - Thiếu 'Giờ kết thúc'`);
       continue;
     }
 
@@ -309,116 +367,53 @@ export async function parseFile(uri: string): Promise<ParseResult> {
     const endTimeObj = parseTimeVi(rawEndTime);
 
     if (!startDateMs) {
-      errors.push(`Dòng ${excelRowIdx}: Sai định dạng 'Ngày bắt đầu' (cần là dd/MM/yyyy)`);
+      const val = rawStartDate != null ? String(rawStartDate) : "";
+      errors.push(
+        `Dòng ${excelRowIdx}: ${cellRef(idxStartDate, "Ngày bắt đầu")} - Sai định dạng (giá trị: '${val}', cần dd/MM/yyyy)`
+      );
       continue;
     }
     if (!startTimeObj) {
-      errors.push(`Dòng ${excelRowIdx}: Sai định dạng 'Giờ bắt đầu' (cần là HH:MM)`);
+      const val = rawStartTime != null ? String(rawStartTime) : "";
+      errors.push(
+        `Dòng ${excelRowIdx}: ${cellRef(idxStartTime, "Giờ bắt đầu")} - Sai định dạng (giá trị: '${val}', cần HH:MM)`
+      );
       continue;
     }
     if (!endTimeObj) {
-      errors.push(`Dòng ${excelRowIdx}: Sai định dạng 'Giờ kết thúc' (cần là HH:MM)`);
+      const val = rawEndTime != null ? String(rawEndTime) : "";
+      errors.push(
+        `Dòng ${excelRowIdx}: ${cellRef(idxEndTime, "Giờ kết thúc")} - Sai định dạng (giá trị: '${val}', cần HH:MM)`
+      );
       continue;
     }
-    
+
     const final_start_at = combineDateTimeMs(startDateMs, startTimeObj);
     const final_end_at = combineDateTimeMs(startDateMs, endTimeObj);
 
     if (!final_start_at || !final_end_at || final_end_at <= final_start_at) {
-        errors.push(`Dòng ${excelRowIdx}: 'Giờ kết thúc' phải sau 'Giờ bắt đầu'`);
-        continue;
-    }
-
-    const parsedRow: ParsedRow = {
-      title: String(title),
-      description: getCell(row, "Mô tả", ["Description"]) || "",
-      start_at: final_start_at,
-      end_at: final_end_at,
-      priority: mapPriorityVi(getCell(row, "Mức độ", ["Priority"])),
-      status: 'pending',
-  // habitAuto removed: auto-complete feature is no longer supported in import template
-      habitMerge: false,
-      reminderEnabled: false,
-      repeatEnabled: false,
-      repeatDaysOfWeek: [],
-      repeatDaysOfMonth: [],
-      meta: {
-        usedCombined: false,
-        validStartDate: true,
-        validStartTime: true,
-        validEndTime: true,
-        originalRow: excelRowIdx,
-      },
-    };
-    tasksMap.set(normalize(parsedRow.title), parsedRow);
-  }
-
-  // (Không trả về ngay — tiếp tục validate các sheet Nhắc nhở và Lặp lại để gom hết lỗi)
-
-  // --- START: Validation for Reminders & Repetition sheets ---
-  // Validate that titles in 'Nhắc nhở' and 'Lặp lại' (if present)
-  // 1) match a title in the 'Công việc' sheet (tasksMap)
-  // 2) are not duplicated within their own sheet
-  const validateSheetTitles = (rows: any[], sheetPrettyName: string) => {
-    const seen = new Set<string>();
-    for (const [index, row] of (rows as any[]).entries()) {
-      const excelRowIdx = 4 + index; // dữ liệu bắt đầu từ dòng 4
-      const titleRaw = getCell(row, "Tiêu đề", ["Title"]) || "";
-      if (!titleRaw || String(titleRaw).trim() === "") continue; // bỏ qua nếu không có tiêu đề
-      const normalizedTitle = normalize(titleRaw);
-      if (!tasksMap.has(normalizedTitle)) {
-        errors.push(
-          `Dòng ${excelRowIdx} trong sheet '${sheetPrettyName}': Tiêu đề '${String(
-            titleRaw
-          )}' không khớp bất kỳ tiêu đề nào trong sheet 'Công việc'.`
-        );
-      }
-      if (seen.has(normalizedTitle)) {
-        errors.push(
-          `Dòng ${excelRowIdx} trong sheet '${sheetPrettyName}': Tiêu đề '${String(
-            titleRaw
-          )}' bị trùng lặp trong sheet '${sheetPrettyName}'.`
-        );
-      } else {
-        seen.add(normalizedTitle);
-      }
-    }
-  };
-
-  if (reminderRows && (reminderRows as any[]).length > 0) {
-    validateSheetTitles(reminderRows as any[], "Nhắc nhở");
-  }
-  if (repetitionRows && (repetitionRows as any[]).length > 0) {
-    validateSheetTitles(repetitionRows as any[], "Lặp lại");
-  }
-
-  // Nếu có lỗi validate, trả về để người dùng sửa file Excel
-  if (errors.length > 0) {
-    return { rows: [], errors };
-  }
-  // --- END: Validation for Reminders & Repetition sheets ---
-
-  for (const row of reminderRows as any[]) {
-    const title = getCell(row, "Tiêu đề", ["Title"]) || "";
-    if (!title) continue;
-    const normalizedTitle = normalize(title);
-
-    if (tasksMap.has(normalizedTitle)) {
-      const task = tasksMap.get(normalizedTitle)!;
-      task.reminderEnabled = true;
-      task.reminderTime = parseLeadVi(
-        getCell(row, "Nhắc trước", ["Remind Before"])
+      errors.push(
+        `Dòng ${excelRowIdx}: ${cellRef(idxEndTime, "Giờ kết thúc")} - phải sau 'Giờ bắt đầu'`
       );
+      continue;
+    }
 
-      // Accept numeric encodings: 1 = notification, 2 = alarm; default = notification
-      const rawMethod = getCell(row, "Phương thức nhắc", ["Method"]);
+    // Reminder fields (optional)
+    const rawRemindBefore = getCell(row, "Nhắc trước", ["Remind Before"]);
+    const rawMethod = getCell(row, "Phương thức nhắc", ["Method"]);
+    const reminderEnabled =
+      (rawRemindBefore != null && String(rawRemindBefore).trim() !== "") ||
+      (rawMethod != null && String(rawMethod).trim() !== "");
+    const reminderTime = reminderEnabled ? parseLeadVi(rawRemindBefore) : 0;
+    let reminderMethod: "notification" | "alarm" | undefined = undefined;
+    if (reminderEnabled) {
       if (rawMethod == null || rawMethod === "") {
-        task.reminderMethod = "notification";
+        reminderMethod = "notification";
       } else if (typeof rawMethod === "number") {
-        task.reminderMethod = rawMethod === 2 ? "alarm" : "notification";
+        reminderMethod = rawMethod === 2 ? "alarm" : "notification";
       } else {
         const methodStr = String(rawMethod).toLowerCase();
-        task.reminderMethod =
+        reminderMethod =
           methodStr.includes("alarm") || methodStr.includes("chuông")
             ? "alarm"
             : methodStr === "2"
@@ -426,42 +421,124 @@ export async function parseFile(uri: string): Promise<ParseResult> {
             : "notification";
       }
     }
+
+    // Repeat fields (optional, enabled iff any repeat field present)
+  const rawAuto = getCell(row, "Tự động hoàn thành", ["Auto Complete", "Tự động hoàn thành nếu hết hạn"]);
+    // Interpret auto-complete: "có", "yes", "true", "1" => true; "không", "no", "false", "0", "2" => false
+    let habitAuto: boolean | undefined = undefined;
+    if (rawAuto != null && String(rawAuto).trim() !== "") {
+      const vAuto = String(rawAuto).trim().toLowerCase();
+      if (["1", "có", "co", "yes", "y", "true", "x"].includes(vAuto)) habitAuto = true;
+      else if (["0", "2", "không", "khong", "no", "n", "false"].includes(vAuto)) habitAuto = false;
+    }
+
+  const rawFreq = getCell(row, "Lặp theo", ["Frequency"]);
+  const rawDows = getCell(row, "Ngày trong tuần", ["Days Of Week"]);
+  const rawDoms = getCell(row, "Ngày trong tháng", ["Days Of Month"]);
+  const rawEndDate = getCell(row, "Ngày kết thúc lặp", ["Repeat End Date"]);
+  const rawYearlyCount = getCell(row, "Số lần lặp/năm", ["Yearly Count"]);
+  const rawMerge = getCell(row, "Gộp nhiều ngày", ["Merge Streak"]);
+    const hasAnyRepeat = [rawFreq, rawDows, rawDoms, rawEndDate, rawYearlyCount, rawMerge]
+      .some(v => v != null && String(v).trim() !== "");
+
+    const parsedRow: ParsedRow = {
+      title: String(title),
+      description: getCell(row, "Mô tả", ["Description"]) || "",
+      start_at: final_start_at,
+      end_at: final_end_at,
+      priority: mapPriorityVi(getCell(row, "Mức độ", ["Priority"])),
+      status: "pending",
+  habitMerge: hasAnyRepeat ? parseBooleanVi(rawMerge, true) : false,
+  habitAuto,
+      reminderEnabled,
+      reminderTime: reminderEnabled ? reminderTime : undefined,
+      reminderMethod: reminderEnabled ? reminderMethod : undefined,
+      repeatEnabled: hasAnyRepeat,
+      repeatFrequency: hasAnyRepeat && rawFreq ? mapFrequencyVi(rawFreq) : undefined,
+      repeatDaysOfWeek: hasAnyRepeat ? parseDowsVi(rawDows) : [],
+      repeatDaysOfMonth: hasAnyRepeat ? parseDomList(rawDoms) : [],
+      repeatEndDate: hasAnyRepeat ? parseDateOnlyVi(rawEndDate) : undefined,
+      yearlyCount: hasAnyRepeat && rawYearlyCount
+        ? Math.max(1, Math.min(100, parseInt(String(rawYearlyCount), 10) || 1))
+        : undefined,
+      meta: {
+        usedCombined: true,
+        validStartDate: true,
+        validStartTime: true,
+        validEndTime: true,
+        originalRow: excelRowIdx,
+      },
+    };
+
+    // Bổ sung các ràng buộc giống TaskModal
+    // 1) Start time phải >= now + 1h (áp dụng cho import như thêm mới)
+    if (parsedRow.start_at && parsedRow.start_at < nowPlus1h) {
+      errors.push(
+        `Dòng ${excelRowIdx}: ${cellRef(idxStartTime, "Giờ bắt đầu")} - Phải muộn hơn hiện tại ít nhất 1 giờ.`
+      );
+    }
+
+    // 2) Ràng buộc lặp
+    if (parsedRow.repeatEnabled && parsedRow.repeatFrequency) {
+      const freq = parsedRow.repeatFrequency;
+      if (freq === "weekly" && (!parsedRow.repeatDaysOfWeek || parsedRow.repeatDaysOfWeek.length === 0)) {
+        errors.push(`Dòng ${excelRowIdx}: ${cellRef(idxDows, "Ngày trong tuần")} - Lặp theo Tuần phải chọn ít nhất 1 ngày (ví dụ: T2).`);
+      }
+      if (freq === "monthly" && (!parsedRow.repeatDaysOfMonth || parsedRow.repeatDaysOfMonth.length === 0)) {
+        errors.push(`Dòng ${excelRowIdx}: ${cellRef(idxDoms, "Ngày trong tháng")} - Lặp theo Tháng phải chọn ít nhất 1 ngày (ví dụ: 15).`);
+      }
+      if (freq === "yearly") {
+        const yc = parsedRow.yearlyCount ?? 0;
+        if (yc < 2) {
+          errors.push(`Dòng ${excelRowIdx}: ${cellRef(idxYearlyCount, "Số lần lặp/năm")} - Lặp theo Năm cần 'Số lần lặp/năm' >= 2.`);
+        }
+      } else {
+        if (!parsedRow.repeatEndDate) {
+          errors.push(`Dòng ${excelRowIdx}: ${cellRef(idxRepeatEnd, "Ngày kết thúc lặp")} - Thiếu 'Ngày kết thúc lặp' cho kiểu lặp (${freq}).`);
+        }
+      }
+
+      // 3) Tối thiểu sinh >= 2 lần lặp
+      if (parsedRow.start_at && parsedRow.end_at) {
+        const recInput = {
+          enabled: true,
+          frequency: parsedRow.repeatFrequency,
+          interval: 1,
+          daysOfWeek: parsedRow.repeatDaysOfWeek,
+          daysOfMonth: parsedRow.repeatDaysOfMonth,
+          endDate: parsedRow.repeatEndDate,
+        } as any;
+        let occs: Array<{ startAt: number; endAt: number }> = [];
+        try {
+          occs = generateOccurrences(parsedRow.start_at, parsedRow.end_at, recInput);
+        } catch {
+          occs = [{ startAt: parsedRow.start_at, endAt: parsedRow.end_at }];
+        }
+        if (occs.length < 2) {
+          errors.push(
+            `Dòng ${excelRowIdx}: ${cellRef(idxFreq, "Lặp theo")} - Cấu hình lặp chưa hợp lệ (cần tối thiểu 2 lần xuất hiện). Kiểm tra 'Ngày kết thúc lặp' hoặc lựa chọn ngày.`
+          );
+        }
+      }
+    }
+
+    rowsOut.push(parsedRow);
   }
 
-  for (const row of repetitionRows as any[]) {
-    const title = getCell(row, "Tiêu đề", ["Title"]) || "";
-    if (!title) continue;
-    const normalizedTitle = normalize(title);
-
-    if (tasksMap.has(normalizedTitle)) {
-      const task = tasksMap.get(normalizedTitle)!;
-      task.repeatEnabled = true;
-      task.repeatFrequency = mapFrequencyVi(
-        getCell(row, "Lặp theo", ["Frequency"])
-      );
-      task.repeatDaysOfWeek = parseDowsVi(
-        getCell(row, "Ngày trong tuần", ["Days Of Week"])
-      );
-      task.repeatDaysOfMonth = parseDomList(
-        getCell(row, "Ngày trong tháng", ["Days Of Month"])
-      );
-      task.repeatEndDate = parseDateOnlyVi(
-        getCell(row, "Ngày kết thúc lặp", ["Repeat End Date"])
-      );
-      const yearlyCountRaw = getCell(row, "Số lần lặp/năm", ["Yearly Count"]);
-      task.yearlyCount = yearlyCountRaw
-        ? Math.max(1, Math.min(100, parseInt(String(yearlyCountRaw), 10) || 1))
-        : undefined;
-
-      // Gộp nhiều ngày: 1 = có (true), 2 = không (false). Default = 1 (true) if empty.
-      task.habitMerge = parseBooleanVi(
-        getCell(row, "Gộp nhiều ngày", ["Merge Streak"]),
-        true
-      );
+  // Kiểm tra trùng thời gian giữa các dòng import (cross-row)
+  for (let i = 0; i < rowsOut.length; i++) {
+    for (let j = i + 1; j < rowsOut.length; j++) {
+      const a = rowsOut[i];
+      const b = rowsOut[j];
+      if (!a.start_at || !a.end_at || !b.start_at || !b.end_at) continue;
+      if (a.start_at < b.end_at && b.start_at < a.end_at) {
+        const rA = a.meta?.originalRow ?? "?";
+        const rB = b.meta?.originalRow ?? "?";
+        errors.push(`Dòng ${rA} & Dòng ${rB}: Trùng khoảng thời gian (các cột ${cellRef(idxStartTime, "Giờ bắt đầu")}, ${cellRef(idxEndTime, "Giờ kết thúc")}).`);
+      }
     }
   }
 
-  const rowsOut = Array.from(tasksMap.values());
   return { rows: rowsOut, errors };
 }
 
@@ -492,30 +569,8 @@ export async function exportTemplate() {
       return { v: textVal, t: "s", s: cellStyle };
     };
 
-    // --- Sheet 1: Công việc (Tasks) ---
+    // --- Single Sheet: Công việc (Tasks + Reminders + Repetition) ---
     const taskData = [
-      [
-        createCell(
-          "Mandatory. A short text description for the task.",
-          mandatoryCellStyle
-        ),
-        createCell("Optional. A more detailed description."),
-        createCell(
-          "Mandatory. Format: dd/MM/yyyy.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Mandatory. 24h format: HH:MM.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Mandatory. 24h format: HH:MM. Must be later than the start time.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Optional. Values: Low, Medium, or High (case-insensitive). If empty, default is Medium."
-        ),
-      ],
       [
         createCell(
           "Bắt buộc. Chuỗi text, mô tả ngắn cho công việc.",
@@ -531,197 +586,58 @@ export async function exportTemplate() {
           mandatoryCellStyle
         ),
         createCell("Bắt buộc. Định dạng 24h HH:MM, phải lớn hơn giờ bắt đầu.", mandatoryCellStyle),
-  createCell("Tùy chọn. Giá trị: Thấp, Trung bình hoặc Cao. Nếu để trống mặc định là Trung bình."),
+        createCell("Tùy chọn. Giá trị: Thấp, Trung bình hoặc Cao. Nếu để trống mặc định là Trung bình."),
+        createCell("Tùy chọn. Nhắc trước. Đơn vị: phút/giờ/ngày. Ví dụ: '15 phút'."),
+        createCell("Tùy chọn. Phương thức nhắc: Thông báo hoặc Chuông báo."),
+        createCell("Tùy chọn. Tự động hoàn thành nếu hết hạn (Có/Không)."),
+        createCell("Tùy chọn. Lặp theo: Ngày/Tuần/Tháng/Năm."),
+        createCell("Tùy chọn. Cho lặp theo Tuần. Ngày trong tuần, phân cách bởi dấu phẩy: T2,T4,T6."),
+        createCell("Tùy chọn. Cho lặp theo Tháng. Ngày trong tháng, phân cách bởi dấu phẩy: 1,15,28."),
+        createCell("Tùy chọn. Ngày kết thúc lặp. Định dạng: dd/MM/yyyy."),
+        createCell("Tùy chọn. Cho lặp theo Năm. Số nguyên 1..100."),
+        createCell("Tùy chọn. Gộp nhiều ngày vào 1 streak (Có/Không)."),
       ],
       [
-        createCell("Tiêu đề (Title)", mandatoryHeaderCellStyle),
-        createCell("Mô tả (Description)"),
-        createCell("Ngày bắt đầu (Start Date)", mandatoryHeaderCellStyle),
-        createCell("Giờ bắt đầu (Start Time)", mandatoryHeaderCellStyle),
-        createCell("Giờ kết thúc (End Time)", mandatoryHeaderCellStyle),
-        createCell("Mức độ (Priority)"),
+        createCell("Tiêu đề", mandatoryHeaderCellStyle),
+        createCell("Mô tả"),
+        createCell("Ngày bắt đầu", mandatoryHeaderCellStyle),
+        createCell("Giờ bắt đầu", mandatoryHeaderCellStyle),
+        createCell("Giờ kết thúc", mandatoryHeaderCellStyle),
+        createCell("Mức độ"),
+  createCell("Nhắc trước"),
+  createCell("Phương thức nhắc"),
+  createCell("Tự động hoàn thành"),
+  createCell("Lặp theo"),
+        createCell("Ngày trong tuần"),
+        createCell("Ngày trong tháng"),
+        createCell("Ngày kết thúc lặp"),
+        createCell("Số lần lặp/năm"),
+        createCell("Gộp nhiều ngày"),
       ],
     ];
     taskData.push([
       createCell("Ôn tập Toán"),
       createCell("Chương 1: Hàm số"),
-      createCell("20/10/2025"),
+      createCell("20/11/2025"),
       createCell("08:00"),
       createCell("09:00"),
       createCell("Trung bình"),
-    ]);
-    const ws_tasks = XLSX.utils.aoa_to_sheet(taskData);
-    ws_tasks["!rows"] = [
-      { hpt: 45 }, // Dòng 1 (index 0) - Hướng dẫn tiếng Anh
-      { hpt: 45 }, // Dòng 2 (index 1) - Hướng dẫn tiếng Việt
-      { hpt: 20 }, // Dòng 3 (index 2) - Tiêu đề cột
-    ];
-    ws_tasks["!cols"] = [
-      { wch: 40 },
-      { wch: 50 },
-      { wch: 25 },
-      { wch: 25 },
-      { wch: 25 },
-      { wch: 30 },
-    ];
-    XLSX.utils.book_append_sheet(wb, ws_tasks, "Công việc");
-
-    // --- Sheet 2: Nhắc nhở (Reminders) ---
-    const reminderData = [
-      [
-        createCell(
-          "Mandatory. Must match a title from the 'Công việc' sheet.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Mandatory. Supports units: minute, hour, day. Ex: '15 minutes'.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Mandatory. Values: 'Thông báo' (Notification) or 'Chuông báo' (Alarm).",
-          mandatoryCellStyle
-        ),
-      ],
-      [
-        createCell(
-          "Bắt buộc. Phải khớp với một tiêu đề trong sheet 'Công việc'.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Bắt buộc. Hỗ trợ đơn vị: phút, giờ, ngày. Ví dụ: '15 phút'.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Bắt buộc. Giá trị: 'Thông báo' hoặc 'Chuông báo'.",
-          mandatoryCellStyle
-        ),
-      ],
-      [
-        createCell("Tiêu đề (Title)", mandatoryHeaderCellStyle),
-        createCell("Nhắc trước (Remind Before)", mandatoryHeaderCellStyle),
-        createCell("Phương thức nhắc (Method)", mandatoryHeaderCellStyle),
-      ],
-    ];
-    reminderData.push([
-      createCell("Ôn tập Toán"),
-      createCell("15 phút"),
-      createCell("Thông báo"),
-    ]);
-    const ws_reminders = XLSX.utils.aoa_to_sheet(reminderData);
-    ws_reminders["!rows"] = [
-      { hpt: 60 }, // Dòng 1 (index 0) - Hướng dẫn tiếng Anh
-      { hpt: 60 }, // Dòng 2 (index 1) - Hướng dẫn tiếng Việt
-      { hpt: 20 }, // Dòng 3 (index 2) - Tiêu đề cột
-    ];
-    ws_reminders["!cols"] = [{ wch: 40 }, { wch: 40 }, { wch: 35 }];
-    XLSX.utils.book_append_sheet(wb, ws_reminders, "Nhắc nhở");
-
-    // --- Sheet 3: Lặp lại (Repetition) ---
-    const repetitionData = [
-      [
-        createCell(
-          "Mandatory. Must match a title from the 'Công việc' sheet.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Mandatory. Values: Ngày, Tuần, Tháng, or Năm.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Required for 'Tuần' (Weekly) repeat. Comma-separated. Ex: T2,T4,T6.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Required for 'Tháng' (Monthly) repeat. Comma-separated. Ex: 1,15,28.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Mandatory. The end date for the repetition. Format: dd/MM/yyyy.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Required for 'Năm' (Yearly) repeat. Integer between 1-100.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Optional (Yes/No). If enabled, all repeats are counted as one streak.",
-          {}
-        ),
-        // Auto-complete column removed
-      ],
-      [
-        createCell(
-          "Bắt buộc. Phải khớp với một tiêu đề trong sheet 'Công việc'.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Bắt buộc. Giá trị: Ngày, Tuần, Tháng hoặc Năm.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Bắt buộc nếu lặp theo Tuần. Phân cách bởi dấu phẩy. Vd: T2,T4,6.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Bắt buộc nếu lặp theo Tháng. Phân cách bởi dấu phẩy. Vd: 1,15,28.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Bắt buộc. Ngày kết thúc lặp. Định dạng: dd/MM/yyyy.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Bắt buộc nếu lặp theo Năm. Số nguyên 1..100.",
-          mandatoryCellStyle
-        ),
-        createCell(
-          "Tùy chọn (Có/Không). Nếu Có, các ngày lặp tính là 1 đơn vị.",
-          {}
-        ),
-        // Auto-complete column removed
-      ],
-      [
-        createCell("Tiêu đề (Title)", mandatoryHeaderCellStyle),
-        createCell("Lặp theo (Frequency)", mandatoryHeaderCellStyle),
-        createCell("Ngày trong tuần (Days Of Week)", mandatoryHeaderCellStyle),
-        createCell(
-          "Ngày trong tháng (Days Of Month)",
-          mandatoryHeaderCellStyle
-        ),
-        createCell(
-          "Ngày kết thúc lặp (Repeat End Date)",
-          mandatoryHeaderCellStyle
-        ),
-        createCell("Số lần lặp/năm (Yearly Count)", mandatoryHeaderCellStyle),
-        createCell("Gộp nhiều ngày (Merge Streak)", {}),
-      ],
-    ];
-    repetitionData.push([
-      createCell("Ôn tập Toán"),
-      createCell("Tuần"),
+  createCell("15 phút"),
+  createCell("Thông báo"),
+  createCell("Có"),
+  createCell("Tuần"),
       createCell("T2,T4"),
-      createCell(""),
+      createCell("") ,
       createCell("31/12/2025"),
       createCell(""),
       createCell("Không"),
     ]);
-    const ws_repetition = XLSX.utils.aoa_to_sheet(repetitionData);
-    ws_repetition["!rows"] = [
-      { hpt: 65 }, // Dòng 1 (index 0) - Hướng dẫn tiếng Anh
-      { hpt: 65 }, // Dòng 2 (index 1) - Hướng dẫn tiếng Việt
-      { hpt: 20 }, // Dòng 3 (index 2) - Tiêu đề cột
+    const ws_tasks = XLSX.utils.aoa_to_sheet(taskData);
+    ws_tasks["!rows"] = [
+      { hpt: 65 }, // Dòng 1 (index 0) - Hướng dẫn tiếng Việt
+      { hpt: 20 }, // Dòng 2 (index 1) - Tiêu đề cột
     ];
-    ws_repetition["!cols"] = [
-      { wch: 40 },
-      { wch: 40 },
-      { wch: 45 },
-      { wch: 45 },
-      { wch: 40 },
-      { wch: 40 },
-      { wch: 30 },
-    ];
-    XLSX.utils.book_append_sheet(wb, ws_repetition, "Lặp lại");
-
+    XLSX.utils.book_append_sheet(wb, ws_tasks, "Công việc");
     const wbout = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
     const uri =
       (FileSystem.documentDirectory || FileSystem.cacheDirectory || "") +

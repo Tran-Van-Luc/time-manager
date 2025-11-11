@@ -61,47 +61,36 @@ export default function ImportDialog({ visible, onClose, onParsed }: Props) {
     }
     try {
       const result: ParseResult = await parseFile(uri);
-      if (result.errors && result.errors.length > 0) {
-        // show all errors together and do not proceed
-        Alert.alert("Lỗi nhập", result.errors.join("\n"));
-        return;
-      }
       const rows = result.rows || [];
-      const threshold = Date.now() + 60 * 60 * 1000; // now + 1 hour
-      const early = rows.filter((r) => r.start_at && r.start_at < threshold);
-      if (early.length > 0) {
-        const thresholdStr = new Date(threshold).toLocaleString();
-        Alert.alert(
-          "Công việc có thời gian sớm",
-          `Có ${early.length} công việc có 'Ngày bắt đầu' trước ${thresholdStr}. Những công việc này sẽ không được thêm. Bạn có muốn tiếp tục và chỉ lưu những công việc sau thời điểm này không?`,
-          [
-            {
-              text: "Tiếp tục",
-              onPress: () => {
-                const keep = rows.filter(
-                  (r) => r.start_at && r.start_at >= threshold
-                );
-                if (keep.length === 0) {
-                  Alert.alert(
-                    "Không có hàng hợp lệ",
-                    `Không có công việc nào sau thời điểm ${thresholdStr} để thêm.`
-                  );
-
-                  return;
-                }
-                onParsed(keep);
-                setPath("");
-                setCandidateUri(null);
-              },
-            },
-            { text: "Hủy", style: "cancel" },
-          ]
-        );
-      } else {
-        onParsed(rows);
+      const proceedWithRows = (rs: ParsedRow[]) => {
+        onParsed(rs);
         setPath("");
         setCandidateUri(null);
+      };
+
+      if (result.errors && result.errors.length > 0) {
+        // Hiển thị một lần toàn bộ lỗi sau khi đã đọc hết file
+        const errorMsg = result.errors.join("\n");
+        if (rows.length > 0) {
+          Alert.alert(
+            "Lỗi nhập",
+            errorMsg,
+            [
+              {
+                text: "Tiếp tục với dòng hợp lệ",
+                onPress: () => proceedWithRows(rows),
+              },
+              { text: "Hủy", style: "cancel" },
+            ]
+          );
+        } else {
+          Alert.alert("Lỗi nhập", errorMsg);
+        }
+        return;
       }
+
+  // Không có lỗi: tiếp tục bình thường
+  proceedWithRows(rows);
     } catch (e: any) {
       console.warn("parseFile failed", e);
       const msg =

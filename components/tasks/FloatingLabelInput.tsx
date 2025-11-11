@@ -47,12 +47,12 @@ export default function FloatingLabelInput({
         )}
         <TextInput
           ref={inputRef}
-            className={`p-2 text-gray-800 ${multiline ? 'h-24 text-[13px]' : 'h-11 text-sm'} ${multiline ? 'pt-4' : 'pt-4'} ${inputClassName}`}
+          className={`p-2 text-gray-800 ${multiline ? 'h-24 text-[13px]' : 'h-11 text-sm'} ${multiline ? 'pt-4' : 'pt-4'} ${inputClassName}`}
           value={value}
           multiline={multiline}
           onChangeText={onChangeText}
           onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
+          onBlur={(e) => { setFocused(false); if (typeof rest.onBlur === 'function') { try { (rest.onBlur as any)(e); } catch {} } }}
           placeholder=""
           style={multiline ? { textAlignVertical: 'top' } : undefined}
           {...rest}

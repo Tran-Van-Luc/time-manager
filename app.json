@@ -48,6 +48,15 @@
       "expo-router",
       "expo-web-browser",
       "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "sounds": [
+            "./assets/sounds/alarm_android.wav",
+            "./assets/sounds/alarm_ios.wav"
+          ]
+        }
+      ],
 
       [
         "expo-speech-recognition",

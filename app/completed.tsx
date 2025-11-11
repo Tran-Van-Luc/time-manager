@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { SafeAreaView, View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator, Alert, Switch } from 'react-native';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { SafeAreaView, View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator, Alert } from 'react-native'; // Đã xóa Switch
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { useTasks } from '../hooks/useTasks';
 import { useRecurrences } from '../hooks/useRecurrences';
@@ -18,17 +19,16 @@ export default function CompletedScreen() {
 
   const [loading, setLoading] = useState(true);
   // End-of-day cutoff string stored as 'HH:mm' in AsyncStorage
-  // empty string = not set yet (show --.--)
-  const [cutoffString, setCutoffString] = useState<string>('');
-  // whether the cutoff feature is enabled (default OFF for new installs)
-  const [cutoffEnabled, setCutoffEnabled] = useState<boolean>(false);
-  // show native time picker
-  const [timePickerVisible, setTimePickerVisible] = useState(false);
+  // Mặc định là 23:59 nếu chưa set
+  const [cutoffString, setCutoffString] = useState<string>('23:59');
+  // whether the cutoff feature is enabled (mặc định BẬT)
+  const cutoffEnabled = true; // Luôn luôn bật theo yêu cầu
+  
+  // Đã xóa state 'timePickerVisible'
 
   const CUT_OFF_KEY = 'endOfDayCutoff';
-  const CUT_OFF_ENABLED_KEY = 'endOfDayCutoffEnabled';
   const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-  const DateTimePickerModal = require('react-native-modal-datetime-picker').default;
+  // Đã xóa 'DateTimePickerModal'
 
   useEffect(() => {
     let mounted = true;
@@ -36,15 +36,16 @@ export default function CompletedScreen() {
       setLoading(true);
       try {
         await Promise.all([loadTasks(), loadRecurrences()]);
-        // load cutoff and enabled flag
+        // load cutoff
         try {
-          const [v, enabled] = await Promise.all([
-            AsyncStorage.getItem(CUT_OFF_KEY),
-            AsyncStorage.getItem(CUT_OFF_ENABLED_KEY),
-          ]);
-          if (mounted && v) setCutoffString(v);
-          // Treat explicit 'true' as enabled; missing key -> default OFF for new installs
-          if (mounted) setCutoffEnabled(enabled === 'true');
+          const v = await AsyncStorage.getItem(CUT_OFF_KEY);
+          // Nếu đã lưu giá trị trước đó thì dùng, nếu không vẫn giữ '23:59' từ state
+          if (mounted && v) {
+             setCutoffString(v);
+          } else if (mounted) {
+             // Nếu chưa có giá trị nào được lưu, chủ động lưu '23:59'
+             await AsyncStorage.setItem(CUT_OFF_KEY, '23:59');
+          }
         } catch (e) {
           // ignore
         }
@@ -56,6 +57,23 @@ export default function CompletedScreen() {
     return () => { mounted = false; };
   }, []);
 
+  // Refresh when screen gains focus (e.g., after changing status on other screens)
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      const reload = async () => {
+        setLoading(true);
+        try {
+          await Promise.all([loadTasks(), loadRecurrences()]);
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      };
+      reload();
+      return () => { cancelled = true; };
+    }, [loadTasks, loadRecurrences])
+  );
+
   type PendingItem =
     | { kind: 'task'; task: Task }
     | { kind: 'rec-occ'; task: Task; rec: Recurrence; start: number; end?: number }
@@ -65,30 +83,53 @@ export default function CompletedScreen() {
 
   const pendingItems: PendingItem[] = useMemo(() => {
     const out: PendingItem[] = [];
+    const isSameDay = (a: number, b: number) => {
+      const da = new Date(a), db = new Date(b);
+      return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+    };
     // Non-recurring tasks
     for (const t of tasks) {
       try {
         if (!t.recurrence_id) {
           // include non-recurring tasks whose start_at <= now and not completed
+          // ALSO include early-start: if user manually set status to 'in-progress' while start time is in the future
           const s = t.start_at ? Date.parse(t.start_at) : (t.end_at ? Date.parse(t.end_at) : null);
-          if ((s == null || s <= now) && t.status !== 'completed') {
+          const startedBySchedule = (s == null || s <= now);
+          const manuallyStartedEarly = (t.status === 'in-progress' && s != null && s > now);
+          if ((startedBySchedule || manuallyStartedEarly) && t.status !== 'completed') {
             out.push({ kind: 'task', task: t });
           }
         } else {
           const rec = recurrences.find((r) => r.id === t.recurrence_id);
           if (!rec) continue;
-          const occs = plannedHabitOccurrences(t, rec).filter(o => o.startAt <= now);
-          if (!occs.length) continue;
+          const allOccs = plannedHabitOccurrences(t, rec) || [];
+          const pastOccs = allOccs.filter(o => o.startAt <= now);
           const merge = (rec as any).merge_streak === 1;
-          if (merge) {
-            // if any occurrence up to now is not completed, show one merged item
-            const from = occs[0].startAt;
-            const to = occs[occs.length - 1].endAt;
-            out.push({ kind: 'rec-merge', task: t, rec, from, to });
+
+          if (pastOccs.length) {
+            if (merge) {
+              // merged range for past occurrences
+              const from = pastOccs[0].startAt;
+              const to = pastOccs[pastOccs.length - 1].endAt;
+              out.push({ kind: 'rec-merge', task: t, rec, from, to });
+            } else {
+              for (const o of pastOccs) {
+                out.push({ kind: 'rec-occ', task: t, rec, start: o.startAt, end: o.endAt });
+              }
+            }
+            // Nếu tất cả các lần lặp trước đó đã hoàn thành và còn một lần lặp trong NGÀY HÔM NAY phía trước, thêm nó để người dùng có thể hoàn thành
+            const nextToday = allOccs.find(o => o.startAt > now && isSameDay(o.startAt, now));
+            if (nextToday) {
+              out.push({ kind: 'rec-occ', task: t, rec, start: nextToday.startAt, end: nextToday.endAt });
+            }
           } else {
-            // push each occurrence that is not completed
-            for (const o of occs) {
-              out.push({ kind: 'rec-occ', task: t, rec, start: o.startAt, end: o.endAt });
+            // EARLY-START for recurring: no past occurrence yet (first occurrence is in the future), but user set status in-progress
+            if (allOccs.length) {
+              const firstUpcoming = allOccs[0];
+              // Nếu lần sắp tới là hôm nay, luôn cho phép hiển thị để hoàn thành; nếu không, chỉ hiển thị khi người dùng đã chuyển sang in-progress (early-start)
+              if (isSameDay(firstUpcoming.startAt, now) || t.status === 'in-progress') {
+                out.push({ kind: 'rec-occ', task: t, rec, start: firstUpcoming.startAt, end: firstUpcoming.endAt });
+              }
             }
           }
         }
@@ -204,14 +245,16 @@ export default function CompletedScreen() {
           const dateMs = it.task.start_at ? Date.parse(it.task.start_at) : (it.task.end_at ? Date.parse(it.task.end_at) : null);
           let extra: any = { status: 'completed', completed_at: completedAt };
           try {
-            if (dateMs != null && cutoffEnabled) {
+            // 'cutoffEnabled' is now always true, so we just check dateMs
+            if (dateMs != null) {
               const taskDate = new Date(dateMs);
               const today = new Date(nowMs);
               const sameDay = taskDate.getFullYear() === today.getFullYear() && taskDate.getMonth() === today.getMonth() && taskDate.getDate() === today.getDate();
               // build cutoff ms for the task's date (if cutoffString valid)
-              const [hStr, mStr] = (cutoffString || '23:00').split(':');
+              // Sử dụng 23:59 làm mặc định fallback
+              const [hStr, mStr] = (cutoffString || '23:59').split(':');
               const h = parseInt(hStr || '23', 10);
-              const m = parseInt(mStr || '0', 10);
+              const m = parseInt(mStr || '59', 10);
               if (!Number.isNaN(h) && !Number.isNaN(m) && sameDay) {
                 const cutoffForDate = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate(), h, m).getTime();
                 // effective deadline is the later of the task scheduled time and the cutoff
@@ -257,23 +300,15 @@ export default function CompletedScreen() {
 
       {/* Content: pending completions list */}
       <View style={[s.container, { padding: 12 }]}>
-        {/* Cutoff editor with enable switch and time picker */}
+        {/* Cutoff (luôn bật, không thể chỉnh sửa) */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginHorizontal: 4, marginBottom: 8 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Text style={{ color: '#666', marginRight: 8 }}>Tổng hợp hoàn thành vào lúc:</Text>
-            <Switch value={cutoffEnabled} onValueChange={async (v) => {
-              setCutoffEnabled(v);
-              try {
-                await AsyncStorage.setItem(CUT_OFF_ENABLED_KEY, v ? 'true' : 'false');
-              } catch (e) {
-                // ignore
-              }
-            }} />
+          <Text style={{ color: '#666' }}>Tổng hợp hoàn thành vào lúc:</Text>
+          {/* Thay TouchableOpacity bằng View không thể nhấn */}
+          <View style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#E5E7EB', borderRadius: 8 }}>
+            <Text style={{ color: '#111' }}>{cutoffString || '23:59'}</Text>
           </View>
-          <TouchableOpacity onPress={() => setTimePickerVisible(true)} disabled={!cutoffEnabled} style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: cutoffEnabled ? '#E5E7EB' : '#F1F5F9', borderRadius: 8 }}>
-            <Text style={{ color: '#111' }}>{cutoffString || '--.--'}</Text>
-          </TouchableOpacity>
         </View>
+
         {loading ? (
           <ActivityIndicator />
         ) : (
@@ -294,6 +329,15 @@ export default function CompletedScreen() {
               data={visibleItems}
               ListEmptyComponent={<Text style={{ color: '#666' }}>Không có mục nào để hoàn thành</Text>}
               keyExtractor={(it, idx) => itemKey(it, idx)}
+              refreshing={loading}
+              onRefresh={async () => {
+                setLoading(true);
+                try {
+                  await Promise.all([loadTasks(), loadRecurrences()]);
+                } finally {
+                  setLoading(false);
+                }
+              }}
               renderItem={({ item }) => {
                 const k = itemKey(item);
                 const checked = selectedKeys.has(k);
@@ -313,7 +357,7 @@ export default function CompletedScreen() {
                           </View>
                         ) : (
                           <View style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: '#94A3B8', justifyContent: 'center', alignItems: 'center' }} />
-                        )}
+)}
                       </TouchableOpacity>
                     </View>
                   );
@@ -333,7 +377,7 @@ export default function CompletedScreen() {
                           </View>
                         ) : (
                           <View style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: '#94A3B8', justifyContent: 'center', alignItems: 'center' }} />
-                        )}
+)}
                       </TouchableOpacity>
                     </View>
                   );
@@ -354,7 +398,7 @@ export default function CompletedScreen() {
                         </View>
                       ) : (
                         <View style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: '#94A3B8', justifyContent: 'center', alignItems: 'center' }} />
-                      )}
+)}
                     </TouchableOpacity>
                   </View>
                 );
@@ -364,31 +408,7 @@ export default function CompletedScreen() {
         )}
       </View>
 
-      {/* Native time picker (modal) */}
-      {timePickerVisible ? (
-        <DateTimePickerModal
-          isVisible={timePickerVisible}
-          mode="time"
-          is24Hour
-          date={(() => {
-            const [hh, mm] = (cutoffString || '23:00').split(':').map(s => parseInt(s || '0', 10));
-            const now = new Date();
-            return new Date(now.getFullYear(), now.getMonth(), now.getDate(), Number.isFinite(hh) ? hh : 23, Number.isFinite(mm) ? mm : 0);
-          })()}
-          onConfirm={async (d: Date) => {
-            const pad = (n: number) => String(n).padStart(2, '0');
-            const newStr = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-            setCutoffString(newStr);
-            try {
-              await AsyncStorage.setItem(CUT_OFF_KEY, newStr);
-            } catch (e) {
-              // ignore
-            }
-            setTimePickerVisible(false);
-          }}
-          onCancel={() => setTimePickerVisible(false)}
-        />
-      ) : null}
+      {/* Đã xóa DateTimePickerModal */}
     </SafeAreaView>
   );
 }
