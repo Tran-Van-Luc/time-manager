@@ -529,7 +529,7 @@ export default function TaskItem({
                   </View>
                 )}
 
-                {!!item.recurrence_id && !!rec && (
+                {!!rec && (mergeStreak || (habitProgress && habitProgress.total > 1)) && (
                   <View className="flex-row items-center bg-purple-100 rounded-full px-2 py-0.5 border border-purple-700">
                     <Text className="text-purple-700 text-base">🔄</Text>
                   </View>
@@ -541,18 +541,10 @@ export default function TaskItem({
 
   {!!rec && habitProgress && (mergeStreak || (habitProgress.total > 1)) && (
     <View className="mt-1 mb-2">
-            {/* Dòng báo hoàn thành cho khu vực tiến độ (không hiển thị sớm/trễ/đúng hạn) */}
-            {mergeStreak ? (
-              // Ở chế độ gộp: coi như hoàn thành khi chu kỳ đã đủ
-              habitProgress.total > 0 && habitProgress.completed >= habitProgress.total ? (
-                <Text className="text-green-600 mb-1">Hoàn thành</Text>
-              ) : null
-            ) : (
-              // Không gộp: hiển thị khi có hoàn thành trong ngày (không kèm thời lượng)
-              habitProgress.total > 1 && todayDelta?.status ? (
-                <Text className="text-green-600 mb-1">Hoàn thành</Text>
-              ) : null
-            )}
+            {/* Không hiển thị chữ 'Hoàn thành' cho công việc lặp gộp; chỉ hiện với không gộp khi có hoàn thành trong ngày */}
+            {!mergeStreak && habitProgress.total > 1 && todayDelta?.status ? (
+              <Text className="text-green-600 mb-1">Hoàn thành</Text>
+            ) : null}
             {/* Chỉ hiển thị thanh tiến độ khi gộp chuỗi hoặc có nhiều hơn 1 lần trong ngày */}
             {(mergeStreak || habitProgress.total > 1) && (
               <>

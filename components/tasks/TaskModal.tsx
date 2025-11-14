@@ -308,6 +308,11 @@ export default function TaskModal({
 
   const endOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0, 0);
   const oneHourFromNow = () => new Date(Date.now() + 60 * 60 * 1000);
+  const isSameCalendarDay = (a: Date, b: Date) => (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
 
   const getStartDateObj = () =>
     newTask.start_at ? new Date(newTask.start_at) : new Date();
@@ -431,6 +436,89 @@ export default function TaskModal({
         return new Date(target.getFullYear(), target.getMonth(), cand, hours, minutes, 0, 0).getTime();
       }
       step += intv;
+    }
+    return null;
+  };
+
+  // Compute the first TWO weekly occurrences (inclusive of start day) respecting interval
+  const getFirstTwoWeeklyOccurrencesMs = (
+    startMs: number,
+    daysOfWeek: string[],
+    interval: number
+  ): [number, number] | null => {
+    if (!startMs || !daysOfWeek || daysOfWeek.length === 0) return null;
+    const idxMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    const selected = new Set(
+      daysOfWeek
+        .map((d) => idxMap[d])
+        .filter((n): n is number => typeof n === 'number')
+    );
+    if (selected.size === 0) return null;
+    const intv = Math.max(1, Number(interval) || 1);
+    const base = new Date(startMs);
+    const h = base.getHours(); const m = base.getMinutes(); const s = base.getSeconds(); const ms = base.getMilliseconds();
+
+    const results: number[] = [];
+    // Walk forward day-by-day; accept a day if its week offset from start is a multiple of interval
+    for (let dayOffset = 0; dayOffset <= 366 && results.length < 2; dayOffset += 1) {
+      const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + dayOffset, h, m, s, ms);
+      const dow = d.getDay();
+      if (!selected.has(dow)) continue;
+      const weeksFromStart = Math.floor(dayOffset / 7);
+      if (weeksFromStart % intv !== 0) continue;
+      results.push(d.getTime());
+    }
+    return results.length >= 2 ? [results[0], results[1]] : null;
+  };
+
+  // Compute the first TWO monthly occurrences (inclusive of start day) respecting interval
+  const getFirstTwoMonthlyOccurrencesMs = (
+    startMs: number,
+    daysOfMonth: string[],
+    interval: number
+  ): [number, number] | null => {
+    if (!startMs || !daysOfMonth || daysOfMonth.length === 0) return null;
+    const dom = Array.from(new Set(
+      daysOfMonth.map((d) => Math.max(1, Math.min(31, parseInt(String(d).replace(/[^0-9]/g, ''), 10) || 0)))
+    )).filter((n) => !isNaN(n) && n >= 1 && n <= 31).sort((a, b) => a - b);
+    if (dom.length === 0) return null;
+    const intv = Math.max(1, Number(interval) || 1);
+    const base = new Date(startMs);
+    const y = base.getFullYear(); const mo = base.getMonth(); const d0 = base.getDate();
+    const h = base.getHours(); const m = base.getMinutes(); const s = base.getSeconds(); const ms = base.getMilliseconds();
+    const daysInMonth = (yy: number, mm: number) => new Date(yy, mm + 1, 0).getDate();
+    const make = (yy: number, mm: number, dd: number) => new Date(yy, mm, dd, h, m, s, ms).getTime();
+    let occ1: number | null = null;
+    if (dom.includes(d0)) {
+      occ1 = startMs;
+    } else {
+      const max = daysInMonth(y, mo);
+      const sameMonth = dom.find((d) => d > d0 && d <= max);
+      if (sameMonth !== undefined) {
+        occ1 = make(y, mo, sameMonth);
+      } else {
+        let step = intv;
+        for (let tries = 0; tries < 24; tries += 1) {
+          const dt = new Date(y, mo + step, 1);
+          const maxDay = daysInMonth(dt.getFullYear(), dt.getMonth());
+          const cand = dom.find((d) => d <= maxDay);
+          if (cand !== undefined) { occ1 = make(dt.getFullYear(), dt.getMonth(), cand); break; }
+          step += intv;
+        }
+      }
+    }
+    if (occ1 == null) return null;
+    const d1 = new Date(occ1); const y1 = d1.getFullYear(); const m1 = d1.getMonth(); const day1 = d1.getDate();
+    const max2 = daysInMonth(y1, m1);
+    const sameMonthNext = dom.find((d) => d > day1 && d <= max2);
+    if (sameMonthNext !== undefined) return [occ1, make(y1, m1, sameMonthNext)];
+    let step2 = intv;
+    for (let tries = 0; tries < 24; tries += 1) {
+      const dt = new Date(y1, m1 + step2, 1);
+      const maxDay = daysInMonth(dt.getFullYear(), dt.getMonth());
+      const cand = dom.find((d) => d <= maxDay);
+      if (cand !== undefined) return [occ1, make(dt.getFullYear(), dt.getMonth(), cand)];
+      step2 += intv;
     }
     return null;
   };
@@ -570,13 +658,11 @@ Chỉ trả lời: BẬT hoặc TẮT`;
         if (editId !== null && repeatEndDate && newTask.start_at) {
           const s = new Date(newTask.start_at);
           const e = new Date(repeatEndDate);
-          if (
-            s.getFullYear() === e.getFullYear() &&
-            s.getMonth() === e.getMonth() &&
-            s.getDate() === e.getDate()
-          ) {
+          if (isSameCalendarDay(s, e)) {
             // Force Repeat off in the modal UI
             setRepeat(false);
+            // Clear stale same-day end date to avoid misleading validations later
+            try { setRepeatEndDate(undefined); } catch {}
           }
         }
       } catch {}
@@ -727,8 +813,9 @@ Chỉ trả lời: BẬT hoặc TẮT`;
           return;
         }
       } else {
-        // For non-yearly frequencies, require end date
-        if (!repeatEndDate) {
+        // For non-yearly frequencies, require end date (treat same-day as unset)
+        const endDateUnsetOrSameDay = !repeatEndDate || (newTask.start_at && repeatEndDate && isSameCalendarDay(new Date(repeatEndDate), new Date(newTask.start_at)));
+        if (endDateUnsetOrSameDay) {
           onInlineAlert?.({ tone: 'warning', title: 'Thiếu ngày kết thúc lặp', message: 'Vui lòng chọn ngày kết thúc lặp để có ít nhất 2 lần.' });
           return;
         }
@@ -740,16 +827,18 @@ Chỉ trả lời: BẬT hoặc TẮT`;
           return false;
         })();
         if (needsMinTwo) {
-          let nextMs: number | null = null;
+          let secondMs: number | null = null;
           if (repeatFrequency === 'daily') {
-            nextMs = getNextOccurrenceMs(startMs, 'daily', repeatInterval);
+            secondMs = getNextOccurrenceMs(startMs, 'daily', repeatInterval);
           } else if (repeatFrequency === 'weekly') {
-            nextMs = getNextWeeklyOccurrenceMsWithDays(startMs, repeatDaysOfWeek || [], repeatInterval);
+            const pair = getFirstTwoWeeklyOccurrencesMs(startMs, repeatDaysOfWeek || [], repeatInterval);
+            secondMs = pair ? pair[1] : null;
           } else if (repeatFrequency === 'monthly') {
-            nextMs = getNextMonthlyOccurrenceMsWithDays(startMs, repeatDaysOfMonth || [], repeatInterval);
+            const pair = getFirstTwoMonthlyOccurrencesMs(startMs, repeatDaysOfMonth || [], repeatInterval);
+            secondMs = pair ? pair[1] : null;
           }
           const endLimit = endOfDay(new Date(repeatEndDate)).getTime();
-          if (!nextMs || !endLimit || endLimit < nextMs) {
+          if (!secondMs || !endLimit || endLimit < secondMs) {
             onInlineAlert?.({ tone: 'warning', title: 'Ngày kết thúc quá sớm', message: 'Ngày kết thúc lặp phải cho ít nhất 2 lần lặp.' });
             return;
           }
@@ -811,7 +900,8 @@ Chỉ trả lời: BẬT hoặc TẮT`;
           return;
         }
       } else {
-        if (!repeatEndDate) {
+        const endDateUnsetOrSameDay = !repeatEndDate || (newTask.start_at && repeatEndDate && isSameCalendarDay(new Date(repeatEndDate), new Date(newTask.start_at)));
+        if (endDateUnsetOrSameDay) {
           onInlineAlert?.({ tone: 'warning', title: 'Thiếu ngày kết thúc lặp', message: 'Vui lòng chọn ngày kết thúc lặp để có ít nhất 2 lần.' });
           return;
         }
@@ -822,16 +912,18 @@ Chỉ trả lời: BẬT hoặc TẮT`;
           return false;
         })();
         if (needsMinTwo) {
-          let nextMs: number | null = null;
+          let secondMs: number | null = null;
           if (repeatFrequency === 'daily') {
-            nextMs = getNextOccurrenceMs(startMs, 'daily', repeatInterval);
+            secondMs = getNextOccurrenceMs(startMs, 'daily', repeatInterval);
           } else if (repeatFrequency === 'weekly') {
-            nextMs = getNextWeeklyOccurrenceMsWithDays(startMs, repeatDaysOfWeek || [], repeatInterval);
+            const pair = getFirstTwoWeeklyOccurrencesMs(startMs, repeatDaysOfWeek || [], repeatInterval);
+            secondMs = pair ? pair[1] : null;
           } else if (repeatFrequency === 'monthly') {
-            nextMs = getNextMonthlyOccurrenceMsWithDays(startMs, repeatDaysOfMonth || [], repeatInterval);
+            const pair = getFirstTwoMonthlyOccurrencesMs(startMs, repeatDaysOfMonth || [], repeatInterval);
+            secondMs = pair ? pair[1] : null;
           }
           const endLimit = endOfDay(new Date(repeatEndDate)).getTime();
-          if (!nextMs || !endLimit || endLimit < nextMs) {
+          if (!secondMs || !endLimit || endLimit < secondMs) {
             onInlineAlert?.({ tone: 'warning', title: 'Ngày kết thúc quá sớm', message: 'Ngày kết thúc lặp phải cho ít nhất 2 lần lặp.' });
             return;
           }
@@ -1338,6 +1430,11 @@ Chỉ trả lời: BẬT hoặc TẮT`;
                             merge: false,
                           };
                         } catch {}
+                      } else {
+                        // Turning repeat ON: clear stale end date for non-yearly to force explicit pick
+                        if (repeatFrequency !== 'yearly') {
+                          try { setRepeatEndDate(undefined); } catch {}
+                        }
                       }
                     }}
                   />

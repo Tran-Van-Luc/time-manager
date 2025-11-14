@@ -581,7 +581,7 @@ export default function TaskDetailModal({
                           </View>
                         )}
 
-                        {!!task.recurrence_id && !!rec && (
+                        {!!rec && (mergeStreak || (habitProgress && habitProgress.total > 1)) && (
                           <View className="flex-row items-center bg-purple-100 rounded-full px-2 py-0.5 border border-purple-700">
                             <Text className="text-purple-700 text-base">🔁</Text>
                           </View>
@@ -593,16 +593,10 @@ export default function TaskDetailModal({
 
                 {!!rec && habitProgress && (mergeStreak || (habitProgress.total && habitProgress.total > 1)) && (
                   <View className="mt-1 mb-2">
-                    {/* Dòng báo 'Đã hoàn thành' cho khu vực tiến độ (không hiển thị sớm/trễ/đúng hạn) */}
-                    {mergeStreak ? (
-                      habitProgress.total > 0 && habitProgress.completed >= habitProgress.total ? (
-                        <Text className="text-green-600 mb-1">Hoàn thành</Text>
-                      ) : null
-                    ) : (
-                      todayDelta?.status ? (
-                        <Text className="text-green-600 mb-1">Hoàn thành</Text>
-                      ) : null
-                    )}
+                    {/* Không hiển thị chữ 'Hoàn thành' cho công việc lặp gộp; vẫn hiện với không gộp khi có hoàn thành trong ngày */}
+                    {!mergeStreak && todayDelta?.status ? (
+                      <Text className="text-green-600 mb-1">Hoàn thành</Text>
+                    ) : null}
                     <View className="flex-row items-center justify-between mb-1">
                       <Text className="text-gray-700">Tiến độ</Text>
                       <Text className="text-gray-800 font-medium">

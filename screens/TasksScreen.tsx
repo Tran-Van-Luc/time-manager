@@ -329,6 +329,8 @@ export default function TasksScreen() {
     setShowRepeatStartPicker(false);
     setShowRepeatEndPicker(false);
     setAddTaskStartTime(Date.now());
+    // Reset habit flags when starting a fresh add
+    try { (global as any).__habitFlags = { merge: false, auto: false }; } catch {}
   };
 
   const openEditModal = (item: Task) => {
@@ -361,11 +363,10 @@ export default function TasksScreen() {
       if (rec) {
         // Detect single-day auto-only recurrence (persisted to store auto flag).
         const isAutoOnlySingle = rec.auto_complete_expired === 1 && rec.start_date && rec.end_date && rec.start_date === rec.end_date;
-        // Prefill habit flags for TaskModal switches (merge/auto)
+        // Prefill habit flags for TaskModal switches (merge/auto) - override any previous flags
         const mergeFlag = rec.merge_streak === 1;
         const autoFlag = rec.auto_complete_expired === 1;
-        const prevFlags = (global as any).__habitFlags || {};
-        (global as any).__habitFlags = { ...prevFlags, merge: mergeFlag, auto: autoFlag };
+        (global as any).__habitFlags = { merge: mergeFlag, auto: autoFlag };
 
         if (isAutoOnlySingle) {
           // Keep Repeat UI off but hydrate internal recurrence values
@@ -386,6 +387,8 @@ export default function TasksScreen() {
           setRepeatEndDate(rec.end_date ? new Date(rec.end_date).getTime() : undefined);
         }
       } else {
+        // Recurrence id tồn tại nhưng không có bản ghi -> reset flags
+        (global as any).__habitFlags = { merge: false, auto: false };
         setRepeat(false);
         setRepeatFrequency('daily');
         setRepeatInterval(1);
@@ -395,6 +398,8 @@ export default function TasksScreen() {
         setRepeatEndDate(undefined);
       }
     } else {
+      // Không có recurrence -> reset flags để tránh leak từ task trước
+      (global as any).__habitFlags = { merge: false, auto: false };
       setRepeat(false);
       setRepeatFrequency('daily');
       setRepeatInterval(1);
