@@ -215,7 +215,19 @@ export default function TaskModal({
           if (rec.interval) setRepeatInterval(Number(rec.interval));
           if (rec.daysOfWeek) setRepeatDaysOfWeek(Array.isArray(rec.daysOfWeek) ? rec.daysOfWeek : []);
           if (rec.daysOfMonth) setRepeatDaysOfMonth(Array.isArray(rec.daysOfMonth) ? rec.daysOfMonth : []);
-          if (rec.endDate) setRepeatEndDate(Number(rec.endDate));
+          if (rec.endDate) {
+            // SỬA LỖI MÚI GIỜ:
+            // AI thường trả về "Cuối ngày UTC" (ví dụ 23:59 UTC).
+            // Ở Việt Nam (GMT+7), 23:59 UTC sẽ thành 06:59 sáng hôm sau -> Bị lệch 1 ngày.
+            // Giải pháp: Nếu thấy giờ UTC >= 20 (tức là buổi tối UTC), ta đưa về 12:00 trưa UTC 
+            // để khi cộng 7 tiếng vẫn nằm trong cùng một ngày.
+            const rawEnd = Number(rec.endDate);
+            const d = new Date(rawEnd);
+            if (d.getUTCHours() >= 20) {
+              d.setUTCHours(12, 0, 0, 0);
+            }
+            setRepeatEndDate(d.getTime());
+          }
           if (rec.frequency === 'yearly' && rec.endDate && newTask.start_at) {
             const derived = deriveYearlyCountFromDates(newTask.start_at, Number(rec.endDate));
             if (derived !== null) setYearlyCount(derived);
@@ -677,6 +689,39 @@ Chỉ trả lời: BẬT hoặc TẮT`;
           if (derived !== null) setYearlyCount(derived);
         }
       }
+      // Initialize custom reminder fields on modal open to avoid leaking state from previous opens
+      try {
+        const presetValues = (REMINDER_OPTIONS || []).map((o: any) => Number(o.value));
+        if (reminder && !presetValues.includes(Number(reminderTime))) {
+          const parts = deriveCustomParts(Number(reminderTime || 0));
+          setCustomReminderMode(true);
+          setCustomReminderValue(parts.value);
+          setCustomReminderUnit(parts.unit);
+          setSavedCustomMeta({ unit: parts.unit, value: parts.value });
+        } else {
+          // Ensure custom mode is off for modal open when reminder is preset or disabled
+          setCustomReminderMode(false);
+          // Reset saved meta when opening a fresh modal so it doesn't reuse previous task's meta
+          setSavedCustomMeta(null);
+          if (reminder && presetValues.includes(Number(reminderTime))) {
+            const parts = deriveCustomParts(Number(reminderTime || 0));
+            setCustomReminderValue(parts.value);
+            setCustomReminderUnit(parts.unit);
+          } else {
+            setCustomReminderValue("");
+            setCustomReminderUnit("minutes");
+          }
+        }
+      } catch {}
+    }
+    else {
+      // When modal closes, reset transient custom reminder edit state to avoid leaking to next open
+      try {
+        setCustomReminderMode(false);
+        setCustomReminderValue("");
+        setCustomReminderUnit("minutes");
+        setSavedCustomMeta(null);
+      } catch {}
     }
   }, [visible]);
 

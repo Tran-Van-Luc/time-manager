@@ -364,8 +364,12 @@ export const useTaskOperations = (
       endDate?: number;
     }
   ) => {
+    const suppress = !!(global as any).__skipTaskPrompts;
+
     if (!newTask.title.trim()) {
-      if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Vui lòng nhập tiêu đề!' }); else Alert.alert("Lỗi", "Vui lòng nhập tiêu đề!");
+      if (!suppress) {
+        if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Vui lòng nhập tiêu đề!' }); else Alert.alert("Lỗi", "Vui lòng nhập tiêu đề!");
+      }
       return false;
     }
 
@@ -390,13 +394,17 @@ export const useTaskOperations = (
       // Validate time
       const timeError = validateTaskTime(startAt, endAt);
       if (timeError) {
-        if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message: timeError }); else Alert.alert("Lỗi", timeError);
+        if (!suppress) {
+          if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message: timeError }); else Alert.alert("Lỗi", timeError);
+        }
         return false;
       }
 
       // Recurrence end date requirement: always require user input
       if (recurrenceConfig?.enabled && !recurrenceConfig.endDate) {
-        if (options?.onNotify) options.onNotify({ tone:'warning', title:'Thiếu thông tin', message:'Vui lòng chọn ngày kết thúc cho lặp lại' }); else Alert.alert("Lỗi", "Vui lòng chọn ngày kết thúc cho lặp lại");
+        if (!suppress) {
+          if (options?.onNotify) options.onNotify({ tone:'warning', title:'Thiếu thông tin', message:'Vui lòng chọn ngày kết thúc cho lặp lại' }); else Alert.alert("Lỗi", "Vui lòng chọn ngày kết thúc cho lặp lại");
+        }
         return false;
       }
 
@@ -420,6 +428,7 @@ export const useTaskOperations = (
           }
         }
         if (conflictRes.hasConflict) {
+          if (suppress) return false;
           const formatted = compressSameDayRanges(conflictRes.conflictMessage);
           const proceed = await new Promise<boolean>((resolve)=>{
             if (options?.onConflict) {
@@ -601,10 +610,14 @@ export const useTaskOperations = (
 
   // Lập lịch lại thông báo sau khi thêm
   try { await refreshNotifications(); } catch {}
-  if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã thêm công việc!' }); else Alert.alert("Thành công", "Đã thêm công việc!");
+  if (!suppress) {
+    if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã thêm công việc!' }); else Alert.alert("Thành công", "Đã thêm công việc!");
+  }
       return true;
     } catch (error) {
-      if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Không thể thêm công việc' }); else Alert.alert("Lỗi", "Không thể thêm công việc");
+      if (!suppress) {
+        if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Không thể thêm công việc' }); else Alert.alert("Lỗi", "Không thể thêm công việc");
+      }
       return false;
     } finally {
       setProcessing(false);

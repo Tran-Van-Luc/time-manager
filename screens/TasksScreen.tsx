@@ -523,6 +523,44 @@ export default function TasksScreen() {
     (global as any).__habitFlags = next;
   }
   };
+  // Helper formatters for import conflict messages (used by computeImportErrors and import flow)
+  const pad2 = (n: number) => String(n).padStart(2, '0');
+  const formatDate = (ms: number) => {
+    const d = new Date(ms);
+    return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+  };
+  const formatTime = (ms: number) => {
+    const d = new Date(ms);
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  };
+  const formatRepeatTextRow = (row: ParsedRow) => {
+    if (!row.repeatEnabled || !row.repeatFrequency) return '(Không lặp)';
+    const f = row.repeatFrequency;
+    const dowToVi = (dow: string) => {
+      if (!dow) return dow;
+      const map: Record<string, string> = { Mon: 'Thứ 2', Tue: 'Thứ 3', Wed: 'Thứ 4', Thu: 'Thứ 5', Fri: 'Thứ 6', Sat: 'Thứ 7', Sun: 'CN' };
+      return map[dow] || dow;
+    };
+    if (f === 'daily') return '(Lặp: Hằng ngày)';
+    if (f === 'weekly') return (row.repeatDaysOfWeek && row.repeatDaysOfWeek.length) ? `(Lặp: Hằng tuần - ${row.repeatDaysOfWeek.map(dowToVi).join(', ')})` : '(Lặp: Hằng tuần)';
+    if (f === 'monthly') return (row.repeatDaysOfMonth && row.repeatDaysOfMonth.length) ? `(Lặp: Hằng tháng - ngày ${row.repeatDaysOfMonth.join(', ')})` : '(Lặp: Hằng tháng)';
+    if (f === 'yearly') return row.yearlyCount ? `(Lặp: Hằng năm - ${row.yearlyCount} lần)` : '(Lặp: Hằng năm)';
+    return '';
+  };
+  const briefForExistingTask = (t: Task) => {
+    try {
+      const tStart = t.start_at ? (typeof t.start_at === 'string' ? Date.parse(t.start_at) : t.start_at) : undefined;
+      const tEnd = t.end_at ? (typeof t.end_at === 'string' ? Date.parse(t.end_at) : t.end_at) : undefined;
+      if (!tStart || !tEnd) return `• ${(t.title||'(Không tiêu đề)')}`;
+      const s = new Date(tStart); const e = new Date(tEnd);
+      const sameDay = s.getFullYear() === e.getFullYear() && s.getMonth() === e.getMonth() && s.getDate() === e.getDate();
+      if (sameDay) {
+        return `• ${(t.title||'(Không tiêu đề)')}${t.recurrence_id ? ' (lặp)' : ''}\n  Thời gian: ${pad2(s.getHours())}:${pad2(s.getMinutes())} - ${pad2(e.getHours())}:${pad2(e.getMinutes())} ${pad2(s.getDate())}/${pad2(s.getMonth() + 1)}/${s.getFullYear()}`;
+      }
+      const fmt = (ms: number) => `${pad2(new Date(ms).getHours())}:${pad2(new Date(ms).getMinutes())} ${formatDate(ms)}`;
+      return `• ${(t.title||'(Không tiêu đề)')}${t.recurrence_id ? ' (lặp)' : ''}\n  Bắt đầu: ${fmt(tStart)}\n  Kết thúc: ${fmt(tEnd)}`;
+    } catch { return `• ${(t.title||'(Không tiêu đề)')}`; }
+  };
 
   const computeImportErrors = (r: ParsedRow): string[] => {
     const errs: string[] = [];
@@ -582,13 +620,35 @@ export default function TasksScreen() {
           status: er.status || 'pending',
           recurrence_id: undefined,
         })) as any[];
-        const tasksForCheck = [...tasks, ...syntheticTasks];
-        if (rec && rec.enabled && rec.endDate) {
-          const { hasConflict, conflictMessage } = checkRecurringConflicts(r.start_at, r.end_at, tasksForCheck as any, schedules as any, rec);
-          if (hasConflict) errs.push(`Xung đột với lịch/công việc khác:\n${conflictMessage}`);
-        } else {
-          const { hasConflict, conflictMessage } = checkTimeConflicts(r.start_at, r.end_at, tasksForCheck as any, schedules as any);
-          if (hasConflict) errs.push(`Xung đột với lịch/công việc khác:\n${conflictMessage}`);
+        // Exclude completed tasks from conflict/duplicate checks
+        const activeTasks = tasks.filter(t => t.status !== 'completed');
+        // Duplicate detection: same title + identical start/end timestamps
+        let duplicateDetected = false;
+        for (const t of activeTasks) {
+          try {
+            const tStart = t.start_at ? (typeof t.start_at === 'string' ? Date.parse(t.start_at) : t.start_at) : undefined;
+            const tEnd = t.end_at ? (typeof t.end_at === 'string' ? Date.parse(t.end_at) : t.end_at) : undefined;
+              if (tStart && tEnd && Math.abs(tStart - r.start_at) < 1000 && Math.abs(tEnd - r.end_at) < 1000) {
+                const tTitle = (t.title || '').toString().trim().toLowerCase();
+                const rTitle = (r.title || '').toString().trim().toLowerCase();
+                if (tTitle && rTitle && tTitle === rTitle) {
+                  // Provide detailed conflict description like manual add
+                  errs.push(`Trùng với công việc đã tồn tại:\n${briefForExistingTask(t)} ${formatRepeatTextRow(r)}`);
+                  duplicateDetected = true;
+                  break;
+                }
+              }
+          } catch {}
+        }
+        const tasksForCheck = [...activeTasks, ...syntheticTasks];
+        if (!duplicateDetected) {
+          if (rec && rec.enabled && rec.endDate) {
+            const { hasConflict, conflictMessage } = checkRecurringConflicts(r.start_at, r.end_at, tasksForCheck as any, schedules as any, rec);
+            if (hasConflict) errs.push(`Xung đột với lịch/công việc khác:\n${conflictMessage}`);
+          } else {
+            const { hasConflict, conflictMessage } = checkTimeConflicts(r.start_at, r.end_at, tasksForCheck as any, schedules as any);
+            if (hasConflict) errs.push(`Xung đột với lịch/công việc khác:\n${conflictMessage}`);
+          }
         }
       }
     } catch {}
@@ -663,9 +723,28 @@ export default function TasksScreen() {
           // Conflict checks against existing tasks + already-validated new rows
           try {
             if (r.start_at && r.end_at) {
-              const tasksForCheck = [...tasks, ...syntheticTasks];
-              if (r.repeatEnabled) {
-                const rec = {
+              // Exclude completed tasks from checks and detect duplicates (same title + same times)
+              const activeTasks = tasks.filter(t => t.status !== 'completed');
+              let duplicateDetected = false;
+              for (const t of activeTasks) {
+                try {
+                  const tStart = t.start_at ? (typeof t.start_at === 'string' ? Date.parse(t.start_at) : t.start_at) : undefined;
+                  const tEnd = t.end_at ? (typeof t.end_at === 'string' ? Date.parse(t.end_at) : t.end_at) : undefined;
+                  if (tStart && tEnd && Math.abs(tStart - r.start_at) < 1000 && Math.abs(tEnd - r.end_at) < 1000) {
+                    const tTitle = (t.title || '').toString().trim().toLowerCase();
+                    const rTitle = (r.title || '').toString().trim().toLowerCase();
+                    if (tTitle && rTitle && tTitle === rTitle) {
+                      errs.push(`Trùng với công việc đã tồn tại:\n${briefForExistingTask(t)} ${formatRepeatTextRow(r)}`);
+                      duplicateDetected = true;
+                      break;
+                    }
+                  }
+                } catch {}
+              }
+              const tasksForCheck = [...activeTasks, ...syntheticTasks];
+              if (!duplicateDetected) {
+                if (r.repeatEnabled) {
+                  const rec = {
                   enabled: true,
                   frequency: r.repeatFrequency,
                   interval: r.repeatInterval || 1,
@@ -678,11 +757,12 @@ export default function TasksScreen() {
                     return r.repeatEndDate;
                   })(),
                 } as any;
-                const { hasConflict, conflictMessage } = checkRecurringConflicts(r.start_at, r.end_at, tasksForCheck as any, schedules as any, rec as any);
-                if (hasConflict) errs.push(`Xung đột: ${conflictMessage}`);
-              } else {
-                const { hasConflict, conflictMessage } = checkTimeConflicts(r.start_at, r.end_at, tasksForCheck as any, schedules as any);
-                if (hasConflict) errs.push(`Xung đột: ${conflictMessage}`);
+                  const { hasConflict, conflictMessage } = checkRecurringConflicts(r.start_at, r.end_at, tasksForCheck as any, schedules as any, rec as any);
+                  if (hasConflict) errs.push(`Xung đột: ${conflictMessage}`);
+                } else {
+                  const { hasConflict, conflictMessage } = checkTimeConflicts(r.start_at, r.end_at, tasksForCheck as any, schedules as any);
+                  if (hasConflict) errs.push(`Xung đột: ${conflictMessage}`);
+                }
               }
             }
           } catch (err) {
