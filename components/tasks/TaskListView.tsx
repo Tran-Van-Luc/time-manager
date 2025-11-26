@@ -8,6 +8,7 @@ import TaskItem from "./TaskItem";
 
 interface TaskListViewProps {
   filteredTasks: Task[];
+  search?: string;
   // allTasks: Task[]; // Removed to simplify the props
   reminders: Reminder[];
   recurrences: Recurrence[];
@@ -21,6 +22,7 @@ interface TaskListViewProps {
 
 export default function TaskListView({
   filteredTasks,
+  search,
   // allTasks, // Removed to simplify the props
   reminders,
   recurrences,
@@ -144,14 +146,31 @@ export default function TaskListView({
     return null;
   };
 
-  // Filter tasks for selected date
+  // Prepare items to display.
+  // If `search` is provided (non-empty) we should show matches across all days
+  // (the parent already filtered by text). For recurring tasks we show only
+  // the base/first occurrence (do not expand to multiple daily occurrences).
   const selectedItems: Task[] = [];
   const occurrenceStartMap = new Map<number, number>();
-  for (const t of filteredTasks) {
-    const occ = getOccurrenceForDate(t, selectedDate);
-    if (occ) {
+  const isSearching = !!(search && String(search).trim());
+  if (isSearching) {
+    for (const t of filteredTasks) {
       selectedItems.push(t);
-      if (t.id != null) occurrenceStartMap.set(t.id, occ.start);
+      // Determine a sensible sort key: prefer task.start_at, then recurrence start, then 0
+      try {
+        const baseStart = t.start_at ? (typeof t.start_at === 'string' ? new Date(t.start_at).getTime() : t.start_at) : undefined;
+        if (t.id != null) occurrenceStartMap.set(t.id, baseStart ?? 0);
+      } catch {
+        if (t.id != null) occurrenceStartMap.set(t.id, 0);
+      }
+    }
+  } else {
+    for (const t of filteredTasks) {
+      const occ = getOccurrenceForDate(t, selectedDate);
+      if (occ) {
+        selectedItems.push(t);
+        if (t.id != null) occurrenceStartMap.set(t.id, occ.start);
+      }
     }
   }
 
@@ -201,27 +220,29 @@ export default function TaskListView({
 
   // Prepare items and title based on mode
   const listItems = selectedItems;
-  const sectionTitle = dateLabel;
+  const sectionTitle = isSearching ? `Kết quả tìm kiếm` : dateLabel;
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 as any, marginVertical: 8 }}>
-        <TouchableOpacity onPress={goPrevDay} style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}>
-          <Text style={{ fontSize: 18 }}>{'<'}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => { setShowDatePicker(true); }} style={{ paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: '#ddd', borderRadius: 20, backgroundColor: '#f5f5f5' }}>
-          <Text style={{ fontWeight: '600', fontSize: 16 }}>{dateLabel}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={goNextDay} style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}>
-          <Text style={{ fontSize: 18 }}>{'>'}</Text>
-        </TouchableOpacity>
-        <View style={{ position: 'relative', marginHorizontal: 6 }}>
-          <TouchableOpacity onPress={onPressToday} style={{ paddingVertical: 6, paddingHorizontal: 16, borderWidth: 1, borderColor: isTodaySelected ? '#007AFF' : '#ddd', borderRadius: 20, backgroundColor: isTodaySelected ? '#007AFF' : '#f5f5f5' }}>
-            <Text style={{ fontSize: 16, fontWeight: '600', color: isTodaySelected ? '#fff' : '#000' }}>Hôm nay</Text>
+      {!isSearching && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 as any, marginVertical: 8 }}>
+          <TouchableOpacity onPress={goPrevDay} style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}>
+            <Text style={{ fontSize: 18 }}>{'<'}</Text>
           </TouchableOpacity>
+          <TouchableOpacity onPress={() => { setShowDatePicker(true); }} style={{ paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: '#ddd', borderRadius: 20, backgroundColor: '#f5f5f5' }}>
+            <Text style={{ fontWeight: '600', fontSize: 16 }}>{dateLabel}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={goNextDay} style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}>
+            <Text style={{ fontSize: 18 }}>{'>'}</Text>
+          </TouchableOpacity>
+          <View style={{ position: 'relative', marginHorizontal: 6 }}>
+            <TouchableOpacity onPress={onPressToday} style={{ paddingVertical: 6, paddingHorizontal: 16, borderWidth: 1, borderColor: isTodaySelected ? '#007AFF' : '#ddd', borderRadius: 20, backgroundColor: isTodaySelected ? '#007AFF' : '#f5f5f5' }}>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: isTodaySelected ? '#fff' : '#000' }}>Hôm nay</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
-      {showDatePicker && (
+      )}
+      {!isSearching && showDatePicker && (
         <DateTimePicker
           value={selectedDate}
           mode="date"
@@ -258,8 +279,8 @@ export default function TaskListView({
             openEditModal={openEditModal}
             handleDeleteTask={handleDeleteTask}
             onInlineAlert={onInlineAlert}
-            hideDate={true}
-            allMode={false}
+            hideDate={isSearching ? false : true}
+            allMode={isSearching}
             selectedDate={selectedDate}
           />
         )}

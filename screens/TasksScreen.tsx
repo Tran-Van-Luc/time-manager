@@ -972,6 +972,7 @@ export default function TasksScreen() {
       ) : (
         <TaskListView
           filteredTasks={filteredTasks}
+          search={search}
           reminders={reminders}
           recurrences={recurrences}
           REPEAT_OPTIONS={REPEAT_OPTIONS}
