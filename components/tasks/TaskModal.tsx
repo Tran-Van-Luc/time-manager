@@ -102,9 +102,7 @@ export default function TaskModal({
   };
   // Track the original start time to know if user changed it during edit
   const originalStartAtRef = useRef<number | undefined>(undefined);
-  // Track last evaluated title+description to avoid redundant AI calls
-  const lastAutoEvalRef = useRef<string>("\n");
-  const isEvaluatingAutoRef = useRef<boolean>(false);
+  
 
   // Removed 5-minute constraint per request
   // Custom reminder state
@@ -535,81 +533,7 @@ export default function TaskModal({
     return null;
   };
 
-  // Evaluate title/description to decide auto-complete using AI
-  const evaluateAutoCompleteAI = async (title: string, description: string) => {
-    const t = (title || "").trim();
-    const d = (description || "").trim();
-    const key = `${t}\n${d}`;
-    if (!t && !d) return; // nothing to evaluate
-    if (key === lastAutoEvalRef.current) return; // avoid redundant
-    if (isEvaluatingAutoRef.current) return; // avoid overlap
-    isEvaluatingAutoRef.current = true;
-    try {
-      const GEMINI_API_KEY = String(process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? "");
-      if (!GEMINI_API_KEY) {
-        console.warn('[AI-Auto] Missing EXPO_PUBLIC_GEMINI_API_KEY');
-        return;
-      }
-    const MODEL = 'gemini-2.0-flash';
-    const prompt = `Bạn là một trợ lý AI giúp phân tích công việc để quyết định **mức độ tự động hoàn thành** dựa trên tiêu đề và mô tả, và đưa ra quyết định **BẬT/TẮT** tính năng tự động hoàn thành.
-
-Trước khi phân tích, hãy hiểu rõ các khái niệm sau:
-
-1) Tự động hoàn thành (Auto-complete / Auto-finish)
-  - Là công việc được hệ thống tự động đánh dấu hoàn tất, không cần con người thực hiện hay ra quyết định.
-  - Thường áp dụng cho công việc lặp đi lặp lại, theo quy tắc, không rủi ro.
-
-2) Hoàn thành thủ công
-  - Là công việc cần con người trực tiếp thực hiện hoặc kiểm tra; có thể cần đánh giá, quyết định, sáng tạo.
-  - Thường áp dụng khi có hậu quả quan trọng hoặc yêu cầu quyết định con người.
-
-3) Mức độ tự động (%)
-  - 100%: hoàn toàn tự động, không cần con người.
-  - 70–90%: phần lớn tự động, còn một ít cần kiểm tra.
-  - 40–60%: có yếu tố con người đáng kể.
-  - 0–30%: gần như hoàn toàn dựa vào con người.
-
-Quy tắc ra quyết định (map sang BẬT/TẮT):
-1) Nếu công việc lặp lại, theo quy tắc, thực hiện hoàn toàn bằng hệ thống/ứng dụng, không cần con người quyết định hay kiểm tra → mức độ = 100% → TRẢ LỜI: BẬT.
-2) Nếu phần lớn tự động nhưng vẫn cần ít kiểm tra hoặc điều kiện/phán đoán nhỏ của con người → mức độ = 70–90% → TRẢ LỜI: BẬT.
-3) Nếu cần đánh giá, quyết định, kiểm tra, sáng tạo hoặc có hậu quả quan trọng → mức độ = 0–40% → TRẢ LỜI: TẮT.
-4) Nếu mô tả trống hoặc không đủ chi tiết, mặc định mức độ = 80%, trừ khi tiêu đề thể hiện rõ công việc chắc chắn cần con người → TRẢ LỜI: BẬT.
-
-Lưu ý:
-- Chỉ sử dụng thông tin trong tiêu đề và mô tả; không suy diễn ngoài nội dung có sẵn.
-- Không giải thích lý do; chỉ trả về đúng một từ: BẬT hoặc TẮT.
-
-Công việc:
-- Tiêu đề: "${t}"
-- Mô tả: "${d}"
-
-Chỉ trả lời: BẬT hoặc TẮT`;
-      try { console.log('[AI-Auto] Sending prompt:', { title: t, description: d }); } catch {}
-      const resp = await axios.post(
-        `https://generativelanguage.googleapis.com/v1/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          contents: [ { parts: [ { text: prompt } ] } ],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 20 },
-        }
-      );
-      const raw = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-      const ans = String(raw).trim().replace(/[`*_\s]/g, '').toUpperCase();
-      try { console.log('[AI-Auto] Raw:', raw, '=> normalized:', ans); } catch {}
-      if (ans.includes('BAT') || ans.includes('BẬT')) {
-        toggleHabitAuto(true);
-      } else if (ans.includes('TAT') || ans.includes('TẮT')) {
-        toggleHabitAuto(false);
-      } else {
-        // If unclear, prefer OFF for safety
-        toggleHabitAuto(false);
-      }
-      lastAutoEvalRef.current = key;
-    } catch (e) {
-      console.warn('[AI-Auto] Evaluate failed', e);
-    } finally {
-      isEvaluatingAutoRef.current = false;
-    }
-  };
+  
 
   // Keep repeatEndDate in sync when start_at or yearlyCount changes in yearly mode
   useEffect(() => {
@@ -1018,7 +942,6 @@ Chỉ trả lời: BẬT hoặc TẮT`;
                   required
                   value={newTask.title}
                   onChangeText={(t) => setNewTask((prev: any) => ({ ...prev, title: t }))}
-                  onBlur={() => evaluateAutoCompleteAI(newTask.title, newTask.description)}
                   autoCapitalize="sentences"
                   returnKeyType="next"
                 />
@@ -1026,7 +949,6 @@ Chỉ trả lời: BẬT hoặc TẮT`;
                   label="Mô tả"
                   value={newTask.description}
                   onChangeText={(t) => setNewTask((prev: any) => ({ ...prev, description: t }))}
-                  onBlur={() => evaluateAutoCompleteAI(newTask.title, newTask.description)}
                   multiline
                 />
                 {/* Ngày bắt đầu */}
