@@ -140,6 +140,47 @@ export default function TaskModal({
     return { value: totalMinutes.toString(), unit: "minutes" };
   };
 
+  // Normalize end date returned by AI to a local end-of-day timestamp (ms).
+  // Handles date-only strings (YYYY-MM-DD), numeric epochs, and ISO datetimes.
+  // If AI returns a UTC timestamp like 2025-11-29T23:59:00Z we take the UTC Y/M/D
+  // and produce a local Date at 23:59 for that calendar date so the calendar
+  // day does not shift when viewed in a different timezone.
+  const normalizeAiEndDate = (raw: any): number | null => {
+    if (raw == null) return null;
+    try {
+      const s = String(raw).trim();
+      // YYYY-MM-DD (date-only)
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        const [y, mo, d] = s.split("-").map(Number);
+        return new Date(y, mo - 1, d, 23, 59, 0, 0).getTime();
+      }
+
+      // Numeric epoch (ms)
+      const ms = Number(s);
+      if (!Number.isNaN(ms)) {
+        const dt = new Date(ms);
+        // Use the UTC calendar date from the timestamp
+        const y = dt.getUTCFullYear();
+        const mo = dt.getUTCMonth();
+        const day = dt.getUTCDate();
+        return new Date(y, mo, day, 23, 59, 0, 0).getTime();
+      }
+
+      // Fallback: parseable ISO datetime string
+      const parsed = Date.parse(s);
+      if (!Number.isNaN(parsed)) {
+        const dt = new Date(parsed);
+        const y = dt.getUTCFullYear();
+        const mo = dt.getUTCMonth();
+        const day = dt.getUTCDate();
+        return new Date(y, mo, day, 23, 59, 0, 0).getTime();
+      }
+    } catch (e) {
+      // ignore and fall through to null
+    }
+    return null;
+  };
+
   // Handler to receive parsed task payload from AI/voice component
   const handleAIPopulate = (payload: { task?: Record<string, any>; reminder?: any; recurrence?: any }) => {
     if (!payload) return;
@@ -214,21 +255,15 @@ export default function TaskModal({
           if (rec.daysOfWeek) setRepeatDaysOfWeek(Array.isArray(rec.daysOfWeek) ? rec.daysOfWeek : []);
           if (rec.daysOfMonth) setRepeatDaysOfMonth(Array.isArray(rec.daysOfMonth) ? rec.daysOfMonth : []);
           if (rec.endDate) {
-            // SỬA LỖI MÚI GIỜ:
-            // AI thường trả về "Cuối ngày UTC" (ví dụ 23:59 UTC).
-            // Ở Việt Nam (GMT+7), 23:59 UTC sẽ thành 06:59 sáng hôm sau -> Bị lệch 1 ngày.
-            // Giải pháp: Nếu thấy giờ UTC >= 20 (tức là buổi tối UTC), ta đưa về 12:00 trưa UTC 
-            // để khi cộng 7 tiếng vẫn nằm trong cùng một ngày.
-            const rawEnd = Number(rec.endDate);
-            const d = new Date(rawEnd);
-            if (d.getUTCHours() >= 20) {
-              d.setUTCHours(12, 0, 0, 0);
-            }
-            setRepeatEndDate(d.getTime());
+            const normalized = normalizeAiEndDate(rec.endDate);
+            if (normalized != null) setRepeatEndDate(normalized);
           }
           if (rec.frequency === 'yearly' && rec.endDate && newTask.start_at) {
-            const derived = deriveYearlyCountFromDates(newTask.start_at, Number(rec.endDate));
-            if (derived !== null) setYearlyCount(derived);
+            const normalized = normalizeAiEndDate(rec.endDate);
+            if (normalized != null) {
+              const derived = deriveYearlyCountFromDates(newTask.start_at, normalized);
+              if (derived !== null) setYearlyCount(derived);
+            }
           }
         }
       } catch {}
