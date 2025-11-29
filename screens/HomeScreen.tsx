@@ -1,4 +1,3 @@
-// screens/HomeScreen.tsx
 import React, { useMemo, useState, useEffect } from "react";
 import {
   View,
@@ -192,6 +191,13 @@ export default function HomeScreen() {
 
   // date picker state for day view
   const [showDatePicker, setShowDatePicker] = useState(false);
+
+  // Selected item for week view detail
+  const [selectedWeekItem, setSelectedWeekItem] = useState<DayItem | null>(null);
+
+  // Filter toggles for week view
+  const [showSchedules, setShowSchedules] = useState(true);
+  const [showTasks, setShowTasks] = useState(true);
 
   useEffect(() => { loadSchedules(); loadTasks(); loadRecurrences(); }, [loadSchedules, loadTasks, loadRecurrences]);
 
@@ -454,11 +460,7 @@ export default function HomeScreen() {
     const day = startOfDay(d);
     setSelectedDate(day);
     setCurrent(new Date(day.getFullYear(), day.getMonth(), day.getDate()));
-    if (viewMode === "week") {
-      setShowModal(false);
-    } else {
-      setShowModal(true);
-    }
+    setShowModal(true);
   };
 
   const schedulesForSelectedDay = useMemo(() => {
@@ -693,6 +695,30 @@ export default function HomeScreen() {
 
       {viewMode === "week" && (
         <>
+          <View style={{ backgroundColor: colors.surface, paddingHorizontal: 12, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 16, borderBottomWidth: 1, borderColor: colors.border }}>
+            <TouchableOpacity
+              onPress={() => setShowSchedules(!showSchedules)}
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+              activeOpacity={0.7}
+            >
+              <View style={{ width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: colors.themeColor, backgroundColor: showSchedules ? colors.themeColor : "transparent", justifyContent: "center", alignItems: "center" }}>
+                {showSchedules && <Text style={{ color: "#fff", fontSize: 14, fontWeight: "bold" }}>✓</Text>}
+              </View>
+              <Text style={{ color: colors.text, fontSize: 14 }}>📋 {language === "vi" ? "Lịch học" : "Schedules"}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setShowTasks(!showTasks)}
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+              activeOpacity={0.7}
+            >
+              <View style={{ width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: colors.themeColor, backgroundColor: showTasks ? colors.themeColor : "transparent", justifyContent: "center", alignItems: "center" }}>
+                {showTasks && <Text style={{ color: "#fff", fontSize: 14, fontWeight: "bold" }}>✓</Text>}
+              </View>
+              <Text style={{ color: colors.text, fontSize: 14 }}>📚 {language === "vi" ? "Công việc" : "Tasks"}</Text>
+            </TouchableOpacity>
+          </View>
+
           <View style={{ flexDirection: "row", backgroundColor: colors.surface, borderBottomWidth: 1, borderColor: colors.border }}>
             <View style={{ width: 64, borderRightWidth: 1, borderColor: colors.border, paddingVertical: 8 }}>
               <View style={{ height: 40, justifyContent: "center", alignItems: "center" }}>
@@ -748,6 +774,12 @@ export default function HomeScreen() {
               const key = ymd(startOfDay(day));
               const items = dayMap.get(key) ?? [];
 
+              const filteredItems = items.filter(it => {
+                if (it.kind === "schedule" && !showSchedules) return false;
+                if (it.kind === "task" && !showTasks) return false;
+                return true;
+              });
+
               const bySession = {
                 Morning: [] as DayItem[],
                 Afternoon: [] as DayItem[],
@@ -757,7 +789,7 @@ export default function HomeScreen() {
                 Tối: [] as DayItem[],
               };
 
-              for (const it of items) {
+              for (const it of filteredItems) {
                 const start = (it as any).start ? new Date((it as any).start) : undefined;
                 const minutes = start ? start.getHours() * 60 + start.getMinutes() : 480;
                 const session = minutes >= 390 && minutes < 720 ? (language === "vi" ? "Sáng" : "Morning") : minutes >= 750 && minutes < 1050 ? (language === "vi" ? "Chiều" : "Afternoon") : (language === "vi" ? "Tối" : "Night");
@@ -792,14 +824,14 @@ export default function HomeScreen() {
                                   <TouchableOpacity
                                     key={s.id ?? `${i}`}
                                     onPress={() => {
-                                      setSelectedDate(startOfDay(s.start));
+                                      setSelectedWeekItem(it);
                                       setShowModal(true);
                                     }}
                                     activeOpacity={0.8}
                                     style={{
                                       marginBottom: 6,
                                       borderRadius: 6,
-                                      backgroundColor: isDark ? "#071226" : st.pillBg,
+                                      backgroundColor: isDark ? "#1a2332" : "#e0e7ff",
                                       paddingHorizontal: 5,
                                       borderLeftWidth: 4,
                                       borderLeftColor: st.color,
@@ -828,7 +860,7 @@ export default function HomeScreen() {
                                   <TouchableOpacity
                                     key={t.id ?? `${i}`}
                                     onPress={() => {
-                                      setSelectedDate(startOfDay(t.start ?? (t.end ?? day)));
+                                      setSelectedWeekItem(it);
                                       setShowModal(true);
                                     }}
                                     activeOpacity={0.8}
@@ -836,7 +868,7 @@ export default function HomeScreen() {
                                       marginBottom: 6,
                                       borderRadius: 6,
                                       paddingHorizontal: 5,
-                                      backgroundColor: isDark ? "#071226" : getTaskBgColor(t.priority ?? undefined),
+                                      backgroundColor: isDark ? "#1a2b1a" : "#dcfce7",
                                       borderLeftWidth: 6,
                                       borderLeftColor: borderColor,
                                       minHeight: 48,
@@ -921,57 +953,79 @@ export default function HomeScreen() {
                 <View style={[styles.modalList, { backgroundColor: colors.surface }]}>
                   <View style={styles.modalHeaderRow}>
                     <View style={styles.datePill}>
-                      <Text style={[styles.modalDateTitle, { color: colors.text }]}>{selectedDate ? `${dmy(startOfDay(selectedDate))}` : ""}</Text>
+                      <Text style={[styles.modalDateTitle, { color: colors.text }]}>
+                        {viewMode === "week" && selectedWeekItem 
+                          ? (selectedWeekItem.kind === "schedule" ? (selectedWeekItem as DayScheduleItem).subject : (selectedWeekItem as DayTaskItem).title)
+                          : selectedDate ? `${dmy(startOfDay(selectedDate))}` : ""}
+                      </Text>
                     </View>
 
-                    <TouchableOpacity onPress={() => setShowModal(false)} style={styles.closeButton}>
+                    <TouchableOpacity onPress={() => { setShowModal(false); setSelectedWeekItem(null); }} style={styles.closeButton}>
                       <Text style={[styles.closeBtn, { color: colors.themeColor }]}>✕</Text>
                     </TouchableOpacity>
                   </View>
 
                   <ScrollView contentContainerStyle={{ padding: 8 }}>
-                    <Text style={[styles.sectionTitle, { color: colors.text }]}>{L.sectionSchedule}</Text>
-                    {schedulesForDay.length === 0 ? (
-                      <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>{L.emptySchedule}</Text></View>
-                    ) : schedulesForDay.map((s, i) => <ScheduleItemView key={s.id ?? i} s={s} />)}
+                    {viewMode === "week" && selectedWeekItem ? (
+                      <>
+                        {selectedWeekItem.kind === "schedule" ? (
+                          <>
+                            <Text style={[styles.sectionTitle, { color: colors.text }]}>{L.sectionSchedule}</Text>
+                            <ScheduleItemView s={selectedWeekItem as DayScheduleItem} />
+                          </>
+                        ) : (
+                          <>
+                            <Text style={[styles.sectionTitle, { color: colors.text }]}>{L.sectionTasks}</Text>
+                            <TaskCard t={selectedWeekItem as DayTaskItem} date={selectedDate ?? new Date()} />
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <Text style={[styles.sectionTitle, { color: colors.text }]}>{L.sectionSchedule}</Text>
+                        {schedulesForDay.length === 0 ? (
+                          <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>{L.emptySchedule}</Text></View>
+                        ) : schedulesForDay.map((s, i) => <ScheduleItemView key={s.id ?? i} s={s} />)}
 
-                    <Text style={[styles.sectionTitle, { marginTop: 10, color: colors.text }]}>{L.sectionTasks}</Text>
-                    {tasksForDay.length === 0 ? (
-                      <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>{L.emptyTasks}</Text></View>
-                    ) : tasksForDay.map((t, i) => {
-                      const bgColor = isDark ? "#071226" : getTaskBgColor(t.priority ?? undefined);
-                      const borderColor = getTaskColor(t.priority ?? undefined);
-                      const textColor = isDark ? "#E6EEF8" : "#111827";
-                      return (
-                        <View
-                          key={i}
-                          style={[
-                            styles.taskCard,
-                            { backgroundColor: bgColor, borderLeftWidth: 6, borderLeftColor: borderColor },
-                          ]}
-                        >
-                          <View style={styles.rowTop}>
-                            <Text style={[styles.taskTitleText, { color: textColor }]}>📚 {t.title}</Text>
-                          </View>
+                        <Text style={[styles.sectionTitle, { marginTop: 10, color: colors.text }]}>{L.sectionTasks}</Text>
+                        {tasksForDay.length === 0 ? (
+                          <View style={[styles.emptyRow, { backgroundColor: colors.surface }]}><Text style={[styles.emptyRowText, { color: colors.muted }]}>{L.emptyTasks}</Text></View>
+                        ) : tasksForDay.map((t, i) => {
+                          const bgColor = isDark ? "#071226" : getTaskBgColor(t.priority ?? undefined);
+                          const borderColor = getTaskColor(t.priority ?? undefined);
+                          const textColor = isDark ? "#E6EEF8" : "#111827";
+                          return (
+                            <View
+                              key={i}
+                              style={[
+                                styles.taskCard,
+                                { backgroundColor: bgColor, borderLeftWidth: 6, borderLeftColor: borderColor },
+                              ]}
+                            >
+                              <View style={styles.rowTop}>
+                                <Text style={[styles.taskTitleText, { color: textColor }]}>📚 {t.title}</Text>
+                              </View>
 
-                          <Text style={[styles.timeText, { color: textColor }]}>
-                            ⏰ {fmtTime(t.start)} {t.start || t.end ? L.timeDash : ""} {fmtTime(t.end)}
-                          </Text>
+                              <Text style={[styles.timeText, { color: textColor }]}>
+                                ⏰ {fmtTime(t.start)} {t.start || t.end ? L.timeDash : ""} {fmtTime(t.end)}
+                              </Text>
 
-                          <View style={styles.rowPills}>
-                            <View style={[styles.pill, { backgroundColor: borderColor }]}>
-                              <Text style={styles.pillText}>{language === "vi" ? labelPriorityVn(t.priority ?? undefined) : (t.priority ? t.priority.charAt(0).toUpperCase() + t.priority.slice(1) : "Other")}</Text>
+                              <View style={styles.rowPills}>
+                                <View style={[styles.pill, { backgroundColor: borderColor }]}>
+                                  <Text style={styles.pillText}>{language === "vi" ? labelPriorityVn(t.priority ?? undefined) : (t.priority ? t.priority.charAt(0).toUpperCase() + t.priority.slice(1) : "Other")}</Text>
+                                </View>
+
+                                <View style={[styles.pill, { backgroundColor: "#fff", borderWidth: 0, paddingHorizontal: 12 }]}>
+                                  <Text style={[styles.pillText, { color: "#111827" }]}>{language === "vi" ? labelStatusVn(t.status ?? undefined) : (t.status ? t.status.replace('-', ' ') : "Unknown")}</Text>
+                                </View>
+                              </View>
+
+                              {t.notes ? <Text style={[styles.detailText, { color: textColor }]}>📝 {t.notes}</Text> : null}
                             </View>
-
-                            <View style={[styles.pill, { backgroundColor: "#fff", borderWidth: 0, paddingHorizontal: 12 }]}>
-                              <Text style={[styles.pillText, { color: "#111827" }]}>{language === "vi" ? labelStatusVn(t.status ?? undefined) : (t.status ? t.status.replace('-', ' ') : "Unknown")}</Text>
-                            </View>
-                          </View>
-
-                          {t.notes ? <Text style={[styles.detailText, { color: textColor }]}>📝 {t.notes}</Text> : null}
-                        </View>
-                      );
-                    })}
+                          );
+                        })}
+                      </>
+                    )}
                   </ScrollView>
                 </View>
               </View>
