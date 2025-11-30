@@ -706,8 +706,12 @@ export default function ScheduleScreen() {
         onClose={() => setSelectedItem(null)}
         onEdit={handleDetailEdit}
         onDelete={(id: number) => {
+          // Safe lookup from current schedules array instead of closure
           const itm = schedules.find((s) => s.id === id);
-          if (!itm) return;
+          if (!itm) {
+            setSelectedItem(null); // Clear modal if item not found
+            return;
+          }
           handleDetailDelete(itm);
         }}
       />

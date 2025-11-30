@@ -146,6 +146,8 @@ export default function AddScheduleForm({
 
   const types = onSave ? EDIT_TYPES : ADD_TYPES;
 
+  const [showErrors, setShowErrors] = useState(false); // Show errors only after first save attempt
+  
   const [courseName, setCourseName] = useState(
     initialValues?.courseName ?? ""
   );
@@ -321,6 +323,28 @@ export default function AddScheduleForm({
     (!isRecurringType(type) ? true : startDate <= endDate) &&
     !conflictDetail;
 
+  // Validation errors for required fields - only show if showErrors is true
+  const fieldErrors = useMemo(() => {
+    if (!showErrors) {
+      return {
+        courseName: false,
+        startDate: false,
+        endDate: false,
+        singleDate: false,
+        startTime: false,
+        endTime: false,
+      };
+    }
+    return {
+      courseName: courseName.trim() === "",
+      startDate: isRecurringType(type) && !startDate,
+      endDate: isRecurringType(type) && (!endDate || startDate > endDate),
+      singleDate: !isRecurringType(type) && !singleDate,
+      startTime: !startTime,
+      endTime: !endTime || startTime >= endTime,
+    };
+  }, [courseName, startDate, endDate, singleDate, startTime, endTime, type, showErrors]);
+
   // Picker states
   type PickerTarget = "startDate" | "endDate" | "singleDate" | "startTime" | "endTime";
   const [isPickerVisible, setPickerVisible] = useState(false);
@@ -361,18 +385,24 @@ export default function AddScheduleForm({
     pickerTarget === "startTime" ? startTime : endTime;
 
   async function handleSave() {
+    // Check for errors but don't block saving - show alert instead and stay in modal
+    if (conflictDetail) {
+      setShowErrors(true); // Show red error indicators
+      Alert.alert(
+        L.conflictTitle,
+        L.conflictMsg(
+          conflictDetail.subject,
+          conflictDetail.existingStart.toLocaleTimeString(),
+          conflictDetail.existingEnd.toLocaleTimeString()
+        )
+      );
+      return; // Stay in modal, user can fix
+    }
+    
     if (!isValid) {
-      if (conflictDetail) {
-        return Alert.alert(
-          L.conflictTitle,
-          L.conflictMsg(
-            conflictDetail.subject,
-            conflictDetail.existingStart.toLocaleTimeString(),
-            conflictDetail.existingEnd.toLocaleTimeString()
-          )
-        );
-      }
-      return Alert.alert(L.invalidTitle, L.invalidMsg);
+      setShowErrors(true); // Show red error indicators
+      Alert.alert(L.invalidTitle, L.invalidMsg);
+      return; // Stay in modal, user can fix
     }
 
     const base: Partial<CreateScheduleParams> = {
@@ -443,12 +473,15 @@ export default function AddScheduleForm({
           <View style={s.inputGroup}>
             <Text style={s.label}>{L.courseLabel}</Text>
             <TextInput 
-              style={s.input} 
+              style={[s.input, fieldErrors.courseName && s.inputError]} 
               placeholder={L.coursePlaceholder} 
               placeholderTextColor="#999"
               value={courseName} 
               onChangeText={setCourseName} 
             />
+            {fieldErrors.courseName && (
+              <Text style={s.errorText}>📌 {language === "vi" ? "Vui lòng nhập tên môn học" : "Please enter course name"}</Text>
+            )}
           </View>
 
           <View style={s.inputGroup}>
@@ -486,38 +519,47 @@ export default function AddScheduleForm({
             <View style={s.inputGroup}>
               <Text style={s.label}>{L.startEndDateLabel}</Text>
               <View style={s.row}>
-                <TouchableOpacity style={s.dateBtn} onPress={() => openPicker("startDate", "date")}>
+                <TouchableOpacity style={[s.dateBtn, fieldErrors.startDate && s.dateBtnError]} onPress={() => openPicker("startDate", "date")}>
                   <Text style={s.dateBtnText}>{formatVietnameseDate(startDate)}</Text>
                   <Text style={s.icon}>📆</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={s.dateBtn} onPress={() => openPicker("endDate", "date")}>
+                <TouchableOpacity style={[s.dateBtn, fieldErrors.endDate && s.dateBtnError]} onPress={() => openPicker("endDate", "date")}>
                   <Text style={s.dateBtnText}>{formatVietnameseDate(endDate)}</Text>
                   <Text style={s.icon}>📆</Text>
                 </TouchableOpacity>
               </View>
+              {(fieldErrors.startDate || fieldErrors.endDate) && (
+                <Text style={s.errorText}>📌 {language === "vi" ? "Vui lòng chọn ngày (ngày bắt đầu ≤ ngày kết thúc)" : "Please select dates (start ≤ end)"}</Text>
+              )}
             </View>
           ) : (
             <View style={s.inputGroup}>
               <Text style={s.label}>{L.dateLabel}</Text>
-              <TouchableOpacity style={s.dateBtn} onPress={() => openPicker("singleDate", "date")}>
+              <TouchableOpacity style={[s.dateBtn, fieldErrors.singleDate && s.dateBtnError]} onPress={() => openPicker("singleDate", "date")}>
                 <Text style={s.dateBtnText}>{formatVietnameseDate(singleDate)}</Text>
                 <Text style={s.icon}>📆</Text>
               </TouchableOpacity>
+              {fieldErrors.singleDate && (
+                <Text style={s.errorText}>📌 {language === "vi" ? "Vui lòng chọn ngày" : "Please select date"}</Text>
+              )}
             </View>
           )}
 
           <View style={s.inputGroup}>
             <Text style={s.label}>{L.startEndTimeLabel}</Text>
             <View style={s.row}>
-              <TouchableOpacity style={s.dateBtn} onPress={() => openPicker("startTime", "time")}>
+              <TouchableOpacity style={[s.dateBtn, fieldErrors.startTime && s.dateBtnError]} onPress={() => openPicker("startTime", "time")}>
                 <Text style={s.dateBtnText}>{formatLocalTime(startTime)}</Text>
                 <Text style={s.icon}>🕐</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={s.dateBtn} onPress={() => openPicker("endTime", "time")}>
+              <TouchableOpacity style={[s.dateBtn, fieldErrors.endTime && s.dateBtnError]} onPress={() => openPicker("endTime", "time")}>
                 <Text style={s.dateBtnText}>{formatLocalTime(endTime)}</Text>
                 <Text style={s.icon}>🕐</Text>
               </TouchableOpacity>
             </View>
+            {(fieldErrors.startTime || fieldErrors.endTime) && (
+              <Text style={s.errorText}>📌 {language === "vi" ? "Vui lòng chọn giờ (giờ bắt đầu < giờ kết thúc)" : "Please select times (start < end)"}</Text>
+            )}
           </View>
 
           {conflictDetail && (
@@ -542,9 +584,8 @@ export default function AddScheduleForm({
           />
 
           <TouchableOpacity 
-            style={[s.saveBtn, isValid ? s.saveBtnActive : s.saveBtnDisabled]} 
-            onPress={handleSave} 
-            disabled={!isValid}
+            style={[s.saveBtn, s.saveBtnActive]} 
+            onPress={handleSave}
           >
             <Text style={s.saveBtnText}>
               {onSave ? L.saveEdit : L.saveNew}
@@ -709,5 +750,19 @@ const s = StyleSheet.create({
     color: "#fff",
     fontWeight: "700",
     fontSize: 14,
+  },
+  inputError: {
+    borderColor: "#ef4444",
+    backgroundColor: "#fef2f2",
+  },
+  dateBtnError: {
+    borderColor: "#ef4444",
+    backgroundColor: "#fef2f2",
+  },
+  errorText: {
+    color: "#dc2626",
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: "500",
   },
 });

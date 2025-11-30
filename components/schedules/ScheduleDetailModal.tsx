@@ -1,5 +1,5 @@
 // components/schedules/ScheduleDetailModal.tsx
-import React from "react";
+import React, { useState, useRef } from "react";
 import {
   Modal,
   View,
@@ -30,6 +30,8 @@ export default function ScheduleDetailModal({
   onDelete,
 }: Props) {
   const { language, t } = useLanguage();
+  const [isProcessing, setIsProcessing] = useState(false);
+  const lastActionTimeRef = useRef(0);
 
   const L = {
     vi: {
@@ -127,12 +129,25 @@ export default function ScheduleDetailModal({
   const fmt = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
   const handleEdit = () => {
+    if (isProcessing) return; // Prevent double-click
+    setIsProcessing(true);
     onClose();
     onEdit?.(item.id);
+    // Reset after action completes
+    setTimeout(() => setIsProcessing(false), 500);
   };
+
   const handleDelete = () => {
+    if (isProcessing) return; // Prevent double-click
+    const now = Date.now();
+    if (now - lastActionTimeRef.current < 300) return; // Debounce: min 300ms between delete clicks
+    lastActionTimeRef.current = now;
+    
+    setIsProcessing(true);
     onClose();
     onDelete?.(item.id);
+    // Reset after action completes
+    setTimeout(() => setIsProcessing(false), 500);
   };
 
   return (
@@ -175,13 +190,13 @@ export default function ScheduleDetailModal({
                 </Text>
 
                 <View style={styles.actions}>
-                  <TouchableOpacity onPress={handleEdit}>
-                    <Text style={[styles.actionIcon, { transform: [{ rotate: "90deg" }] }]}>
+                  <TouchableOpacity onPress={handleEdit} disabled={isProcessing}>
+                    <Text style={[styles.actionIcon, { transform: [{ rotate: "90deg" }], opacity: isProcessing ? 0.5 : 1 }]}>
                       ✏️
                     </Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={handleDelete} style={{ marginLeft: 12 }}>
-                    <Text style={styles.actionIcon}>🗑️</Text>
+                  <TouchableOpacity onPress={handleDelete} disabled={isProcessing} style={{ marginLeft: 12 }}>
+                    <Text style={[styles.actionIcon, { opacity: isProcessing ? 0.5 : 1 }]}>🗑️</Text>
                   </TouchableOpacity>
                 </View>
               </View>

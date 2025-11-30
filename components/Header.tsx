@@ -66,17 +66,11 @@ export default function Header() {
           style={styles.logo}
         />
         <Text numberOfLines={1} style={styles.appName}>
-          {displayName || "StudyTime"}
+          StudyTime
         </Text>
       </View>
 
       <View style={styles.rightGroup}>
-        <TouchableOpacity onPress={toggleTheme} style={styles.iconButton}>
-          <Text style={styles.iconText}>
-            {theme === "light" ? "🌙" : "☀️"}
-          </Text>
-        </TouchableOpacity>
-
         <TouchableOpacity onPress={showNotifications} style={styles.iconButton}>
           <Text style={styles.iconText}>✅</Text>
           {notifications > 0 && (

@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "../../context/ThemeContext";
+import { usePrimaryColor } from "../../context/PrimaryColorContext";
 
 const STORAGE_KEY_PRIMARY = "primaryColor";
 const STORAGE_KEY_LANG = "appLanguage";
@@ -41,8 +42,17 @@ export default function PrimaryColorPicker({
   const selected = PRESETS[selectedIdx];
   const [month, setMonth] = useState(new Date());
   const [lang, setLang] = useState<"vi" | "en">("vi");
+  const { primaryColor, setPrimaryColor } = usePrimaryColor();
 
   useEffect(() => {
+    // Prefer the context primaryColor (keeps UI in sync immediately).
+    if (primaryColor) {
+      const i = PRESETS.findIndex((p) => p.color === primaryColor);
+      if (i >= 0) {
+        setSelectedIdx(i);
+        return;
+      }
+    }
     (async () => {
       try {
         const v = await AsyncStorage.getItem(STORAGE_KEY_PRIMARY);
@@ -63,9 +73,15 @@ export default function PrimaryColorPicker({
 
   async function handleApply() {
     try {
-      await AsyncStorage.setItem(STORAGE_KEY_PRIMARY, selected.color);
+      // Update global context (which also persists to AsyncStorage)
+      await setPrimaryColor(selected.color);
       onApply?.(selected.color);
-    } catch {}
+    } catch {
+      // Fallback: try to persist directly
+      try {
+        await AsyncStorage.setItem(STORAGE_KEY_PRIMARY, selected.color);
+      } catch {}
+    }
     onClose();
   }
 
