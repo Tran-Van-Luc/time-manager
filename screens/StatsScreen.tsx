@@ -97,6 +97,9 @@ export default function StatsScreen() {
   // ref to the week picker scroll so we can auto-scroll to the selected week
   const weekScrollRef = useRef<any>(null);
   const WEEK_ITEM_HEIGHT = 48; // approximate item height used for scrolling
+  // list scrolling helpers: show a scroll region when list has more than N items
+  const LIST_ITEM_HEIGHT = 84; // approximate height per task item
+  const LIST_VISIBLE_COUNT = 3;
 
   // when the picker opens for weeks, scroll to the selected week so it's visible
   useEffect(() => {
@@ -1742,13 +1745,24 @@ export default function StatsScreen() {
             <Text style={[styles.empty, { color: colors.muted }]}> 
               {language === "en" ? "None" : "Không có"}
             </Text>
+          ) : doingList.length > LIST_VISIBLE_COUNT ? (
+            <ScrollView
+              nestedScrollEnabled
+              showsVerticalScrollIndicator
+              persistentScrollbar
+              style={{ maxHeight: LIST_ITEM_HEIGHT * LIST_VISIBLE_COUNT }}
+              contentContainerStyle={{ paddingBottom: 4 }}
+            >
+              {doingList.map((item) => (
+                <View key={String(item.id)}>{renderTaskItem({ item })}</View>
+              ))}
+            </ScrollView>
           ) : (
-            <FlatList
-              data={doingList}
-              keyExtractor={(i) => String(i.id)}
-              renderItem={renderTaskItem}
-              scrollEnabled={false}
-            />
+            <>
+              {doingList.map((item) => (
+                <View key={String(item.id)}>{renderTaskItem({ item })}</View>
+              ))}
+            </>
           )}
 
           <Text
@@ -1763,13 +1777,24 @@ export default function StatsScreen() {
             <Text style={[styles.empty, { color: colors.muted }]}> 
               {language === "en" ? "None" : "Không có"}
             </Text>
+          ) : doneList.length > LIST_VISIBLE_COUNT ? (
+            <ScrollView
+              nestedScrollEnabled
+              showsVerticalScrollIndicator
+              persistentScrollbar
+              style={{ maxHeight: LIST_ITEM_HEIGHT * LIST_VISIBLE_COUNT }}
+              contentContainerStyle={{ paddingBottom: 4 }}
+            >
+              {doneList.map((item) => (
+                <View key={String(item.id)}>{renderTaskItem({ item })}</View>
+              ))}
+            </ScrollView>
           ) : (
-            <FlatList
-              data={doneList}
-              keyExtractor={(i) => String(i.id)}
-              renderItem={renderTaskItem}
-              scrollEnabled={false}
-            />
+            <>
+              {doneList.map((item) => (
+                <View key={String(item.id)}>{renderTaskItem({ item })}</View>
+              ))}
+            </>
           )}
 
           <Text
@@ -1781,13 +1806,24 @@ export default function StatsScreen() {
             <Text style={[styles.empty, { color: colors.muted }]}> 
               {language === "en" ? "None" : "Không có"}
             </Text>
+          ) : overdueList.length > LIST_VISIBLE_COUNT ? (
+            <ScrollView
+              nestedScrollEnabled
+              showsVerticalScrollIndicator
+              persistentScrollbar
+              style={{ maxHeight: LIST_ITEM_HEIGHT * LIST_VISIBLE_COUNT }}
+              contentContainerStyle={{ paddingBottom: 4 }}
+            >
+              {overdueList.map((item) => (
+                <View key={String(item.id)}>{renderTaskItem({ item })}</View>
+              ))}
+            </ScrollView>
           ) : (
-            <FlatList
-              data={overdueList}
-              keyExtractor={(i) => String(i.id)}
-              renderItem={renderTaskItem}
-              scrollEnabled={false}
-            />
+            <>
+              {overdueList.map((item) => (
+                <View key={String(item.id)}>{renderTaskItem({ item })}</View>
+              ))}
+            </>
           )}
 
           {(viewMode === "week" ? isCurrentWeek : isCurrentMonth) && (
@@ -1797,18 +1833,29 @@ export default function StatsScreen() {
               >
                 {language === "en" ? "Upcoming tasks" : "Công việc chờ thực hiện"}
               </Text>
-              {upcomingList.length === 0 ? (
-                <Text style={[styles.empty, { color: colors.muted }]}> 
-                  {language === "en" ? "None" : "Không có"}
-                </Text>
-              ) : (
-                <FlatList
-                  data={upcomingList}
-                  keyExtractor={(i) => String(i.id)}
-                  renderItem={renderTaskItem}
-                  scrollEnabled={false}
-                />
-              )}
+                {upcomingList.length === 0 ? (
+                  <Text style={[styles.empty, { color: colors.muted }]}> 
+                    {language === "en" ? "None" : "Không có"}
+                  </Text>
+                ) : upcomingList.length > LIST_VISIBLE_COUNT ? (
+                  <ScrollView
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator
+                    persistentScrollbar
+                    style={{ maxHeight: LIST_ITEM_HEIGHT * LIST_VISIBLE_COUNT }}
+                    contentContainerStyle={{ paddingBottom: 4 }}
+                  >
+                    {upcomingList.map((item) => (
+                      <View key={String(item.id)}>{renderTaskItem({ item })}</View>
+                    ))}
+                  </ScrollView>
+                ) : (
+                  <>
+                    {upcomingList.map((item) => (
+                      <View key={String(item.id)}>{renderTaskItem({ item })}</View>
+                    ))}
+                  </>
+                )}
             </>
           )}
 
