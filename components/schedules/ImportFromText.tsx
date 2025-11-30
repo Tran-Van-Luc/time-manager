@@ -106,8 +106,8 @@ Tiết 10: 14:15-15:00, Tiết 11: 15:00-15:45, Tiết 12: 15:45-16:30
 Tiết 13: 16:30-17:15, Tiết 14: 17:15-18:00, Tiết 15: 18:00-18:45
 
 CÁCH NHÓM LỊCH HỌC:
-1. Với mỗi môn học, tìm tất cả các buổi học CÓ CÙNG: Tên môn + Loại lịch (Lý thuyết/Thực hành) + Thứ + Tiết + Phòng học
-2. Lấy ngày BẮT ĐẦU sớm nhất và ngày KẾT THÚC muộn nhất của nhóm đó
+1. Với mỗi môn học, tìm tất cả các buổi học CÓ CÙNG: Tên môn + Loại lịch (Lý thuyết/Thực hành/Lịch thi/Lịch tạm ngưng/Lịch học bù) + Thứ + Tiết + Phòng học
+2. Lấy ngày BẮT ĐẦU sớm nhất và ngày KẾT THÚC muộn nhất của nhóm đó (Đối với Lịch thi, Lịch học bù thì chỉ lấy 1 ngày duy nhất)
 3. Tạo 1 object duy nhất cho cả khoảng thời gian đó
 
 VÍ DỤ NHÓM:
@@ -125,7 +125,7 @@ FORMAT OUTPUT:
 [
   {
     "courseName": "Tên môn học (bỏ mã môn)",
-    "type": "Lịch học lý thuyết" | "Lịch học thực hành",
+    "type": "Lịch học lý thuyết" | "Lịch học thực hành" | "Lịch thi" | "Lịch tạm ngưng" | "Lịch học bù",
     "instructorName": "Tên giảng viên chính (người đầu tiên)",
     "location": "Phòng (chỉ lấy phần trước dấu ngoặc, VD: B2.05 từ B2.05 (B2.05 (CLC)))",
     "weekday": "Số thứ (2-8, với 8 là Chủ nhật)",
@@ -137,7 +137,7 @@ FORMAT OUTPUT:
 ]
 
 QUY TẮC XỬ LÝ:
-1. BỎ QUA hoàn toàn: "Thi giữa kỳ", "Thi cuối kỳ" - KHÔNG parse
+1. BỎ QUA hoàn toàn: 
 2. CHỈ PARSE: "Lý thuyết" và "Thực hành"
 3. Location: Lấy phần TRƯỚC dấu ngoặc đầu tiên (VD: "B2.05" từ "B2.05 (B2.05 (CLC))")
 4. Giảng viên: Chỉ lấy TÊN người đầu tiên (bỏ học hàm, mã)

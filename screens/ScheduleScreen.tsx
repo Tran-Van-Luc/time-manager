@@ -8,7 +8,7 @@ import {
   Modal,
   Alert,
 } from "react-native";
-import { AntDesign } from "@expo/vector-icons";
+import { AntDesign, FontAwesome5 } from "@expo/vector-icons";
 import AddScheduleForm from "../components/schedules/AddScheduleForm";
 import { useSchedules, ScheduleItem } from "../hooks/useSchedules";
 import DayView from "../components/schedules/DayView";
@@ -101,6 +101,7 @@ export default function ScheduleScreen() {
   } = useSchedules();
 
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showAddMenu, setShowAddMenu] = useState(false); // ← THÊM STATE MỚI
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [viewMode, setViewMode] = useState<"day" | "week">("day");
@@ -188,11 +189,9 @@ export default function ScheduleScreen() {
     return schedules.filter((s) => s.startAt >= start && s.startAt <= end);
   }, [schedules, selectedDate, viewMode, weekDates]);
 
-  // schedulesForWeek: add typeLabel normalized so WeekView can use it for style lookup
   const schedulesForWeek = useMemo(() => {
     return filtered.map((s) => ({
       ...s,
-      // attach normalized label used by TYPE_STYLE keys
       typeLabel: normalizeTypeToLabel(s.type, t),
     }));
   }, [filtered, t]);
@@ -669,21 +668,6 @@ export default function ScheduleScreen() {
       <View style={styles.headerRow}>
         <Text style={[styles.pageTitle, themedStyles.text]}>{t.schedule.pageTitle}</Text>
 
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.importButton} onPress={() => setShowExcelImport(true)}>
-            <AntDesign name="download" size={20} color="#1D4ED8" />
-            <Text style={styles.importText}>{t.schedule.importExcel}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.importButton, { borderColor: "#059669" }]}
-            onPress={() => setShowTextImport(true)}
-          >
-            <AntDesign name="copy" size={20} color="#059669" />
-            <Text style={[styles.importText, { color: "#059669" }]}>{t.schedule.importSchedule}</Text>
-          </TouchableOpacity>
-        </View>
-
         <DayView
           selectedDate={selectedDate}
           setSelectedDate={setSelectedDate}
@@ -708,7 +692,7 @@ export default function ScheduleScreen() {
       ) : (
         <WeekView
           weekDates={weekDates}
-          schedules={schedulesForWeek} // use normalized schedules with typeLabel
+          schedules={schedulesForWeek}
           typeStyle={TYPE_STYLE}
           onSelectItem={setSelectedItem}
           theme={theme}
@@ -721,14 +705,66 @@ export default function ScheduleScreen() {
         typeStyle={TYPE_STYLE}
         onClose={() => setSelectedItem(null)}
         onEdit={handleDetailEdit}
-        onDelete={() => handleDetailDelete(selectedItem!)}
+        onDelete={(id: number) => {
+          const itm = schedules.find((s) => s.id === id);
+          if (!itm) return;
+          handleDetailDelete(itm);
+        }}
       />
 
-      <TouchableOpacity style={styles.addButton} onPress={() => setShowAddModal(true)}>
+      {/* NÚT THÊM VỚI MENU POPUP */}
+      <TouchableOpacity style={styles.addButton} onPress={() => setShowAddMenu(true)}>
         <AntDesign name="plus" size={28} color="#fff" />
       </TouchableOpacity>
 
-      <Modal visible={showAddModal} transparent animationType="slide">
+      {/* MENU POPUP 3 LỰA CHỌN */}
+      <Modal visible={showAddMenu} transparent animationType="fade">
+        <TouchableOpacity 
+          style={styles.menuOverlay} 
+          activeOpacity={1} 
+          onPress={() => setShowAddMenu(false)}
+        >
+          <View style={[styles.menuContainer, themedStyles.card]}>
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => {
+                setShowAddMenu(false);
+                setShowAddModal(true);
+              }}
+            >
+              <AntDesign name="edit" size={24} color="#1D4ED8" />
+              <Text style={[styles.menuText, themedStyles.text]}>Thêm thủ công</Text>
+            </TouchableOpacity>
+
+            <View style={styles.menuDivider} />
+
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => {
+                setShowAddMenu(false);
+                setShowExcelImport(true);
+              }}
+            >
+              <FontAwesome5 name="file-excel" size={24} color="#175E49" />
+              <Text style={[styles.menuText, themedStyles.text]}>Nhập liệu bằng Excel</Text>
+            </TouchableOpacity>
+
+            <View style={styles.menuDivider} />
+
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => {
+                setShowAddMenu(false);
+                setShowTextImport(true);
+              }}
+            >
+              <FontAwesome5 name="file-pdf" size={24} color="#EF4444" />
+              <Text style={[styles.menuText, themedStyles.text]}>Nhập liệu bằng PDF</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+<Modal visible={showAddModal} transparent animationType="slide">
         <AddScheduleForm
           onClose={() => {
             setShowAddModal(false);
@@ -772,6 +808,53 @@ export default function ScheduleScreen() {
       <ImportFromText visible={showTextImport} onClose={() => setShowTextImport(false)} onImport={handleImportFromText} />
 
       <ExcelImportModal visible={showExcelImport} onClose={() => setShowExcelImport(false)} onImport={handleImportExcel} importing={importing} />
+
+      {showErrorDetail && (
+        <Modal visible={showErrorDetail} transparent animationType="slide">
+          <View style={styles.menuOverlay}>
+            <View style={[styles.menuContainer, themedStyles.card, { maxHeight: '80%' }]}>
+              <Text style={[styles.pageTitle, themedStyles.text, { marginBottom: 16 }]}>
+                {t.schedule.importResult}
+              </Text>
+              
+              {importResult.addedCount > 0 && (
+                <Text style={[styles.infoText, themedStyles.text, { color: '#059669', marginBottom: 8 }]}>
+                  ✅ Đã thêm thành công {importResult.addedCount} buổi học!
+                </Text>
+              )}
+              
+              {importResult.validationErrors.length > 0 && (
+                <>
+                  <Text style={[styles.infoText, themedStyles.text, { fontWeight: 'bold', marginTop: 12 }]}>
+                    ⚠️ Lỗi dữ liệu ({importResult.validationErrors.length}):
+                  </Text>
+                  <Text style={[styles.infoText, themedStyles.subText, { fontSize: 12 }]}>
+                    {importResult.validationErrors.join('\n')}
+                  </Text>
+                </>
+              )}
+              
+              {importResult.conflictErrors.length > 0 && (
+                <>
+                  <Text style={[styles.infoText, themedStyles.text, { fontWeight: 'bold', marginTop: 12 }]}>
+                    ❌ Lỗi trùng lịch ({importResult.conflictErrors.length}):
+                  </Text>
+                  <Text style={[styles.infoText, themedStyles.subText, { fontSize: 12 }]}>
+                    {importResult.conflictErrors.join('\n')}
+                  </Text>
+                </>
+              )}
+              
+              <TouchableOpacity
+                style={[styles.addButton, { position: 'relative', right: 0, bottom: 0, marginTop: 16 }]}
+                onPress={() => setShowErrorDetail(false)}
+              >
+                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Đóng</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -780,24 +863,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, padding: 16 },
   headerRow: { flexDirection: "column", marginBottom: 8 },
   pageTitle: { fontSize: 22, fontWeight: "bold" },
-  headerActions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    marginVertical: 6,
-    marginTop: -28,
-    alignItems: "center",
-  },
-  importButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#1D4ED8",
-    marginRight: 8,
-  },
-  importText: { marginLeft: 4, color: "#1D4ED8", fontWeight: "600" },
   sectionHeader: { paddingVertical: 6, marginTop: 16 },
   sectionHeaderText: { fontSize: 16, fontWeight: "bold" },
   card: {
@@ -836,5 +901,37 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     elevation: 5,
+  },
+  // STYLES MỚI CHO MENU POPUP
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  menuContainer: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 8,
+    minWidth: 250,
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+  },
+  menuText: {
+    marginLeft: 16,
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  menuDivider: {
+    height: 1,
+    backgroundColor: "#e5e7eb",
+    marginHorizontal: 12,
   },
 });

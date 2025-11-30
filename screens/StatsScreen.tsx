@@ -77,6 +77,8 @@ export default function StatsScreen() {
     "tasks"
   );
   const [showPicker, setShowPicker] = useState(false);
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [showYearModal, setShowYearModal] = useState(false);
 
   useEffect(() => {
     loadTasks();
@@ -1062,6 +1064,39 @@ export default function StatsScreen() {
     });
   }, [schedules]);
 
+  const availableYears = useMemo(() => {
+    const setYears = new Set<number>();
+    (schedules || []).forEach((s: any) => {
+      const tryDates = [s.startAt, s.start, s.singleDate, s.startDate, s.endAt, s.end, s.endDate];
+      for (const d of tryDates) {
+        if (!d) continue;
+        try {
+          const dt = d instanceof Date ? d : new Date(d);
+          if (!isNaN(dt.getTime())) {
+            setYears.add(dt.getFullYear());
+            break;
+          }
+        } catch {}
+      }
+    });
+    return Array.from(setYears).sort((a, b) => b - a);
+  }, [schedules]);
+
+  const filteredSchedules = useMemo(() => {
+    if (selectedYear == null) return mappedSchedules;
+    return mappedSchedules.filter((s: any) => {
+      const candidates = [s.start, s.end, s.startAt, s.endAt, s.singleDate, s.startDate, s.endDate];
+      for (const c of candidates) {
+        if (!c) continue;
+        try {
+          const dt = c instanceof Date ? c : new Date(c);
+          if (!isNaN(dt.getTime()) && dt.getFullYear() === selectedYear) return true;
+        } catch {}
+      }
+      return false;
+    });
+  }, [mappedSchedules, selectedYear]);
+
   const TYPE_COLORS: Record<string, string> = {
     "lý thuyết": "#06b6d4",
     "thực hành": "#16a34a",
@@ -1091,7 +1126,7 @@ export default function StatsScreen() {
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
-    mappedSchedules.forEach((s: any) => {
+    filteredSchedules.forEach((s: any) => {
       const key = (s.subject || s.title || "Không tên").trim();
       if (!map[key])
         map[key] = {
@@ -1178,25 +1213,25 @@ export default function StatsScreen() {
       total: (v.lyThuyet || 0) + (v.thucHanh || 0),
     }));
     return result.sort((a, b) => b.total - a.total);
-  }, [mappedSchedules]);
+  }, [filteredSchedules]);
 
   const scheduleTypeCounts = useMemo(() => {
     const counts = { thuong: 0, tamNgung: 0, bu: 0, thi: 0 };
-    mappedSchedules.forEach((s: any) => {
+    filteredSchedules.forEach((s: any) => {
       if (s.typeNormalized === "tạm ngưng") counts.tamNgung++;
       else if (s.typeNormalized === "bù") counts.bu++;
       else if (s.typeNormalized === "thi") counts.thi++;
       else counts.thuong++;
     });
     return counts;
-  }, [mappedSchedules]);
+  }, [filteredSchedules]);
 
   const totalSessionsLTTH = useMemo(() => {
-    return mappedSchedules.filter(
+    return filteredSchedules.filter(
       (s: any) =>
         s.typeNormalized === "lý thuyết" || s.typeNormalized === "thực hành"
     ).length;
-  }, [mappedSchedules]);
+  }, [filteredSchedules]);
 
   const weekDayLabels =
     language === "en"
@@ -1204,14 +1239,14 @@ export default function StatsScreen() {
       : ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
   const weekCountsSched = useMemo(() => {
     const counts = [0, 0, 0, 0, 0, 0, 0];
-    mappedSchedules.forEach((s: any) => {
+    filteredSchedules.forEach((s: any) => {
       if (!s.start) return;
       const wd = s.start.getDay();
       const idx = wd === 0 ? 6 : wd - 1;
       counts[idx] = counts[idx] + 1;
     });
     return counts;
-  }, [mappedSchedules]);
+  }, [filteredSchedules]);
   const maxSchedCount = useMemo(
     () => Math.max(0, ...weekCountsSched),
     [weekCountsSched]
@@ -1251,6 +1286,20 @@ export default function StatsScreen() {
               {viewMode === "week"
                 ? `${format(selectedWeekStart, "dd/MM")} - ${format(addDays(selectedWeekStart, 6), "dd/MM")}`
                 : `${format(selectedMonthStart, "MM/yyyy")}`}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
+        {selectedKind === "schedules" ? (
+          <TouchableOpacity
+            style={[
+              styles.weekDropdown,
+              { backgroundColor: colors.panel, borderColor: colors.border, marginRight: 8 },
+            ]}
+            onPress={() => setShowYearModal(true)}
+          >
+            <Text style={[styles.weekDropdownText, { color: colors.text }]}>
+              {selectedYear == null ? (language === "en" ? "All years" : "Tất cả") : String(selectedYear)}
             </Text>
           </TouchableOpacity>
         ) : null}
@@ -1301,6 +1350,46 @@ export default function StatsScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      <Modal
+        visible={showYearModal && selectedKind === "schedules"}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowYearModal(false)}
+      >
+        <Pressable
+          style={[styles.modalOverlay, { backgroundColor: colors.modalBg }]}
+          onPress={() => setShowYearModal(false)}
+        >
+          <View style={[styles.weekModal, { backgroundColor: colors.panel }]}> 
+            <Text style={{ fontWeight: "700", fontSize: 16, marginBottom: 8, color: colors.text }}>
+              {language === "en" ? "Select year" : "Chọn năm"}
+            </Text>
+            <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ paddingVertical: 4 }}>
+              <TouchableOpacity
+                style={[styles.weekModalItem, selectedYear == null && styles.weekModalItemActive, { backgroundColor: selectedYear == null ? colors.accent : colors.panel }]}
+                onPress={() => { setSelectedYear(null); setShowYearModal(false); }}
+              >
+                <Text style={[styles.weekModalItemText, selectedYear == null && styles.weekModalItemTextActive, { color: selectedYear == null ? '#fff' : colors.text }]}>
+                  {language === "en" ? "All years" : "Tất cả"}
+                </Text>
+              </TouchableOpacity>
+              {availableYears.map((y) => {
+                const isSelected = selectedYear === y;
+                return (
+                  <TouchableOpacity
+                    key={String(y)}
+                    style={[styles.weekModalItem, isSelected && styles.weekModalItemActive, { backgroundColor: isSelected ? colors.accent : colors.panel }]}
+                    onPress={() => { setSelectedYear(y); setShowYearModal(false); }}
+                  >
+                    <Text style={[styles.weekModalItemText, isSelected && styles.weekModalItemTextActive, { color: isSelected ? '#fff' : colors.text }]}>{String(y)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
 
       {/* AI suggestion quick action - only visible on Tasks view */}
       {selectedKind === "tasks" && (
