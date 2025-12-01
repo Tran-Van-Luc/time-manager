@@ -47,6 +47,7 @@ export default function DataManagementSettings({
     clearConfirm: "Bạn chắc chắn muốn xóa tất cả dữ liệu? Hành động này không thể hoàn tác.",
     cancel: "Hủy",
     ok: "Đồng ý",
+    cleared: "Đã xoá dữ liệu ứng dụng.",
   });
 
   useEffect(() => {
@@ -74,6 +75,7 @@ export default function DataManagementSettings({
         clearConfirm: "Are you sure you want to delete all data? This cannot be undone.",
         cancel: "Cancel",
         ok: "OK",
+        cleared: "Application data cleared.",
       });
     } else {
       setLabels({
@@ -87,6 +89,7 @@ export default function DataManagementSettings({
         clearConfirm: "Bạn chắc chắn muốn xóa tất cả dữ liệu? Hành động này không thể hoàn tác.",
         cancel: "Hủy",
         ok: "Đồng ý",
+        cleared: "Đã xoá dữ liệu ứng dụng.",
       });
     }
   }
@@ -252,7 +255,7 @@ async function handleImport() {
                     }
                     client.execSync("PRAGMA foreign_keys=ON;");
                     client.execSync("COMMIT;");
-                    Alert.alert(labels.ok, "Đã xoá dữ liệu ứng dụng (trừ người dùng).");
+                    Alert.alert(labels.ok, labels.cleared);
                 } catch (e: any) {
                     try { (db as any).$client.execSync("ROLLBACK;"); } catch { }
                     Alert.alert("Error", "Không thể xoá dữ liệu: " + String(e));
