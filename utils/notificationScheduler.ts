@@ -34,7 +34,10 @@ async function startAlarmLoop() {
     if (alarmPlaying) return;
     if (!alarmSound) {
       alarmSound = new Audio.Sound();
-      await alarmSound.loadAsync(require('../assets/sounds/alarm.mp3'));
+      const soundModule = Platform.OS === 'ios'
+        ? require('../assets/sounds/alarm_ios.wav')
+        : require('../assets/sounds/alarm_android.wav');
+      await alarmSound.loadAsync(soundModule);
       await alarmSound.setIsLoopingAsync(true);
     }
     await alarmSound.playAsync();
