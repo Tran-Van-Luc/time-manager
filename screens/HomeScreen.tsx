@@ -195,7 +195,7 @@ export default function HomeScreen() {
   // Selected item for week view detail
   const [selectedWeekItem, setSelectedWeekItem] = useState<DayItem | null>(null);
 
-  // Filter toggles for week view
+  // Filter toggles for week view AND month view
   const [showSchedules, setShowSchedules] = useState(true);
   const [showTasks, setShowTasks] = useState(true);
 
@@ -637,11 +637,37 @@ export default function HomeScreen() {
       </View>
 
       {viewMode === "month" && (
-        <View style={[styles.weekRow, { backgroundColor: colors.surface }]}>
-          {L.weekdayShort.map((lbl) => (
-            <Text key={lbl} style={[styles.weekLabel, { color: colors.themeColor }]}>{lbl}</Text>
-          ))}
-        </View>
+        <>
+          <View style={{ backgroundColor: colors.surface, paddingHorizontal: 12, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 16, borderBottomWidth: 1, borderColor: colors.border }}>
+            <TouchableOpacity
+              onPress={() => setShowSchedules(!showSchedules)}
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+              activeOpacity={0.7}
+            >
+              <View style={{ width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: colors.themeColor, backgroundColor: showSchedules ? colors.themeColor : "transparent", justifyContent: "center", alignItems: "center" }}>
+                {showSchedules && <Text style={{ color: "#fff", fontSize: 14, fontWeight: "bold" }}>✓</Text>}
+              </View>
+              <Text style={{ color: colors.text, fontSize: 14 }}>📋 {language === "vi" ? "Lịch học" : "Schedules"}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setShowTasks(!showTasks)}
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+              activeOpacity={0.7}
+            >
+              <View style={{ width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: colors.themeColor, backgroundColor: showTasks ? colors.themeColor : "transparent", justifyContent: "center", alignItems: "center" }}>
+                {showTasks && <Text style={{ color: "#fff", fontSize: 14, fontWeight: "bold" }}>✓</Text>}
+              </View>
+              <Text style={{ color: colors.text, fontSize: 14 }}>📚 {language === "vi" ? "Công việc" : "Tasks"}</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={[styles.weekRow, { backgroundColor: colors.surface }]}>
+            {L.weekdayShort.map((lbl) => (
+              <Text key={lbl} style={[styles.weekLabel, { color: colors.themeColor }]}>{lbl}</Text>
+            ))}
+          </View>
+        </>
       )}
 
       {viewMode === "month" && (
@@ -649,7 +675,12 @@ export default function HomeScreen() {
           {monthDays.map((d, idx) => {
             const inMonth = d.getMonth() === current.getMonth();
             const key = ymd(startOfDay(d));
-            const items = dayMap.get(key) ?? [];
+            const allItems = dayMap.get(key) ?? [];
+            const items = allItems.filter(it => {
+              if (it.kind === "schedule" && !showSchedules) return false;
+              if (it.kind === "task" && !showTasks) return false;
+              return true;
+            });
             const maxIcons = 2;
             const icons = items.slice(0, maxIcons - 1);
             const more = items.length - icons.length;

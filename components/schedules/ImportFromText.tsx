@@ -137,19 +137,39 @@ FORMAT OUTPUT:
 ]
 
 QUY TẮC XỬ LÝ:
-1. BỎ QUA hoàn toàn: 
-2. CHỈ PARSE: "Lý thuyết" và "Thực hành"
-3. Location: Lấy phần TRƯỚC dấu ngoặc đầu tiên (VD: "B2.05" từ "B2.05 (B2.05 (CLC))")
-4. Giảng viên: Chỉ lấy TÊN người đầu tiên (bỏ học hàm, mã)
-5. Chuyển DD/MM/YYYY thành YYYY-MM-DD
-6. weekday: Thứ 2→"2", Thứ 3→"3", ..., Thứ 7→"7", Chủ nhật→"8"
-7. Nhóm các buổi học CÓ CÙNG: môn + loại + thứ + tiết + phòng
+1. PHÂN LOẠI LỊCH THI:
+   - Nếu thấy "Thi giữa kỳ", "Thi giua ky", "Giữa kỳ", "Giua ky" → type = "Lịch thi"
+   - Nếu thấy "Thi cuối kỳ", "Thi cuoi ky", "Cuối kỳ", "Cuoi ky" → type = "Lịch thi"
+   - Nếu thấy "Thi", "Kiểm tra" mà không có "Lý thuyết" hay "Thực hành" → type = "Lịch thi"
+   - Đối với Lịch thi: singleDate (chỉ 1 ngày duy nhất)
+
+2. PHÂN LOẠI LỊCH HỌC BÙ:
+   - Nếu thấy "Học bù", "Hoc bu", "Bù", "Bu" → type = "Lịch học bù"
+   - Đối với Lịch học bù: singleDate (chỉ 1 ngày duy nhất)
+
+3. PHÂN LOẠI LỊCH TẠM NGƯNG:
+   - Nếu thấy "Tạm ngưng", "Tam ngung", "Nghỉ", "Nghi" → type = "Lịch tạm ngưng"
+
+4. PHÂN LOẠI LỊCH HỌC THÔNG THƯỜNG:
+   - CHỈ PARSE: "Lý thuyết" và "Thực hành"
+   - "Lý thuyết", "Ly thuyet", "LT" → type = "Lịch học lý thuyết"
+   - "Thực hành", "Thuc hanh", "TH" → type = "Lịch học thực hành"
+
+5. Location: Lấy phần TRƯỚC dấu ngoặc đầu tiên (VD: "B2.05" từ "B2.05 (B2.05 (CLC))")
+
+6. Giảng viên: Chỉ lấy TÊN người đầu tiên (bỏ học hàm, mã)
+
+7. Chuyển DD/MM/YYYY thành YYYY-MM-DD
+
+8. weekday: Thứ 2→"2", Thứ 3→"3", ..., Thứ 7→"7", Chủ nhật→"8"
+
+9. Nhóm các buổi học CÓ CÙNG: môn + loại + thứ + tiết + phòng
 
 QUAN TRỌNG: 
 - CHỈ trả về JSON array thuần túy
 - KHÔNG có markdown (không có \`\`\`json)
 - KHÔNG có text giải thích
-- CHỈ parse Lý thuyết và Thực hành`,
+- Parse TẤT CẢ các loại lịch: Lý thuyết, Thực hành, Thi giữa kỳ, Thi cuối kỳ, Học bù, Tạm ngưng`,
                     },
                   ],
                 },
@@ -304,11 +324,36 @@ QUAN TRỌNG:
   function normalizeType(t?: string) {
     if (!t) return t;
     const s = String(t).trim().toLowerCase();
-    if (s.includes("thực") || s.includes("thuc")) return "Lịch học thực hành";
-    if (s.includes("lý") || s.includes("ly") || s.includes("lý thuyết") || s.includes("ly thuyet")) return "Lịch học lý thuyết";
-    if (s.includes("thi")) return "Lịch thi";
-    if (s.includes("tạm") || s.includes("tam")) return "Lịch tạm ngưng";
-    if (s.includes("bù") || s.includes("bu")) return "Lịch học bù";
+    
+    // Kiểm tra lịch thi (bao gồm thi giữa kỳ, thi cuối kỳ)
+    if (s.includes("thi giữa") || s.includes("thi giua") || 
+        s.includes("giữa kỳ") || s.includes("giua ky") ||
+        s.includes("thi cuối") || s.includes("thi cuoi") ||
+        s.includes("cuối kỳ") || s.includes("cuoi ky") ||
+        s.includes("thi")) {
+      return "Lịch thi";
+    }
+    
+    // Kiểm tra lịch học bù
+    if (s.includes("bù") || s.includes("bu") || s.includes("học bù") || s.includes("hoc bu")) {
+      return "Lịch học bù";
+    }
+    
+    // Kiểm tra lịch tạm ngưng
+    if (s.includes("tạm") || s.includes("tam") || s.includes("nghỉ") || s.includes("nghi")) {
+      return "Lịch tạm ngưng";
+    }
+    
+    // Kiểm tra lịch thực hành
+    if (s.includes("thực") || s.includes("thuc") || s.includes("thực hành") || s.includes("thuc hanh")) {
+      return "Lịch học thực hành";
+    }
+    
+    // Kiểm tra lịch lý thuyết
+    if (s.includes("lý") || s.includes("ly") || s.includes("lý thuyết") || s.includes("ly thuyet")) {
+      return "Lịch học lý thuyết";
+    }
+    
     return t;
   }
 
@@ -334,6 +379,15 @@ QUAN TRỌNG:
         obj.endDate    = normalizeDate(obj.endDate);
         obj.startTime  = normalizeTime(obj.startTime);
         obj.endTime    = normalizeTime(obj.endTime);
+
+        // Nếu là lịch thi hoặc lịch học bù, đảm bảo startDate = endDate
+        if (obj.type === "Lịch thi" || obj.type === "Lịch học bù") {
+          if (obj.startDate && !obj.endDate) {
+            obj.endDate = obj.startDate;
+          } else if (obj.endDate && !obj.startDate) {
+            obj.startDate = obj.endDate;
+          }
+        }
 
         // Nếu có startDate và endDate thì không cần singleDate
         if (obj.startDate && obj.endDate) {
@@ -543,7 +597,7 @@ QUAN TRỌNG:
           <View style={styles.instructions}>
             <Text style={styles.instructionTitle}>🤖 AI đọc PDF thông minh</Text>
             <Text style={styles.instructionText}>
-              Chọn file PDF lịch học, AI sẽ tự động nhóm các buổi học theo môn, phòng và thời gian!
+              Chọn file PDF lịch học, AI sẽ tự động nhóm các buổi học theo môn, phòng và thời gian! Hỗ trợ cả lịch thi giữa kỳ, cuối kỳ và học bù.
             </Text>
           </View>
 

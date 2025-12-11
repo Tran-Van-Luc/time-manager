@@ -71,6 +71,7 @@
     "@types/base-64": "^1.0.2",
     "@types/date-fns": "^2.5.3",
     "@types/react": "~19.1.10",
+    "baseline-browser-mapping": "^2.9.6",
     "drizzle-kit": "^0.31.4",
     "expo-module-scripts": "^5.0.7",
     "typescript": "^5.9.2"
