@@ -60,7 +60,8 @@ export default function ImportDialog({ visible, onClose, onParsed }: Props) {
       return;
     }
     try {
-      const result: ParseResult = await parseFile(uri);
+      // First run parseFile in dryRun mode to ensure no partial writes occur.
+      const result: ParseResult = await parseFile(uri, { dryRun: true });
       const rows = result.rows || [];
       const proceedWithRows = (rs: ParsedRow[]) => {
         onParsed(rs);
@@ -69,24 +70,11 @@ export default function ImportDialog({ visible, onClose, onParsed }: Props) {
       };
 
       if (result.errors && result.errors.length > 0) {
-        // Hiển thị một lần toàn bộ lỗi sau khi đã đọc hết file
-        const errorMsg = result.errors.join("\n");
-        if (rows.length > 0) {
-          Alert.alert(
-            "Lỗi nhập",
-            errorMsg,
-            [
-              {
-                text: "Tiếp tục với dòng hợp lệ",
-                onPress: () => proceedWithRows(rows),
-              },
-              { text: "Hủy", style: "cancel" },
-            ]
-          );
-        } else {
-          Alert.alert("Lỗi nhập", errorMsg);
-        }
-        return;
+          // Nếu có bất kỳ lỗi nào khi parse file thì KHÔNG được import bất kỳ dòng nào.
+          // Hiển thị toàn bộ lỗi và yêu cầu người dùng sửa file trước khi thử lại.
+          const errorMsg = result.errors.join("\n");
+          Alert.alert("Lỗi nhập", errorMsg, [{ text: "Đóng", style: "cancel" }]);
+          return;
       }
 
   // Không có lỗi: tiếp tục bình thường

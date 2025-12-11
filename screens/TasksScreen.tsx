@@ -1116,7 +1116,7 @@ export default function TasksScreen() {
           <View style={{ width:320, backgroundColor:'#fff', borderRadius:8, padding:16 }}>
             <Text style={{ fontSize:18, fontWeight:'600', marginBottom:12 }}>Thêm công việc</Text>
             <TouchableOpacity onPress={() => { setShowAddChoice(false); openAddModal(); }} style={{ padding:12, backgroundColor:'#eef2ff', borderRadius:6, marginBottom:8 }}>
-              <Text>Thêm thủ công</Text>
+              <Text>Nhập thủ công</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => { setShowAddChoice(false); setShowImportDialog(true); }} style={{ padding:12, backgroundColor:'#ecfdf5', borderRadius:6, marginBottom:8 }}>
               <Text>Nhập bằng file</Text>

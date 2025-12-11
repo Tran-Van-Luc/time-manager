@@ -8,6 +8,7 @@ import {
   ScrollView,
   Switch,
   ActivityIndicator,
+  SafeAreaView,
   Platform as RNPlatform,
 } from "react-native";
 import axios from "axios";
@@ -20,6 +21,8 @@ import SegmentedOptions from "./SegmentedOptions";
 import FloatingLabelInput from "./FloatingLabelInput";
 import ColoredSegmentGroup from "./ColoredSegmentGroup";
 import VoiceTaskInput from './VoiceTaskInput';
+
+import { Dimensions } from 'react-native';
 
 export default function TaskModal({
   visible,
@@ -959,11 +962,13 @@ export default function TaskModal({
     setRepeatEndDate(end.getTime());
   };
 
+  const { height: windowHeight } = Dimensions.get('window');
+
   return (
     <Modal visible={visible} animationType="slide" transparent>
-      <View className="flex-1 bg-black/40 justify-center items-center">
-        <View className="bg-white w-11/12 p-4 rounded-lg">
-          <ScrollView>
+      <SafeAreaView className="flex-1 bg-black/40 justify-center items-center">
+        <View className="bg-white w-11/12 p-4 rounded-lg" style={{ maxHeight: Math.floor(windowHeight * 0.9) }}>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 16 }}>
             <>
                 <Text className="text-lg font-bold mb-3">
                   {editId === null ? "Thêm công việc mới" : "Sửa công việc"}
@@ -1700,7 +1705,7 @@ export default function TaskModal({
             </>
           </ScrollView>
         </View>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 }

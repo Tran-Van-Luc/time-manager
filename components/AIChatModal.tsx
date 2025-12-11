@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, Modal, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, Modal, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '../context/LanguageContext';
 
 type Props = {
@@ -11,6 +12,7 @@ type Props = {
 // Component này tự động đọc API key từ biến môi trường
 export default function AIChatModal({ visible, onClose, initialPrompt }: Props) {
   const { language, t } = useLanguage();
+  const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<Array<{ role: 'user' | 'model'; text: string }>>([]);
   const [expandedMessages, setExpandedMessages] = useState<Record<number, boolean>>({});
   const [input, setInput] = useState(''); // <-- Luôn bắt đầu rỗng
@@ -209,7 +211,20 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
   // --- Giao diện Modal (không đổi) ---
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, padding: 12, backgroundColor: '#fff' }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : (insets.top + 0)}
+      >
+        <View
+          style={{
+            flex: 1,
+            padding: 12,
+            paddingTop: 12 + insets.top,
+            paddingBottom: 12 + Math.max(insets.bottom, 8),
+            backgroundColor: '#fff',
+          }}
+        >
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <Text style={{ fontSize: 18, fontWeight: '700' }}>{language === 'en' ? 'AI Chat' : 'AI Chat'}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -266,7 +281,13 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
           </View>
         </View>
 
-        <ScrollView ref={scrollRef} style={{ flex: 1, marginBottom: 8, borderWidth: 1, borderColor: '#eee', borderRadius: 6, padding: 8 }} contentContainerStyle={{ paddingBottom: 20 }}>
+        <ScrollView
+          ref={scrollRef}
+          style={{ flex: 1, marginBottom: 8, borderWidth: 1, borderColor: '#eee', borderRadius: 6, padding: 8 }}
+          contentContainerStyle={{ paddingBottom: 20 + Math.max(insets.bottom, 8) }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        >
           {messages.map((m, i) => {
             // Render message text line-by-line; optionally highlight leading numbered prefixes (e.g. "1.") in red
             const renderLines = (text: string, highlightNumbers: boolean) => {
@@ -343,7 +364,7 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
           )}
         </ScrollView>
 
-        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', paddingBottom: Math.max(insets.bottom, 8) }}>
           <TextInput
             value={input}
             onChangeText={setInput}
@@ -359,6 +380,7 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
               borderRadius: 8,
               // enforce a max height (approx 5 lines). Use measured height when available.
               maxHeight: 120,
+              minHeight: 40,
               height: Math.min(Math.max(40, inputHeight || 40), 120),
               textAlignVertical: 'top',
             }}
@@ -368,7 +390,8 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
             <Text style={{ color: '#fff' }}>{loading ? '...' : (language === 'en' ? 'Send' : 'Gửi')}</Text>
           </TouchableOpacity>
         </View>
-      </View>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

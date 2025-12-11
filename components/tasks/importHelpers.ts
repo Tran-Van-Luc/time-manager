@@ -378,7 +378,8 @@ const getCell = (row: any, primary: string, aliases: string[] = []): any => {
 
 export type ParseResult = { rows: ParsedRow[]; errors: string[] };
 
-export async function parseFile(uri: string): Promise<ParseResult> {
+export async function parseFile(uri: string, options?: { dryRun?: boolean }): Promise<ParseResult> {
+  const dryRun = !!options?.dryRun;
   const base64 = await FileSystem.readAsStringAsync(uri, {
     encoding: FileSystem.EncodingType.Base64,
   });

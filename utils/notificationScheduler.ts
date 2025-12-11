@@ -1,4 +1,5 @@
 import * as Notifications from 'expo-notifications';
+import { Audio } from 'expo-av';
 import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
 import { getAllTasks } from '../database/task';
@@ -24,6 +25,33 @@ function formatLeadMinutes(minutes: number) {
 
 let initialized = false;
 let responseSub: Notifications.Subscription | null = null;
+let receivedSub: Notifications.Subscription | null = null;
+let alarmSound: Audio.Sound | null = null;
+let alarmPlaying = false;
+
+async function startAlarmLoop() {
+  try {
+    if (alarmPlaying) return;
+    if (!alarmSound) {
+      alarmSound = new Audio.Sound();
+      await alarmSound.loadAsync(require('../assets/sounds/alarm.mp3'));
+      await alarmSound.setIsLoopingAsync(true);
+    }
+    await alarmSound.playAsync();
+    alarmPlaying = true;
+  } catch (e) {
+    console.warn('[Alarm] Failed to start alarm sound', e);
+  }
+}
+
+async function stopAlarmLoop() {
+  try {
+    if (alarmSound && alarmPlaying) {
+      await alarmSound.stopAsync();
+    }
+  } catch {}
+  alarmPlaying = false;
+}
 
 export async function initNotifications() {
   if (initialized) return;
@@ -101,6 +129,8 @@ export async function initNotifications() {
         if (id === 'STOP_ALARM') {
           // Huỷ thông báo đang hiển thị, hành vi này thường dừng luôn âm thanh kênh trên Android
           Notifications.dismissAllNotificationsAsync?.();
+          // Dừng âm thanh nếu đang loop trong foreground
+          stopAlarmLoop();
         } else if (id === 'MARK_ALL_TODAY_DONE') {
           // Complete all today's pending tasks/occurrences
           completeAllToday().catch(() => {});
@@ -114,6 +144,22 @@ export async function initNotifications() {
           } catch {}
           // Dismiss this notification immediately
           if (notifId) Notifications.dismissNotificationAsync?.(notifId).catch(() => {});
+          // Also stop alarm if any
+          stopAlarmLoop();
+        }
+      });
+    }
+  } catch {}
+
+  // Foreground: when an alarm notification is received, start looping sound
+  try {
+    if (!receivedSub) {
+      receivedSub = Notifications.addNotificationReceivedListener((notification) => {
+        const data = notification?.request?.content?.data as any;
+        const channelId = (notification?.request?.content as any)?.channelId;
+        const isAlarm = data?.method === 'alarm' || channelId === 'alarm';
+        if (isAlarm) {
+          startAlarmLoop();
         }
       });
     }
