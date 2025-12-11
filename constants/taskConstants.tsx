@@ -12,6 +12,7 @@ export const STATUS_OPTIONS = [
 
 export const REMINDER_OPTIONS = [
   { label: "5 phút", value: 5 },
+  { label: "15 phút", value: 15 },
   { label: "30 phút", value: 30 },
   { label: "1 giờ", value: 60 },
   { label: "2 giờ", value: 120 },

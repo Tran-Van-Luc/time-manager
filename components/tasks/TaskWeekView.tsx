@@ -21,6 +21,7 @@ export default function TaskWeekView({
   recurrences,
 }: TaskWeekViewProps) {
   const MIN_ROW_HEIGHT = 44; // đảm bảo đủ cao để hiển thị trọn chữ "Sáng/Chiều/Tối"
+  const COL_WIDTH = 100; // chiều rộng mỗi cột ngày (nhỏ hơn để đỡ phải kéo ngang nhiều)
   // Tính Monday của tuần hiện tại (00:00) để so với currentWeekStart
   const today = new Date();
   const dayOfWeek = today.getDay() || 7; // 1..7 (Mon..Sun)
@@ -97,7 +98,11 @@ export default function TaskWeekView({
       return key in map ? map[key] : null;
     };
 
-    for (const t of filteredTasks) {
+    // Do not hide completed tasks — include all tasks so completed occurrences
+    // (non-recurring, recurring occurrences and merged ranges) are shown.
+    const filtered = filteredTasks;
+
+    for (const t of filtered) {
       const start = t.start_at ? new Date(t.start_at) : null;
       if (!start) continue;
       const duration = durationOf(t);
@@ -123,13 +128,39 @@ export default function TaskWeekView({
       const timeS = start.getSeconds();
       const timeMs = start.getMilliseconds();
 
+      // We always include occurrences — pushDay simply adds the occurrence.
       const pushDay = (d: Date) => {
         const s = new Date(d.getFullYear(), d.getMonth(), d.getDate(), timeH, timeM, timeS, timeMs).getTime();
         pushOcc(t, s, duration);
       };
 
-      // Always include the base occurrence if inside the window
-      pushOcc(t, baseStartAt, duration);
+      // Only include base occurrence when it actually matches the recurrence selection
+      const maybeIncludeBase = () => {
+        if (freq === 'daily' || freq === 'yearly') {
+          pushOcc(t, baseStartAt, duration);
+          return;
+        }
+        if (freq === 'weekly') {
+          const dowSet = new Set(
+            rec.days_of_week
+              ? (JSON.parse(rec.days_of_week) as string[])
+                  .map((d) => dayNameToIndex(d))
+                  .filter((n): n is number => n !== null)
+              : []
+          );
+          if (dowSet.size === 0) dowSet.add(start.getDay());
+          if (dowSet.has(start.getDay())) pushOcc(t, baseStartAt, duration);
+          return;
+        }
+        if (freq === 'monthly') {
+          const domList: number[] = rec.day_of_month
+            ? (JSON.parse(rec.day_of_month) as string[]).map((d) => parseInt(d, 10)).filter((n) => !isNaN(n) && n >= 1 && n <= 31)
+            : [start.getDate()];
+          if (domList.includes(start.getDate())) pushOcc(t, baseStartAt, duration);
+          return;
+        }
+      };
+      maybeIncludeBase();
 
       if (freq === "daily") {
         let cursor = sameYMD(start);
@@ -157,7 +188,7 @@ export default function TaskWeekView({
             const candidate = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), timeH, timeM, timeS, timeMs);
             const ms = candidate.getTime();
             if (ms >= baseStartAt && ms <= endBoundary) {
-              pushOcc(t, ms, duration);
+              pushDay(candidate);
             }
           }
           cursor.setDate(cursor.getDate() + 1);
@@ -173,7 +204,7 @@ export default function TaskWeekView({
             const candidate = new Date(cursor.getFullYear(), cursor.getMonth(), dom, timeH, timeM, timeS, timeMs);
             if (candidate.getMonth() !== cursor.getMonth()) continue;
             const ms = candidate.getTime();
-            if (ms >= baseStartAt && ms <= endBoundary) pushOcc(t, ms, duration);
+            if (ms >= baseStartAt && ms <= endBoundary) pushDay(candidate);
           }
           cursor.setDate(cursor.getDate() + 1);
         }
@@ -199,43 +230,42 @@ export default function TaskWeekView({
 
   return (
     <View className="mb-3">
-      {/* Header điều khiển tuần */}
-      <View className="flex-row items-center justify-between">
+      {/* Header điều khiển tuần - style đồng nhất với dạng danh sách */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 as any, marginVertical: 8 }}>
         <TouchableOpacity
-          className="px-3 py-2 bg-gray-200 rounded"
-          onPress={() =>
-            setCurrentWeekStart((prev) => prev - 7 * 24 * 60 * 60 * 1000)
-          }
+          onPress={() => setCurrentWeekStart((prev) => prev - 7 * 24 * 60 * 60 * 1000)}
+          style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}
         >
-          <Text>◀ Trước</Text>
+          <Text style={{ fontSize: 18 }}>{'<'}</Text>
         </TouchableOpacity>
 
-        <View className="items-center">
-          <Text className="font-medium mb-1">
+        {/* Nhãn dải ngày của tuần dạng pill */}
+        <View style={{ paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: '#ddd', borderRadius: 20, backgroundColor: '#f5f5f5' }}>
+          <Text style={{ fontWeight: '600', fontSize: 16 }}>
             {formatDDMMYYYY(weekDays[0])} - {formatDDMMYYYY(weekDays[6])}
           </Text>
-          <TouchableOpacity
-            className={`px-3 py-1 rounded ${isCurrentWeek ? "bg-blue-600" : "bg-gray-500"}`}
-            onPress={() => {
-              const t = new Date();
-              const dow = t.getDay() || 7;
-              const monday = new Date(t);
-              monday.setDate(t.getDate() - (dow - 1));
-              monday.setHours(0, 0, 0, 0);
-              setCurrentWeekStart(monday.getTime());
-            }}
-          >
-            <Text className="text-white text-xs">Tuần hiện tại</Text>
-          </TouchableOpacity>
         </View>
 
+        {/* Nút "Tuần hiện tại" styled như nút Hôm nay */}
         <TouchableOpacity
-          className="px-3 py-2 bg-gray-200 rounded"
-          onPress={() =>
-            setCurrentWeekStart((prev) => prev + 7 * 24 * 60 * 60 * 1000)
-          }
+          onPress={() => setCurrentWeekStart((prev) => prev + 7 * 24 * 60 * 60 * 1000)}
+          style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}
         >
-          <Text>Sau ▶</Text>
+          <Text style={{ fontSize: 18 }}>{'>'}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => {
+            const t = new Date();
+            const dow = t.getDay() || 7;
+            const monday = new Date(t);
+            monday.setDate(t.getDate() - (dow - 1));
+            monday.setHours(0, 0, 0, 0);
+            setCurrentWeekStart(monday.getTime());
+          }}
+          style={{ paddingVertical: 6, paddingHorizontal: 16, borderWidth: 1, borderColor: isCurrentWeek ? '#007AFF' : '#ddd', borderRadius: 20, backgroundColor: isCurrentWeek ? '#007AFF' : '#f5f5f5' }}
+        >
+          <Text style={{ fontSize: 16, fontWeight: '600', color: isCurrentWeek ? '#fff' : '#000' }}>Tuần hiện tại</Text>
         </TouchableOpacity>
       </View>
 
@@ -276,7 +306,8 @@ export default function TaskWeekView({
                   {weekDays.map((day, idx) => (
                     <View
                       key={`hdr-${day}`}
-                      className="w-40 h-10 bg-blue-500 justify-center items-center border-r border-b border-gray-300"
+                      className="h-10 bg-blue-500 justify-center items-center border-r border-b border-gray-300"
+                      style={{ width: COL_WIDTH }}
                     >
                       <Text className="text-xs font-bold text-white">
                         {["T2", "T3", "T4", "T5", "T6", "T7", "CN"][idx]} {formatDDMMYYYY(day)}
@@ -312,7 +343,7 @@ export default function TaskWeekView({
                         });
 
                       return (
-                        <View key={`${day}-${period}`} className="w-40 p-1 border-r border-b border-gray-300">
+                        <View key={`${day}-${period}`} className="p-1 border-r border-b border-gray-300" style={{ width: COL_WIDTH }}>
                           {tasks.map((t) => (
                             <TouchableOpacity
                               key={`${t.id}-${t._occurrenceStart ?? t.start_at}`}

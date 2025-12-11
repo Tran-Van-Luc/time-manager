@@ -21,6 +21,10 @@ export const tasks = sqliteTable("tasks", {
   priority: text("priority"),
   status: text("status"),
   recurrence_id: integer("recurrence_id"),
+  // Tracking completion timing
+  completed_at: integer("completed_at", { mode: "timestamp" }), // thời điểm user đánh hoàn thành
+  completion_diff_minutes: integer("completion_diff_minutes"), // chênh lệch (phút) so với hạn (âm = sớm, dương = trễ)
+  completion_status: text("completion_status"), // 'early' | 'on_time' | 'late'
   is_deleted: integer("is_deleted").default(0),
   created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
   updated_at: integer("updated_at", { mode: "timestamp" }).default(new Date()),
@@ -45,6 +49,8 @@ export const schedule_entries = sqliteTable("schedule_entries", {
   type: text("type"),
   start_at: integer("start_at", { mode: "timestamp" }).notNull(),
   end_at: integer("end_at", { mode: "timestamp" }).notNull(),
+  instructor_name: text("instructor_name"),
+  location: text("location"),
   recurrence_id: integer("recurrence_id"),
   status: text("status").default("active"),
   cancel_reason: text("cancel_reason"),
@@ -94,13 +100,41 @@ export const recurrences = sqliteTable("recurrences", {
   day_of_month: text("day_of_month"),
   start_date: integer("start_date", { mode: "timestamp" }),
   end_date: integer("end_date", { mode: "timestamp" }),
+  auto_complete_expired: integer("auto_complete_expired").default(0), // 1 = tự đánh hoàn thành nếu hết hạn
+  merge_streak: integer("merge_streak").default(0), // 1 = gộp nhiều ngày thành 1 chu kỳ
+  auto_complete_enabled_at: integer("auto_complete_enabled_at", { mode: "timestamp_ms" }),
+  created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
+});
+
+// Bảng habit_completions - BẢNG MỚI
+// Bảng này sẽ thay thế AsyncStorage để lưu trữ ngày hoàn thành và thời điểm hoàn thành
+export const habit_completions = sqliteTable("habit_completions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  recurrence_id: integer("recurrence_id").notNull().references(() => recurrences.id),
+  completion_date: text("completion_date").notNull(), // Lưu dưới dạng 'YYYY-MM-DD'
+  completion_timestamp: integer("completion_timestamp", { mode: "timestamp_ms" }).notNull(), // Thời điểm hoàn thành thực tế (epoch ms)
+});
+
+
+// Bảng scheduled_notifications: lưu tất cả notification đã lập lịch (task reminders)
+export const scheduled_notifications = sqliteTable("scheduled_notifications", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  task_id: integer("task_id"),              // FK -> tasks.id
+  reminder_id: integer("reminder_id"),      // FK -> reminders.id
+  recurrence_id: integer("recurrence_id"),  // FK -> recurrences.id (nếu có)
+  occurrence_start_at: integer("occurrence_start_at", { mode: "timestamp" }),
+  occurrence_end_at: integer("occurrence_end_at", { mode: "timestamp" }),
+  schedule_time: integer("schedule_time", { mode: "timestamp" }), // khi sẽ bắn
+  notification_id: text("notification_id"), // id trả về từ Expo
+  lead_minutes: integer("lead_minutes"),    // phút nhắc trước
+  status: text("status"),                   // scheduled | fired | cancelled
   created_at: integer("created_at", { mode: "timestamp" }).default(new Date()),
 });
 
 // pomodoro_settings
 export const pomodoro_settings = sqliteTable("pomodoro_settings", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  user_id: integer("user_id"),
+  user_id: integer("user_id").notNull(),
   work_minutes: integer("work_minutes").default(25),
   short_break_minutes: integer("short_break_minutes").default(5),
   long_break_minutes: integer("long_break_minutes").default(15),
@@ -113,7 +147,7 @@ export const pomodoro_settings = sqliteTable("pomodoro_settings", {
 // pomodoro_sessions
 export const pomodoro_sessions = sqliteTable("pomodoro_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  user_id: integer("user_id"),
+  user_id: integer("user_id").notNull(),
   type: text("type"), // 'work'|'short_break'|'long_break'
   started_at: integer("started_at", { mode: "timestamp" }).notNull(),
   ended_at: integer("ended_at", { mode: "timestamp" }),

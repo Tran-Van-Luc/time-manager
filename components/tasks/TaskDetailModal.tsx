@@ -1,49 +1,498 @@
-import React from "react";
-import { View, Text, TouchableOpacity, Modal, ScrollView } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, TouchableOpacity, Modal, ScrollView, Alert } from "react-native";
 import type { Task } from "../../types/Task";
+import type { Recurrence } from "../../types/Recurrence";
 import { REPEAT_OPTIONS } from "../../constants/taskConstants";
+import {
+  autoCompletePastIfEnabled,
+  computeHabitProgress,
+  getTodayCompletionDelta,
+  isHabitDoneOnDate,
+  markHabitRange,
+  markHabitToday,
+  plannedHabitOccurrences,
+  unmarkHabitRange,
+  unmarkHabitToday,
+  subscribeHabitProgress,
+  unsubscribeHabitProgress,
+} from "../../utils/habits";
+import { useTasks } from "../../hooks/useTasks";
 
 interface TaskDetailModalProps {
   visible: boolean;
   task: Task | null;
+  allTasks: Task[];
   reminders: any[];
   recurrences: any[];
   onClose: () => void;
   onStatusChange: (taskId: number, status: Task["status"]) => void;
   onEdit: (task: Task) => void;
   onDelete: (taskId: number) => void;
+  onInlineAlert?: (info: { tone: 'error'|'warning'|'success'|'info'; title: string; message: string }) => void;
 }
 
 export default function TaskDetailModal({
   visible,
   task,
+  allTasks,
   reminders,
   recurrences,
   onClose,
   onStatusChange,
   onEdit,
   onDelete,
+  onInlineAlert,
 }: TaskDetailModalProps) {
-  if (!task) return null;
+  // --- Start of Hooks ---
+  
+  const { editTask } = useTasks();
 
-  const handleStatusToggle = () => {
-    let nextStatus: Task["status"] = "pending";
-    if (task.status === "pending") nextStatus = "in-progress";
-    else if (task.status === "in-progress") nextStatus = "completed";
-    else if (task.status === "completed") nextStatus = "pending";
-    
-    onStatusChange(task.id!, nextStatus);
+  // End-of-day cutoff key and helpers (keep in sync with Completed screen)
+  const CUT_OFF_KEY = 'endOfDayCutoff';
+  const CUT_OFF_ENABLED_KEY = 'endOfDayCutoffEnabled';
+  const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+
+  const isSameLocalDate = (ms1?: number | null, ms2?: number | null) => {
+    if (!ms1 || !ms2) return false;
+    const a = new Date(ms1);
+    const b = new Date(ms2);
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
   };
 
-  // Align with TaskItem: compute helper values once
-  const reminder = reminders.find((r) => r.task_id === task.id);
-  const rec = task.recurrence_id
-    ? recurrences.find((r) => r.id === task.recurrence_id)
+  const cutoffForDateFromString = (dateMs: number, cutoffString?: string | null) => {
+    try {
+      const s = cutoffString || '23:00';
+      const parts = s.split(':');
+      const h = parseInt(parts[0] || '23', 10);
+      const m = parseInt(parts[1] || '0', 10);
+      if (Number.isNaN(h) || Number.isNaN(m)) return null as number | null;
+      const d = new Date(dateMs);
+      d.setHours(h, m, 0, 0);
+      return d.getTime();
+    } catch {
+      return null;
+    }
+  };
+
+  const [habitProgress, setHabitProgress] = useState<{ completed: number; total: number; percent: number; todayDone: boolean } | null>(null);
+  const [todayDelta, setTodayDelta] = useState<{ status: 'early' | 'late' | 'on_time' | null; diffMinutes: number | null } | null>(null);
+  const autoCompletingRef = useRef(false);
+
+  // Dependency signature for recurrence affecting occurrences
+  const recDeps = useMemo(() => {
+    if (!task || !task.recurrence_id) return 'none'; // Added conditional check
+    const recItem = recurrences.find((r: Recurrence) => r.id === task.recurrence_id);
+    if (!recItem) return 'none';
+
+    const rec = recItem as Recurrence;
+    const parts = [
+      rec.id,
+      rec.type,
+      rec.interval,
+      rec.days_of_week || '',
+      rec.day_of_month || '',
+      rec.start_date ? new Date(rec.start_date).getTime() : 0,
+      rec.end_date ? new Date(rec.end_date).getTime() : 0,
+      (rec as any).merge_streak,
+      (rec as any).auto_complete_expired,
+    ];
+    return JSON.stringify(parts);
+  }, [task?.recurrence_id, recurrences]);
+
+  const rec: Recurrence | undefined = task?.recurrence_id
+    ? recurrences.find((r: Recurrence) => r.id === task.recurrence_id)
     : undefined;
+
+  const mergeStreak = !!rec && (rec as any).merge_streak === 1;
+  const autoExpired = !!rec && (rec as any).auto_complete_expired === 1;
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (rec?.id && task) {
+        try {
+          if (autoExpired) await autoCompletePastIfEnabled(task, rec);
+          const p = await computeHabitProgress(task, rec);
+          if (!cancelled) setHabitProgress(p);
+          if (!cancelled) {
+            // If opened from week view, prefer that occurrence date
+            const sel = (task as any)._occurrenceStart ? new Date((task as any)._occurrenceStart) : undefined;
+            const d = await getTodayCompletionDelta(task, rec, sel);
+            setTodayDelta(d);
+          }
+        } catch {}
+      } else {
+        if (!cancelled) setHabitProgress(null);
+        if (!cancelled) setTodayDelta(null);
+      }
+    };
+    load();
+    // subscribe for external habit progress changes
+    const listener = async (recId: number) => {
+      if (!rec?.id || recId !== rec.id || !task) return;
+      try {
+        const p = await computeHabitProgress(task, rec);
+        setHabitProgress(p);
+        const sel = (task as any)._occurrenceStart ? new Date((task as any)._occurrenceStart) : undefined;
+        const d = await getTodayCompletionDelta(task, rec, sel);
+        setTodayDelta(d);
+      } catch {}
+    };
+    if (rec?.id) subscribeHabitProgress(listener);
+    return () => { cancelled = true; };
+  }, [task?.id, task?.start_at, task?.end_at, recDeps, mergeStreak, autoExpired, rec, task]);
+
+  // cleanup subscription separately to ensure proper unmount
+  useEffect(() => {
+    const listener = async (recId: number) => {
+      if (!rec?.id || recId !== rec.id || !task) return;
+      try {
+        const p = await computeHabitProgress(task, rec);
+        setHabitProgress(p);
+        const sel = (task as any)._occurrenceStart ? new Date((task as any)._occurrenceStart) : undefined;
+        const d = await getTodayCompletionDelta(task, rec, sel);
+        setTodayDelta(d);
+      } catch {}
+    };
+    if (rec?.id) subscribeHabitProgress(listener);
+    return () => { if (rec?.id) unsubscribeHabitProgress(listener); };
+  }, [rec?.id, task?.id, recDeps]);
+
+  useEffect(() => {
+    if (!rec?.id || !autoExpired || !task) return;
+    let stopped = false;
+    const tick = async () => {
+      try {
+        await autoCompletePastIfEnabled(task, rec);
+        const p = await computeHabitProgress(task, rec);
+        if (!stopped) setHabitProgress(p);
+        if (!stopped) {
+          const sel = (task as any)._occurrenceStart ? new Date((task as any)._occurrenceStart) : undefined;
+          const d = await getTodayCompletionDelta(task, rec, sel);
+          setTodayDelta(d);
+        }
+      } catch {}
+    };
+    const id = setInterval(tick, 30000);
+    tick();
+    return () => { stopped = true; clearInterval(id); };
+  }, [autoExpired, recDeps, mergeStreak, task?.id, task?.start_at, task?.end_at, rec, task]);
+
+  // Auto-mark completed when all occurrences done (for recurring)
+  useEffect(() => {
+    if (!rec || !habitProgress || !task) return;
+    if (task.status === 'completed') return;
+    if (autoCompletingRef.current) return;
+    const allDone = habitProgress.total > 0 && habitProgress.completed >= habitProgress.total;
+    if (!allDone) return;
+    const now = Date.now();
+    let dueMs: number | undefined;
+    try {
+      const occs = plannedHabitOccurrences(task, rec);
+      if (occs && occs.length) dueMs = occs[occs.length - 1].endAt;
+    } catch {}
+    if (dueMs == null && rec.end_date) dueMs = new Date(rec.end_date).getTime();
+    if (dueMs == null && task.end_at) dueMs = new Date(task.end_at).getTime();
+    let diffMinutes: number | undefined;
+    let completionStatus: 'early' | 'on_time' | 'late' | undefined;
+    // compute metadata in async block (AsyncStorage read required for cutoff)
+    autoCompletingRef.current = true;
+    (async () => {
+      try {
+        let _diff: number | undefined;
+        let _status: 'early' | 'on_time' | 'late' | undefined;
+        if (dueMs) {
+          const d = new Date(dueMs);
+          const cutoffMs = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0, 0).getTime();
+          if (isSameLocalDate(dueMs, now) && cutoffMs > dueMs) {
+            if (now <= dueMs) {
+              _status = 'early';
+              _diff = Math.round((now - dueMs) / 60000);
+            } else if (now <= cutoffMs) {
+              _status = 'on_time';
+              _diff = 0;
+            } else {
+              _status = 'late';
+              _diff = Math.round((now - cutoffMs) / 60000);
+            }
+          } else {
+            _diff = Math.round((now - dueMs) / 60000);
+            if (_diff < -1) _status = 'early';
+            else if (_diff > 1) _status = 'late';
+            else _status = 'on_time';
+          }
+        }
+        await editTask(task.id!, {
+          status: 'completed',
+          completed_at: new Date(now).toISOString(),
+          completion_diff_minutes: _diff,
+          completion_status: _status,
+        });
+        onStatusChange(task.id!, 'completed');
+      } finally {
+        autoCompletingRef.current = false;
+      }
+    })();
+  }, [habitProgress?.completed, habitProgress?.total, recDeps, task?.status, rec, task, editTask, onStatusChange]);
+
+  // --- End of Hooks ---
+
+  // Safety check, moved after all hooks
+  if (!visible || !task) return null;
+
+  // Other non-hook logic
+
+  // Find related reminder/recurrence like TaskItem
+  const reminder = reminders.find((r) => r.task_id === task.id);
+  
   const repeatLabel = rec
     ? REPEAT_OPTIONS.find((o) => o.value === (rec as any).type)?.label ||
       (rec as any).type
     : "";
+
+  const handleStatusToggle = async () => {
+    if (!task?.id) return;
+    // Helper: occurrence window per date for any task
+    const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0,0,0,0); return x.getTime(); };
+    const endOfDay = (d: Date) => { const x = new Date(d); x.setHours(23,59,59,999); return x.getTime(); };
+    const getRecurrenceFor = (t: Task) => t.recurrence_id ? recurrences.find((r: Recurrence) => r.id === t.recurrence_id) : undefined;
+    const getOccurrenceForDate = (t: Task, date: Date): { start: number; end: number } | null => {
+      const baseStart = t.start_at ? new Date(t.start_at) : null;
+      const baseStartMs = baseStart ? baseStart.getTime() : undefined;
+      const baseEndMs = t.end_at ? new Date(t.end_at).getTime() : undefined;
+      const selStart = startOfDay(date), selEnd = endOfDay(date);
+      if (!t.recurrence_id) {
+        const s = baseStartMs != null ? baseStartMs : (baseEndMs != null ? baseEndMs : undefined);
+        const e = baseEndMs != null ? baseEndMs : (baseStartMs != null ? baseStartMs : undefined);
+        if (s == null || e == null) return null;
+        if (!(s <= selEnd && e >= selStart)) return null;
+        return { start: Math.max(s, selStart), end: Math.min(e, selEnd) };
+      }
+      const r = getRecurrenceFor(t);
+      if (!r) {
+        const s = baseStartMs != null ? baseStartMs : (baseEndMs != null ? baseEndMs : undefined);
+        const e = baseEndMs != null ? baseEndMs : (baseStartMs != null ? baseStartMs : undefined);
+        if (s == null || e == null) return null;
+        if (!(s <= selEnd && e >= selStart)) return null;
+        return { start: Math.max(s, selStart), end: Math.min(e, selEnd) };
+      }
+      if (baseStartMs == null || !baseStart) return null;
+      const duration = (baseEndMs != null && baseEndMs > baseStartMs) ? (baseEndMs - baseStartMs) : 0;
+      const candStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), baseStart.getHours(), baseStart.getMinutes(), baseStart.getSeconds(), baseStart.getMilliseconds()).getTime();
+      const candEnd = candStart + duration;
+      const boundaryStart = Math.max(baseStartMs, r.start_date ? new Date(r.start_date).getTime() : baseStartMs);
+      const boundaryEnd = r.end_date ? endOfDay(new Date(r.end_date)) : Infinity;
+      if (candStart < boundaryStart || candStart > boundaryEnd) return null;
+      const freq = (r.type || 'daily').toLowerCase();
+      if (freq === 'daily') return { start: candStart, end: candEnd };
+      if (freq === 'weekly') {
+        const map: Record<string, number> = { Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6, Sun:0 };
+        let days: number[] = [];
+        if (r.days_of_week) { try { days = (JSON.parse(r.days_of_week) as string[]).map(d=>map[d as keyof typeof map]).filter((n): n is number => n!=null); } catch {} }
+        if (days.length === 0) days = [baseStart.getDay()];
+        return days.includes(date.getDay()) ? { start: candStart, end: candEnd } : null;
+      }
+      if (freq === 'monthly') {
+        let dom: number[] = [];
+        if (r.day_of_month) { try { dom = (JSON.parse(r.day_of_month) as string[]).map(s=>parseInt(s,10)).filter(n=>!isNaN(n)); } catch {} }
+        if (dom.length === 0) dom = [baseStart.getDate()];
+        return dom.includes(date.getDate()) ? { start: candStart, end: candEnd } : null;
+      }
+      if (freq === 'yearly') {
+        return (date.getDate() === baseStart.getDate() && date.getMonth() === baseStart.getMonth()) ? { start: candStart, end: candEnd } : null;
+      }
+      return null;
+    };
+    const hasConflictIfUncomplete = async (range: { start: number; end: number } | null, dateCtx: Date): Promise<boolean> => {
+      if (!range) return false;
+      const conflicts: Task[] = [];
+      for (const t of allTasks) {
+        if (!t) continue;
+        if (t.id === task.id) continue;
+        if ((t as any).status === 'completed') continue; // skip fully completed tasks
+        const occ = getOccurrenceForDate(t, dateCtx);
+        if (!occ) continue;
+        // If the other task is recurring and that day's occurrence is already completed, ignore it
+        if (t.recurrence_id) {
+          try { if (await isHabitDoneOnDate(t.recurrence_id, dateCtx)) continue; } catch {}
+        }
+        if (range.start < occ.end && range.end > occ.start) {
+          conflicts.push(t);
+        }
+      }
+      if (conflicts.length) {
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const fmt = (ms: number) => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+        const list = conflicts.slice(0,5).map(c => { const occ = getOccurrenceForDate(c, dateCtx)!; return `• ${c.title} (${fmt(occ.start)} - ${fmt(occ.end)})`; }).join('\n');
+        if (onInlineAlert) {
+          onInlineAlert({
+            tone: 'warning',
+            title: 'Không thể bỏ hoàn thành ⛔',
+            message: `Công việc này bị trùng thời gian với công việc khác đang hoạt động:\n\n${list}\n\nVui lòng giải quyết xung đột trước.`,
+          });
+        } else {
+          Alert.alert('Không thể bỏ hoàn thành', `Công việc này bị trùng thời gian với công việc khác đang hoạt động:\n\n${list}\n\nVui lòng giải quyết xung đột trước.`);
+        }
+        return true;
+      }
+      return false;
+    };
+    // First step: pending -> in-progress
+    if (task.status === 'pending') {
+      await editTask(task.id, { status: 'in-progress' });
+      onStatusChange(task.id, 'in-progress');
+      return;
+    }
+    if (rec?.id) {
+      // Determine date context: use occurrence start if provided (from calendar), else today.
+      // Normalize to YMD to avoid time-of-day side-effects so only the intended occurrence is toggled.
+      const rawDate = (task as any)._occurrenceStart ? new Date((task as any)._occurrenceStart) : new Date();
+      const dateCtx = new Date(rawDate.getFullYear(), rawDate.getMonth(), rawDate.getDate());
+      if (mergeStreak) {
+        const occs = plannedHabitOccurrences(task, rec);
+        if (occs.length > 0) {
+          const from = new Date(occs[0].startAt);
+          const to = new Date(occs[occs.length - 1].endAt);
+          const p0 = await computeHabitProgress(task, rec);
+          const cycleDone = p0.total > 0 && p0.completed >= p0.total;
+          if (cycleDone) {
+            await unmarkHabitRange(rec.id!, from, to);
+          } else {
+            await markHabitRange(rec.id!, from, to, task, rec);
+          }
+        }
+      } else {
+        const already = await isHabitDoneOnDate(rec.id!, dateCtx);
+        if (already) {
+          // Before un-completing this occurrence, block if it would overlap active tasks
+          const occ = getOccurrenceForDate(task, dateCtx);
+          if (await hasConflictIfUncomplete(occ, dateCtx)) {
+            return; // do not unmark
+          }
+          await unmarkHabitToday(rec.id!, dateCtx);
+        } else {
+          await markHabitToday(rec.id!, dateCtx);
+        }
+      }
+      const p = await computeHabitProgress(task, rec);
+      setHabitProgress(p);
+      try {
+        const d = await getTodayCompletionDelta(task, rec, dateCtx);
+        setTodayDelta(d);
+      } catch {}
+      const full = p.total > 0 && p.completed >= p.total;
+      if (full) {
+        const now = Date.now();
+        let dueMs: number | undefined;
+        try {
+          const occs = plannedHabitOccurrences(task, rec);
+          if (occs && occs.length) dueMs = occs[occs.length - 1].endAt;
+        } catch {}
+        if (dueMs == null && rec.end_date) dueMs = new Date(rec.end_date).getTime();
+        if (dueMs == null && task.end_at) dueMs = new Date(task.end_at).getTime();
+        let diffMinutes: number | undefined;
+        let completionStatus: 'early' | 'on_time' | 'late' | undefined;
+        if (dueMs) {
+          const d = new Date(dueMs);
+          const cutoffMs = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0, 0).getTime();
+          if (isSameLocalDate(dueMs, now) && cutoffMs > dueMs) {
+            if (now <= dueMs) {
+              completionStatus = 'early';
+              diffMinutes = Math.round((now - dueMs) / 60000);
+            } else if (now <= cutoffMs) {
+              completionStatus = 'on_time';
+              diffMinutes = 0;
+            } else {
+              completionStatus = 'late';
+              diffMinutes = Math.round((now - cutoffMs) / 60000);
+            }
+          } else {
+            diffMinutes = Math.round((now - dueMs) / 60000);
+            if (diffMinutes < -1) completionStatus = 'early';
+            else if (diffMinutes > 1) completionStatus = 'late';
+            else completionStatus = 'on_time';
+          }
+        }
+        await editTask(task.id!, {
+          status: 'completed',
+          completed_at: new Date(now).toISOString(),
+          completion_diff_minutes: diffMinutes,
+          completion_status: completionStatus,
+        });
+        onStatusChange(task.id!, 'completed');
+      } else if (task.status === 'completed') {
+        // Prevent un-complete if it would cause an overlap on the current occurrence/day
+        const rawDate = (task as any)._occurrenceStart ? new Date((task as any)._occurrenceStart) : new Date();
+        const dateCtx2 = new Date(rawDate.getFullYear(), rawDate.getMonth(), rawDate.getDate());
+        const occ = getOccurrenceForDate(task, dateCtx2);
+        if (await hasConflictIfUncomplete(occ, dateCtx2)) {
+          return;
+        }
+        await editTask(task.id!, {
+          status: 'in-progress',
+          completed_at: undefined,
+          completion_diff_minutes: undefined,
+          completion_status: undefined,
+        });
+        onStatusChange(task.id!, 'in-progress');
+      }
+      return;
+    }
+  // Non-recurring: cycle and add completion meta
+  // Behavior change: once a non-recurring task leaves 'pending' it should not return to 'pending'.
+  // Cycle will be: pending -> in-progress -> completed -> in-progress -> completed ...
+  let nextStatus: Task["status"] = "in-progress";
+  if (task.status === "pending") nextStatus = "in-progress";
+  else if (task.status === "in-progress") nextStatus = "completed";
+  else if (task.status === "completed") nextStatus = "in-progress";
+    if (nextStatus === 'completed') {
+      const now = Date.now();
+      let dueMs: number | undefined;
+      if (task.end_at) dueMs = new Date(task.end_at).getTime();
+      let diffMinutes: number | undefined;
+      let completionStatus: 'early' | 'on_time' | 'late' | undefined;
+      if (dueMs) {
+        const d = new Date(dueMs);
+        const cutoffMs = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0, 0).getTime();
+        if (isSameLocalDate(dueMs, now) && cutoffMs > dueMs) {
+          if (now <= dueMs) {
+            completionStatus = 'early';
+            diffMinutes = Math.round((now - dueMs) / 60000);
+          } else if (now <= cutoffMs) {
+            completionStatus = 'on_time';
+            diffMinutes = 0;
+          } else {
+            completionStatus = 'late';
+            diffMinutes = Math.round((now - cutoffMs) / 60000);
+          }
+        } else {
+          diffMinutes = Math.round((now - dueMs) / 60000);
+          if (diffMinutes < -1) completionStatus = 'early';
+          else if (diffMinutes > 1) completionStatus = 'late';
+          else completionStatus = 'on_time';
+        }
+      }
+      await editTask(task.id!, {
+        status: nextStatus,
+        completed_at: new Date(now).toISOString(),
+        completion_diff_minutes: diffMinutes,
+        completion_status: completionStatus,
+      });
+    } else {
+      // Non-recurring: block un-complete if conflict
+      if (task.status === 'completed') {
+        const dateCtx = task.start_at ? new Date(task.start_at) : new Date();
+        const baseStart = task.start_at ? new Date(task.start_at).getTime() : undefined;
+        const baseEnd = task.end_at ? new Date(task.end_at).getTime() : undefined;
+        const range = (baseStart != null && baseEnd != null) ? { start: baseStart, end: baseEnd } : null;
+        if (await hasConflictIfUncomplete(range, dateCtx)) {
+          return;
+        }
+      }
+      await editTask(task.id!, { status: nextStatus, completed_at: undefined, completion_diff_minutes: undefined, completion_status: undefined });
+    }
+    onStatusChange(task.id!, nextStatus);
+  };
 
   const formatReminder = (mins?: number | null) => {
     if (!mins || mins <= 0) return '';
@@ -95,79 +544,70 @@ export default function TaskDetailModal({
                   </Text>
                 )}
 
-                {/* Time */}
-                <View className="flex-row items-center mb-1">
-                  <Text className="text-gray-600 text-base">📅</Text>
-                  <Text className="text-gray-600 text-base ml-1">
-                    {task.start_at
-                      ? `${new Date(task.start_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })} ${new Date(task.start_at).getDate()}-${
-                          new Date(task.start_at).getMonth() + 1
-                        }-${new Date(task.start_at).getFullYear()}`
-                      : ""}
-                    {task.end_at
-                      ? ` - ${new Date(task.end_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })} ${new Date(task.end_at).getDate()}-${
-                          new Date(task.end_at).getMonth() + 1
-                        }-${new Date(task.end_at).getFullYear()}`
-                      : ""}
-                  </Text>
-                </View>
+                {/* Thời gian và badges cùng hàng, badge sẽ wrap nếu không đủ chỗ */}
+                {(() => {
+                  const toDate = (v: any) => (v ? new Date(v) : null);
+                  const s = toDate(task.start_at);
+                  const e = toDate(task.end_at);
+                  if (!s && !e) return null;
+                  const pad = (n: number) => String(n).padStart(2, "0");
+                  const fmtTime = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                  const timeContent = s && e ? `${fmtTime(s)} - ${fmtTime(e)}` : fmtTime((s || e) as Date);
+                  return (
+                    <View className="flex-row items-center mb-1 flex-wrap justify-between">
+                      <View className="flex-row items-center mr-2">
+                        <Text className="text-gray-600 text-base mr-1">⏰</Text>
+                        <Text className="text-base text-blue-600 font-medium">{timeContent}</Text>
+                      </View>
 
-                {/* Badges: priority, status, reminder, recurrence */}
-                <View className="flex-row flex-wrap items-center gap-1 mb-1">
-                  {task.priority === "high" && (
-                    <Text className="bg-red-100 text-red-600 rounded-full px-2 py-0.5 text-base border border-red-600">
-                      Cao
-                    </Text>
-                  )}
-                  {task.priority === "medium" && (
-                    <Text className="bg-yellow-100 text-yellow-600 rounded-full px-2 py-0.5 text-base border border-yellow-600">
-                      Trung bình
-                    </Text>
-                  )}
-                  {task.priority === "low" && (
-                    <Text className="bg-green-100 text-green-600 rounded-full px-2 py-0.5 text-base border border-green-600">
-                      Thấp
-                    </Text>
-                  )}
+                      <View className="flex-row flex-wrap items-center gap-1">
+                        {task.status === "pending" && (
+                          <Text className="bg-gray-200 text-gray-600 rounded-full px-2 py-0.5 text-base border border-gray-600">
+                            Chờ thực hiện
+                          </Text>
+                        )}
+                        {task.status === "in-progress" && (
+                          <Text className="bg-blue-100 text-blue-600 rounded-full px-2 py-0.5 text-base border border-blue-600">
+                            Đang thực hiện
+                          </Text>
+                        )}
+                        {task.status === 'completed' && (
+                          <Text className="bg-green-100 text-green-600 rounded-full px-2 py-0.5 text-base border border-green-600">Hoàn thành</Text>
+                        )}
 
-                  {task.status === "pending" && (
-                    <Text className="bg-gray-200 text-gray-600 rounded-full px-2 py-0.5 text-base border border-gray-600">
-                      Chờ thực hiện
-                    </Text>
-                  )}
-                  {task.status === "in-progress" && (
-                    <Text className="bg-blue-100 text-blue-600 rounded-full px-2 py-0.5 text-base border border-blue-600">
-                      Đang thực hiện
-                    </Text>
-                  )}
-                  {task.status === "completed" && (
-                    <Text className="bg-green-100 text-green-600 rounded-full px-2 py-0.5 text-base border border-green-600">
-                      Hoàn thành
-                    </Text>
-                  )}
+                        {!!reminder && (
+                          <View className="flex-row items-center bg-blue-100 rounded-full px-2 py-0.5 border border-blue-600">
+                            <Text className="text-blue-600 text-base">🔔</Text>
+                          </View>
+                        )}
 
-                  {!!reminder && (
-                    <View className="flex-row items-center bg-blue-100 rounded-full px-2 py-0.5 border border-blue-600">
-                      <Text className="text-blue-600 text-base">🔔</Text>
-                      <Text className="text-blue-600 text-base ml-0.5">
-                        {formatReminder(reminder?.remind_before) || `${reminder?.remind_before} phút`}
+                        {!!rec && (mergeStreak || (habitProgress && habitProgress.total > 1)) && (
+                          <View className="flex-row items-center bg-purple-100 rounded-full px-2 py-0.5 border border-purple-700">
+                            <Text className="text-purple-700 text-base">🔁</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })()}
+
+                {!!rec && habitProgress && (mergeStreak || (habitProgress.total && habitProgress.total > 1)) && (
+                  <View className="mt-1 mb-2">
+                    {/* Không hiển thị chữ 'Hoàn thành' cho công việc lặp gộp; vẫn hiện với không gộp khi có hoàn thành trong ngày */}
+                    {!mergeStreak && todayDelta?.status ? (
+                      <Text className="text-green-600 mb-1">Hoàn thành</Text>
+                    ) : null}
+                    <View className="flex-row items-center justify-between mb-1">
+                      <Text className="text-gray-700">Tiến độ</Text>
+                      <Text className="text-gray-800 font-medium">
+                        {habitProgress.completed}/{habitProgress.total} ({habitProgress.percent}%) {mergeStreak ? 'đã gộp' : ''}
                       </Text>
                     </View>
-                  )}
-
-                  {!!task.recurrence_id && !!rec && (
-                    <View className="flex-row items-center bg-purple-100 rounded-full px-2 py-0.5 border border-purple-700">
-                      <Text className="text-base">🔄</Text>
-                      <Text className="text-purple-700 text-base ml-1">{repeatLabel}</Text>
+                    <View className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <View style={{ width: `${habitProgress.percent}%` }} className="h-2 bg-green-500" />
                     </View>
-                  )}
-                </View>
+                  </View>
+                )}
               </View>
 
               {/* Right action icons column */}

@@ -10,11 +10,15 @@ export async function createRecurrence(data: {
   day_of_month?: string;
   start_date?: number;
   end_date?: number;
+  auto_complete_expired?: number;
+  merge_streak?: number;
+  auto_complete_enabled_at?: number;
 }) {
   const result = await db.insert(recurrences).values({
     ...data,
     start_date: data.start_date !== undefined ? new Date(data.start_date) : undefined,
     end_date: data.end_date !== undefined ? new Date(data.end_date) : undefined,
+    auto_complete_enabled_at: data.auto_complete_enabled_at !== undefined ? new Date(data.auto_complete_enabled_at) : undefined,
     created_at: new Date(),
   }).returning({ id: recurrences.id });
 
@@ -29,7 +33,8 @@ export async function getAllRecurrences() {
 
 // Get recurrence by id
 export async function getRecurrenceById(id: number) {
-	return db.select().from(recurrences).where(eq(recurrences.id, id)).get();
+  const result = await db.select().from(recurrences).where(eq(recurrences.id, id));
+  return result[0] || null;
 }
 
 // Update recurrence
@@ -40,12 +45,16 @@ export async function updateRecurrence(id: number, data: {
 	day_of_month?: string;
 	start_date?: number;
 	end_date?: number;
+	auto_complete_expired?: number;
+    merge_streak?: number;
+    auto_complete_enabled_at?: number;
 }) {
 	return db.update(recurrences)
 		.set({
 			...data,
-			start_date: data.start_date !== undefined ? new Date(data.start_date) : undefined,
-			end_date: data.end_date !== undefined ? new Date(data.end_date) : undefined,
+      start_date: data.start_date !== undefined ? new Date(data.start_date) : undefined,
+      end_date: data.end_date !== undefined ? new Date(data.end_date) : undefined,
+      auto_complete_enabled_at: data.auto_complete_enabled_at !== undefined ? new Date(data.auto_complete_enabled_at) : undefined,
 		})
 		.where(eq(recurrences.id, id))
 		.run();
@@ -55,3 +64,4 @@ export async function updateRecurrence(id: number, data: {
 export async function deleteRecurrence(id: number) {
 	return db.delete(recurrences).where(eq(recurrences.id, id)).run();
 }
+

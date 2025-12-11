@@ -28,12 +28,21 @@ db.$client.execSync(`
     priority TEXT,
     status TEXT,
     recurrence_id INTEGER,
+    -- Các cột mới (có thể chưa tồn tại trong DB cũ, sẽ thêm bằng ALTER bên dưới)
+    completed_at DATETIME,
+    completion_diff_minutes INTEGER,
+    completion_status TEXT,
     is_deleted INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
 `);
+
+// Bổ sung cột mới nếu nâng cấp từ DB cũ (không có IF NOT EXISTS nên dùng try/catch)
+try { db.$client.execSync(`ALTER TABLE tasks ADD COLUMN completed_at DATETIME`); } catch(e) {}
+try { db.$client.execSync(`ALTER TABLE tasks ADD COLUMN completion_diff_minutes INTEGER`); } catch(e) {}
+try { db.$client.execSync(`ALTER TABLE tasks ADD COLUMN completion_status TEXT`); } catch(e) {}
 
 // ------------------ BẢNG COURSES ------------------
 db.$client.execSync(`
@@ -56,7 +65,8 @@ db.$client.execSync(`
     user_id       INTEGER NOT NULL,
     type          TEXT    NOT NULL
                   CHECK(type IN (
-                    'Lịch học thường xuyên',
+                    'Lịch học lý thuyết',
+                    'Lịch học thực hành',
                     'Lịch thi',
                     'Lịch học bù',
                     'Lịch tạm ngưng'
@@ -74,7 +84,13 @@ db.$client.execSync(`
   );
 `);
 
-// Trigger ngăn chặn overlap cùng user, cùng ngày
+try { 
+  db.$client.execSync(`ALTER TABLE schedule_entries ADD COLUMN instructor_name TEXT`); 
+} catch(e) {}
+try { 
+  db.$client.execSync(`ALTER TABLE schedule_entries ADD COLUMN location TEXT`); 
+} catch(e) {}
+
 db.$client.execSync(`
   CREATE TRIGGER IF NOT EXISTS no_overlap_schedule
   BEFORE INSERT ON schedule_entries
@@ -148,7 +164,48 @@ db.$client.execSync(`
     day_of_month TEXT,
     start_date DATETIME,
     end_date DATETIME,
+    auto_complete_expired INTEGER DEFAULT 0, -- 1 = auto tick when expired
+    merge_streak INTEGER DEFAULT 0,          -- 1 = merge consecutive days as one cycle
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+// Bổ sung cột mới cho recurrences nếu nâng cấp từ DB cũ
+try { db.$client.execSync(`ALTER TABLE recurrences ADD COLUMN auto_complete_expired INTEGER DEFAULT 0`); } catch(e) {}
+try { db.$client.execSync(`ALTER TABLE recurrences ADD COLUMN merge_streak INTEGER DEFAULT 0`); } catch(e) {}
+// THÊM MỚI: Cột để lưu thời điểm bật auto-complete
+try { db.$client.execSync(`ALTER TABLE recurrences ADD COLUMN auto_complete_enabled_at INTEGER`); } catch(e) {}
+
+// ------------------ BẢNG HABIT_COMPLETIONS (MỚI) ------------------
+db.$client.execSync(`
+  CREATE TABLE IF NOT EXISTS habit_completions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recurrence_id INTEGER NOT NULL,
+    completion_date TEXT NOT NULL,
+    completion_timestamp INTEGER NOT NULL,
+    FOREIGN KEY (recurrence_id) REFERENCES recurrences(id) ON DELETE CASCADE,
+    UNIQUE(recurrence_id, completion_date)
+  );
+`);
+
+
+// ------------------ BẢNG SCHEDULED_NOTIFICATIONS ------------------
+db.$client.execSync(`
+  CREATE TABLE IF NOT EXISTS scheduled_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER,
+    reminder_id INTEGER,
+    recurrence_id INTEGER,
+    occurrence_start_at DATETIME,
+    occurrence_end_at DATETIME,
+    schedule_time DATETIME, -- thời điểm sẽ kích hoạt (trigger)
+    notification_id TEXT,   -- id do Expo trả về khi schedule
+    lead_minutes INTEGER,
+    status TEXT,            -- scheduled | fired | cancelled
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(task_id) REFERENCES tasks(id),
+    FOREIGN KEY(reminder_id) REFERENCES reminders(id),
+    FOREIGN KEY(recurrence_id) REFERENCES recurrences(id)
   );
 `);
 
@@ -161,7 +218,7 @@ db.$client.execSync(`
     short_break_minutes INTEGER NOT NULL DEFAULT 5,
     long_break_minutes INTEGER NOT NULL DEFAULT 15,
     sessions_before_long_break INTEGER NOT NULL DEFAULT 4,
-    mute_notifications INTEGER NOT NULL DEFAULT 1, -- 1 = khi bật Pomodoro ứng dụng tắt noti
+    mute_notifications INTEGER NOT NULL DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id),
@@ -174,9 +231,9 @@ db.$client.execSync(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     type TEXT NOT NULL CHECK(type IN ('work','short_break','long_break')),
-    started_at DATETIME NOT NULL,
-    ended_at DATETIME,
-    completed INTEGER DEFAULT 0, -- 0 = không hoàn thành, 1 = hoàn thành
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER,
+    completed INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id)
   );

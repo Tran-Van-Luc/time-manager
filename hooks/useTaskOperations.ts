@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { refreshNotifications } from '../utils/notificationScheduler';
 import { Alert } from "react-native";
 import { useTasks } from "./useTasks";
 import { useReminders } from "./useReminders";
@@ -12,6 +13,8 @@ import {
 } from "../utils/taskValidation";
 import type { Recurrence } from "../types/Recurrence";
 import type { Task } from "../types/Task";
+import { setHabitMeta, getHabitCompletions, fmtYMD, autoCompletePastIfEnabled, computeHabitProgress, plannedHabitOccurrences } from "../utils/habits";
+import { getRecurrenceById } from "../database/recurrence";
 type ScheduleLike = { startAt: Date; endAt: Date; subject?: string };
 
 interface NewTaskData {
@@ -69,20 +72,98 @@ const parseConflictMessage = (msg: string): ConflictBlock[] => {
   return blocks;
 };
 
-export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], options?: UseTaskOpsOptions) => {
+// Allow injecting existing reminders context to avoid duplicate state (fixes issue when adding reminder while editing)
+interface RemindersContext {
+  reminders: any[];
+  addReminder: (...args: any[]) => Promise<any>;
+  editReminder: (...args: any[]) => Promise<any>;
+  removeReminder: (...args: any[]) => Promise<any>;
+  loadReminders: () => Promise<any>;
+}
+
+export const useTaskOperations = (
+  tasks: Task[],
+  schedules: ScheduleLike[],
+  options?: UseTaskOpsOptions,
+  injectedReminders?: RemindersContext
+) => {
   const { addTask, editTask: updateTask, removeTask } = useTasks();
-  const {
-    reminders,
-    addReminder,
-    editReminder,
-    removeReminder,
-    loadReminders,
-  } = useReminders();
+
+  // If parent supplies reminders context, reuse it; else create internal (backward compatible)
+  const internalReminders = useReminders();
+  const remindersCtx = injectedReminders || internalReminders;
+  const { reminders, addReminder, editReminder, removeReminder, loadReminders } = remindersCtx as RemindersContext & { reminders: any[] };
+
   const { addRecurrence, editRecurrence, removeRecurrence, recurrences, loadRecurrences } = useRecurrences();
 
-  // Load recurrences once so we can compare with existing recurring tasks
+  // In-memory timers used to schedule auto-complete for non-recurring tasks.
+  // Stored on global to survive multiple hook instances.
+  (global as any).__autoCompleteTimers = (global as any).__autoCompleteTimers || {};
+
+  // Background scanner: periodically run auto-complete for recurrences that have auto flag enabled.
+  useEffect(() => {
+    let stopped = false;
+    const runScan = async () => {
+      try {
+        if (!recurrences || recurrences.length === 0) return;
+        const now = Date.now();
+        for (const rec of recurrences) {
+          try {
+            if ((rec as any).auto_complete_expired !== 1) continue;
+            // find base task(s) for this recurrence
+            const baseTasks = tasks.filter(t => t.recurrence_id === rec.id);
+            for (const task of baseTasks) {
+              try {
+                // attempt to auto-complete past occurrences for this recurrence
+                await autoCompletePastIfEnabled(task as any, rec as any);
+                // After marking completions, if all occurrences are done and task is not completed, mark it completed
+                const p = await computeHabitProgress(task as any, rec as any);
+                if (p.total > 0 && p.completed >= p.total && task.status !== 'completed') {
+                  // determine due time (last occurrence end)
+                  let dueMs: number | undefined;
+                  try {
+                    const occs = plannedHabitOccurrences(task as any, rec as any);
+                    if (occs && occs.length) dueMs = occs[occs.length - 1].endAt;
+                  } catch {}
+                  if (!dueMs && (rec as any).end_date) dueMs = new Date((rec as any).end_date).getTime();
+                  if (!dueMs && task.end_at) dueMs = (typeof task.end_at === 'string' ? Date.parse(task.end_at) : task.end_at) as number;
+                  let diffMinutes: number | undefined;
+                  let completionStatus: 'early' | 'on_time' | 'late' | undefined;
+                  if (dueMs) {
+                    diffMinutes = Math.round((Date.now() - dueMs) / 60000);
+                    if (diffMinutes < -1) completionStatus = 'early';
+                    else if (diffMinutes > 1) completionStatus = 'late';
+                    else completionStatus = 'on_time';
+                  }
+                  await updateTask(task.id!, {
+                    status: 'completed',
+                    completed_at: new Date().toISOString(),
+                    completion_diff_minutes: diffMinutes,
+                    completion_status: completionStatus,
+                  } as any);
+                  try { (global as any).__reloadTasks?.(); } catch {}
+                }
+              } catch {}
+            }
+          } catch {}
+        }
+      } catch {}
+    };
+    // run immediately then every 30s
+    runScan();
+    const id = setInterval(() => { if (!stopped) runScan(); }, 30000);
+    return () => { stopped = true; clearInterval(id); };
+  // depend on recurrences and tasks so it picks up new entries
+  }, [recurrences, tasks]);
+
+  // Load recurrences (and reminders if using internal) once
   useEffect(() => {
     if (loadRecurrences) loadRecurrences();
+    if (!injectedReminders && loadReminders) {
+      // Only auto-load reminders if we're using the internal context
+      loadReminders();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const parseJsonArray = (val?: string): string[] => {
@@ -95,16 +176,23 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
     }
   };
 
-  const buildExistingRecurringOccurrences = (excludeTaskId?: number) => {
+  const buildExistingRecurringOccurrences = async (excludeTaskId?: number) => {
     const result: Array<{ taskTitle: string; start: number; end: number }> = [];
     if (!recurrences || recurrences.length === 0) return result;
     const recMap: Record<number, Recurrence> = {};
     recurrences.forEach(r => { if (r.id != null) recMap[r.id] = r; });
     for (const t of tasks) {
       if (!t.recurrence_id) continue;
+      // If the base task is already completed, ignore its recurring occurrences
+      // when building existing occurrences for conflict checks. This prevents
+      // completed recurring tasks from triggering conflicts when adding new tasks.
+      if ((t as any).status === 'completed') continue;
       if (excludeTaskId && t.id === excludeTaskId) continue;
       const rec = recMap[t.recurrence_id];
       if (!rec) continue;
+      // Skip recurrences that are single-day auto-only (persisted so auto flag survives restarts)
+      // Treat these as non-recurring for conflict checks and occurrence generation.
+      if ((rec as any).auto_complete_expired === 1 && rec.start_date && rec.end_date && rec.start_date === rec.end_date) continue;
       const baseStart = t.start_at ? new Date(t.start_at).getTime() : undefined;
       if (!baseStart) continue;
       let baseEnd = t.end_at ? new Date(t.end_at).getTime() : undefined;
@@ -120,7 +208,7 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
         interval: rec.interval || 1,
         daysOfWeek: parseJsonArray(rec.days_of_week),
         daysOfMonth: parseJsonArray(rec.day_of_month),
-        endDate: rec.end_date,
+        endDate: rec.end_date ? (() => { const d = new Date(rec.end_date); d.setHours(23,59,59,999); return d.getTime(); })() : undefined,
       } as any;
       let occs: Array<{ startAt: number; endAt: number }> = [];
       try {
@@ -128,26 +216,32 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
       } catch {
         occs = [{ startAt: baseStart, endAt: baseEnd }];
       }
+
+      // Get completed dates for this recurrence and skip occurrences that are done
+      let completions: Set<string> = new Set();
+      try {
+        if (rec.id != null) completions = await getHabitCompletions(rec.id);
+      } catch {}
+
       for (const occ of occs) {
+        try {
+          const d = new Date(occ.startAt);
+          d.setHours(0,0,0,0);
+          const ymd = fmtYMD(d);
+          if (completions.has(ymd)) continue; // skip already-completed occurrence
+        } catch {}
         result.push({ taskTitle: t.title || '(Không tiêu đề)', start: occ.startAt, end: occ.endAt });
       }
     }
     return result;
   };
 
-  const checkConflictsWithExistingRecurring = (candidate: Array<{ start: number; end: number }>, excludeTaskId?: number) => {
-    const existing = buildExistingRecurringOccurrences(excludeTaskId);
-    const baseRecurringStarts = new Set<number>();
-    for (const t of tasks) {
-      if (t.id && t.recurrence_id && (!excludeTaskId || t.id !== excludeTaskId) && t.start_at) {
-        try { baseRecurringStarts.add(new Date(t.start_at).getTime()); } catch {}
-      }
-    }
+  const checkConflictsWithExistingRecurring = async (candidate: Array<{ start: number; end: number }>, excludeTaskId?: number) => {
+    const existing = await buildExistingRecurringOccurrences(excludeTaskId);
     const conflicts: string[] = [];
     const pad = (n: number) => String(n).padStart(2, '0');
     const fmt = (ms: number) => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())} ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`; };
     for (const ex of existing) {
-      if (baseRecurringStarts.has(ex.start)) continue;
       for (const c of candidate) {
         if (c.start < ex.end && c.end > ex.start) {
           const s = new Date(ex.start); const e = new Date(ex.end);
@@ -166,12 +260,12 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
 
   // Gom xung đột của toàn bộ các lần lặp vào cùng định dạng; tránh trường hợp
   // block đầu (lần lặp đầu tiên) bị tách riêng rồi các lần sau mới liệt kê task lặp.
-  const buildRecurringConflictMessage = (
+  const buildRecurringConflictMessage = async (
     startAt: number,
     endAt: number,
     recurrenceConfig: { enabled: boolean; frequency: string; interval: number; daysOfWeek?: string[]; daysOfMonth?: string[]; endDate?: number },
     excludeTaskId?: number
-  ): { hasConflict: boolean; conflictMessage: string } => {
+  ): Promise<{ hasConflict: boolean; conflictMessage: string }> => {
     if (!recurrenceConfig?.enabled) return { hasConflict: false, conflictMessage: '' };
     let occs: Array<{ startAt: number; endAt: number }> = [];
     try {
@@ -187,13 +281,7 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
       occs = [{ startAt, endAt }];
     }
 
-    const existingRecurring = buildExistingRecurringOccurrences(excludeTaskId);
-    const baseRecurringStarts = new Set<number>();
-    for (const t of tasks) {
-      if (t.id && t.recurrence_id && (!excludeTaskId || t.id !== excludeTaskId) && t.start_at) {
-        try { baseRecurringStarts.add(new Date(t.start_at).getTime()); } catch {}
-      }
-    }
+    const existingRecurring = await buildExistingRecurringOccurrences(excludeTaskId);
 
     const pad = (n: number) => String(n).padStart(2, '0');
     const fmt = (ms: number) => {
@@ -203,10 +291,12 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
 
     const blocks: string[] = [];
     for (const occ of occs) {
-      const timeConf = checkTimeConflicts(occ.startAt, occ.endAt, tasks, (schedules as unknown as any), excludeTaskId);
+      // For per-occurrence conflict display, exclude base recurring tasks from the
+      // general time conflict check and rely on occurrence-level checks below.
+      const nonRecurringTasks = tasks.filter(t => !t.recurrence_id);
+      const timeConf = checkTimeConflicts(occ.startAt, occ.endAt, nonRecurringTasks as any, (schedules as unknown as any), excludeTaskId);
       const recurringLines: string[] = [];
       for (const ex of existingRecurring) {
-        if (baseRecurringStarts.has(ex.start)) continue; // bỏ occurrence gốc đã có trong timeConf
         if (occ.startAt < ex.end && occ.endAt > ex.start) {
           const s = new Date(ex.start); const e = new Date(ex.end);
           const sameDay = s.getFullYear() === e.getFullYear() && s.getMonth() === e.getMonth() && s.getDate() === e.getDate();
@@ -274,8 +364,12 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
       endDate?: number;
     }
   ) => {
+    const suppress = !!(global as any).__skipTaskPrompts;
+
     if (!newTask.title.trim()) {
-      if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Vui lòng nhập tiêu đề!' }); else Alert.alert("Lỗi", "Vui lòng nhập tiêu đề!");
+      if (!suppress) {
+        if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Vui lòng nhập tiêu đề!' }); else Alert.alert("Lỗi", "Vui lòng nhập tiêu đề!");
+      }
       return false;
     }
 
@@ -300,25 +394,41 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
       // Validate time
       const timeError = validateTaskTime(startAt, endAt);
       if (timeError) {
-        if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message: timeError }); else Alert.alert("Lỗi", timeError);
+        if (!suppress) {
+          if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message: timeError }); else Alert.alert("Lỗi", timeError);
+        }
         return false;
       }
 
-      // Recurrence must have end date (yêu cầu: bắt buộc người dùng chọn ngày kết thúc)
+      // Recurrence end date requirement: always require user input
       if (recurrenceConfig?.enabled && !recurrenceConfig.endDate) {
-        if (options?.onNotify) options.onNotify({ tone:'warning', title:'Thiếu thông tin', message:'Vui lòng chọn ngày kết thúc cho lặp lại' }); else Alert.alert("Lỗi", "Vui lòng chọn ngày kết thúc cho lặp lại");
+        if (!suppress) {
+          if (options?.onNotify) options.onNotify({ tone:'warning', title:'Thiếu thông tin', message:'Vui lòng chọn ngày kết thúc cho lặp lại' }); else Alert.alert("Lỗi", "Vui lòng chọn ngày kết thúc cho lặp lại");
+        }
         return false;
       }
 
-      // Check conflicts (single / recurring) với cách trình bày gom block
+      // Check conflicts (single / recurring) với cách trình bày gom block. Với task KHÔNG lặp cũng phải kiểm tra giao với các task lặp khác.
       if (startAt && endAt) {
         let conflictRes: { hasConflict: boolean; conflictMessage: string };
         if (recurrenceConfig?.enabled) {
-          conflictRes = buildRecurringConflictMessage(startAt, endAt, recurrenceConfig);
+          conflictRes = await buildRecurringConflictMessage(startAt, endAt, recurrenceConfig);
         } else {
-          conflictRes = checkTimeConflicts(startAt, endAt, tasks, (schedules as unknown as any));
+          // Exclude recurring base tasks from generic time conflicts; overlaps with
+          // recurring tasks are handled via occurrence-level check below.
+          const nonRecurringTasks = tasks.filter(t => !t.recurrence_id);
+          conflictRes = checkTimeConflicts(startAt, endAt, nonRecurringTasks as any, (schedules as unknown as any));
+          // Bổ sung kiểm tra giao với các lần lặp của task khác (recurring) – trước đây chỉ làm khi chính task là recurring
+          const recurringConflicts = await checkConflictsWithExistingRecurring([{ start: startAt, end: endAt }]);
+          if (recurringConflicts.length) {
+            const extraMsg = recurringConflicts.join('\n');
+            conflictRes = conflictRes.hasConflict
+              ? { hasConflict: true, conflictMessage: `${conflictRes.conflictMessage}\n\n${extraMsg}` }
+              : { hasConflict: true, conflictMessage: extraMsg };
+          }
         }
         if (conflictRes.hasConflict) {
+          if (suppress) return false;
           const formatted = compressSameDayRanges(conflictRes.conflictMessage);
           const proceed = await new Promise<boolean>((resolve)=>{
             if (options?.onConflict) {
@@ -360,7 +470,41 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
             : undefined,
           start_date: startAt,
           end_date: recurrenceConfig.endDate,
+          auto_complete_expired: (global as any).__habitFlags?.auto ? 1 : 0,
+          merge_streak: (global as any).__habitFlags?.merge ? 1 : 0,
         });
+        // Sau khi tạo recurrence mới, nạp lại recurrences để UI phản ánh cờ auto/merge ngay
+        try { if (loadRecurrences) await loadRecurrences(); } catch {}
+        // Persist habit meta to record when auto-complete was enabled for
+        // newly created recurrence. If auto flag is true, set enabledAt to now.
+        try {
+          if (recurrence_id && (global as any).__habitFlags?.auto) {
+            await setHabitMeta(recurrence_id, { auto: true, merge: !!(global as any).__habitFlags?.merge, enabledAt: Date.now() } as any);
+          } else if (recurrence_id) {
+            await setHabitMeta(recurrence_id, { auto: !!(global as any).__habitFlags?.auto, merge: !!(global as any).__habitFlags?.merge } as any);
+          }
+        } catch {}
+      }
+
+      // If user did NOT enable recurrence but enabled auto-complete, persist a single-day recurrence
+      // so the auto flag is stored in SQLite while UI can keep 'repeat' toggled off.
+      if (!recurrenceConfig?.enabled && (global as any).__habitFlags?.auto) {
+        try {
+          const singlePayload: Partial<Recurrence> = {
+            type: 'daily',
+            interval: 1,
+            start_date: startAt,
+            end_date: startAt,
+            auto_complete_expired: 1,
+            merge_streak: (global as any).__habitFlags?.merge ? 1 : 0,
+          };
+          recurrence_id = await addRecurrence(singlePayload as any);
+          try { if (loadRecurrences) await loadRecurrences(); } catch {}
+          // persist habit meta (enabledAt)
+          try {
+            if (recurrence_id) await setHabitMeta(recurrence_id, { auto: true, merge: !!(global as any).__habitFlags?.merge, enabledAt: Date.now() } as any);
+          } catch {}
+        } catch {}
       }
 
       // Add task
@@ -373,6 +517,81 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
         user_id: 1,
         recurrence_id,
       } as any);
+
+      // Trigger immediate auto-complete run for recurring tasks when auto is enabled
+      try {
+        if (taskId && recurrence_id && (global as any).__habitFlags?.auto) {
+          const rec = await getRecurrenceById(recurrence_id);
+          if (rec) {
+            const taskLike = {
+              id: taskId,
+              title: newTask.title,
+              start_at: startAt ? new Date(startAt).toISOString() : undefined,
+              end_at: endAt ? new Date(endAt).toISOString() : undefined,
+              recurrence_id,
+              status,
+            } as unknown as Task;
+            await autoCompletePastIfEnabled(taskLike, rec as any);
+            // If fully completed after backfill, mark task completed now (no need to wait 30s scanner)
+            const p = await computeHabitProgress(taskLike, rec as any);
+            if (p.total > 0 && p.completed >= p.total && status !== 'completed') {
+              let dueMs: number | undefined;
+              try {
+                const occs = plannedHabitOccurrences(taskLike as any, rec as any);
+                if (occs && occs.length) dueMs = occs[occs.length - 1].endAt;
+              } catch {}
+              if (!dueMs && (rec as any).end_date) dueMs = new Date((rec as any).end_date).getTime();
+              if (!dueMs && endAt) dueMs = endAt;
+              let diffMinutes: number | undefined;
+              let completionStatus: 'early' | 'on_time' | 'late' | undefined;
+              if (dueMs) {
+                diffMinutes = Math.round((Date.now() - dueMs) / 60000);
+                if (diffMinutes < -1) completionStatus = 'early';
+                else if (diffMinutes > 1) completionStatus = 'late';
+                else completionStatus = 'on_time';
+              }
+              await updateTask(taskId, {
+                status: 'completed',
+                completed_at: new Date().toISOString(),
+                completion_diff_minutes: diffMinutes,
+                completion_status: completionStatus,
+              } as any);
+              try { (global as any).__reloadTasks?.(); } catch {}
+            }
+          }
+        }
+      } catch {}
+
+      // If non-recurring and auto flag is enabled, schedule an in-memory timer to mark completed at endAt
+      try {
+        if (!recurrence_id && taskId && (global as any).__habitFlags?.auto) {
+          const nowMs = Date.now();
+          const endMs = endAt ?? nowMs;
+          const delay = Math.max(0, endMs - nowMs);
+          const timers = (global as any).__autoCompleteTimers as Record<number, any>;
+          if (timers[taskId]) clearTimeout(timers[taskId]);
+          if (delay === 0) {
+            // mark immediately
+            await updateTask(taskId, {
+              status: 'completed',
+              completed_at: new Date().toISOString(),
+              completion_diff_minutes: endMs ? Math.round((Date.now() - endMs) / 60000) : undefined,
+            } as any);
+            try { (global as any).__reloadTasks?.(); } catch {}
+          } else {
+            timers[taskId] = setTimeout(async () => {
+              try {
+                await updateTask(taskId, {
+                  status: 'completed',
+                  completed_at: new Date().toISOString(),
+                  completion_diff_minutes: endMs ? Math.round((Date.now() - endMs) / 60000) : undefined,
+                } as any);
+                try { (global as any).__reloadTasks?.(); } catch {}
+              } catch {}
+            }, delay);
+          }
+        }
+      } catch {}
 
       // Add reminder with lead-time validation
       if (reminderConfig?.enabled && taskId) {
@@ -389,10 +608,16 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
         }
       }
 
-      if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã thêm công việc!' }); else Alert.alert("Thành công", "Đã thêm công việc!");
+  // Lập lịch lại thông báo sau khi thêm
+  try { await refreshNotifications(); } catch {}
+  if (!suppress) {
+    if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã thêm công việc!' }); else Alert.alert("Thành công", "Đã thêm công việc!");
+  }
       return true;
     } catch (error) {
-      if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Không thể thêm công việc' }); else Alert.alert("Lỗi", "Không thể thêm công việc");
+      if (!suppress) {
+        if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Không thể thêm công việc' }); else Alert.alert("Lỗi", "Không thể thêm công việc");
+      }
       return false;
     } finally {
       setProcessing(false);
@@ -481,43 +706,48 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
         return false;
       }
 
-      // Recurrence must have end date when enabled
+      // Recurrence end date requirement (edit): require explicit endDate from user
+      // Do NOT default to end-of-day; instead warn and abort so user must pick a date.
       if (recurrenceConfig?.enabled && !recurrenceConfig.endDate) {
         if (options?.onNotify) options.onNotify({ tone:'warning', title:'Thiếu thông tin', message:'Vui lòng chọn ngày kết thúc cho lặp lại' }); else Alert.alert("Lỗi", "Vui lòng chọn ngày kết thúc cho lặp lại");
         return false;
       }
 
-      // Conflicts (exclude itself) — dùng builder gom block như lúc thêm
+      // Conflicts (exclude itself) — dùng builder gom block như lúc thêm. Với task không lặp vẫn phải xét các occurrence của task lặp khác.
       if (startAt && endAt) {
         let conflictRes: { hasConflict: boolean; conflictMessage: string };
         if (recurrenceConfig?.enabled) {
-          conflictRes = buildRecurringConflictMessage(startAt, endAt, recurrenceConfig, taskId);
+          conflictRes = await buildRecurringConflictMessage(startAt, endAt, recurrenceConfig, taskId);
         } else {
-          conflictRes = checkTimeConflicts(
-            startAt,
-            endAt,
-            tasks,
-            (schedules as unknown as any),
-            taskId
-          );
+          // Exclude recurring base tasks from generic time conflicts; overlaps with
+          // recurring tasks are handled via occurrence-level check below.
+          const nonRecurringTasks = tasks.filter(t => !t.recurrence_id);
+          conflictRes = checkTimeConflicts(startAt, endAt, nonRecurringTasks as any, (schedules as unknown as any), taskId);
+          const recurringConflicts = await checkConflictsWithExistingRecurring([{ start: startAt, end: endAt }], taskId);
+          if (recurringConflicts.length) {
+            const extraMsg = recurringConflicts.join('\n');
+            conflictRes = conflictRes.hasConflict
+              ? { hasConflict: true, conflictMessage: `${conflictRes.conflictMessage}\n\n${extraMsg}` }
+              : { hasConflict: true, conflictMessage: extraMsg };
+          }
         }
         if (conflictRes.hasConflict) {
           const formatted = compressSameDayRanges(conflictRes.conflictMessage);
-            const proceed = await new Promise<boolean>((resolve)=>{
-              if (options?.onConflict) {
-                options.onConflict({ raw: formatted, blocks: parseConflictMessage(formatted), resolve });
-              } else {
-                Alert.alert(
-                  'Trùng thời gian ⛔',
-                  `${formatted}\nBạn có muốn tiếp tục lưu không?`,
-                  [
-                    { text: 'Hủy', style: 'cancel', onPress: () => resolve(false) },
-                    { text: 'Tiếp tục', style: 'destructive', onPress: () => resolve(true) },
-                  ]
-                );
-              }
-            });
-            if (!proceed) return false;
+          const proceed = await new Promise<boolean>((resolve)=>{
+            if (options?.onConflict) {
+              options.onConflict({ raw: formatted, blocks: parseConflictMessage(formatted), resolve });
+            } else {
+              Alert.alert(
+                'Trùng thời gian ⛔',
+                `${formatted}\nBạn có muốn tiếp tục lưu không?`,
+                [
+                  { text: 'Hủy', style: 'cancel', onPress: () => resolve(false) },
+                  { text: 'Tiếp tục', style: 'destructive', onPress: () => resolve(true) },
+                ]
+              );
+            }
+          });
+          if (!proceed) return false;
         }
       }
 
@@ -542,16 +772,77 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
             : undefined,
           start_date: startAt,
           end_date: recurrenceConfig.endDate,
+          auto_complete_expired: (global as any).__habitFlags?.auto ? 1 : 0,
+          merge_streak: (global as any).__habitFlags?.merge ? 1 : 0,
         };
 
         if (recurrence_id) {
-          await editRecurrence(recurrence_id, payload);
+          try {
+            await editRecurrence(recurrence_id, payload);
+            // Verify that the recurrence still exists (update may be a no-op if row was deleted)
+            try {
+              const exists = await getRecurrenceById(recurrence_id);
+              if (!exists) {
+                recurrence_id = await addRecurrence(payload);
+              }
+            } catch {
+              // On any fetch error, fallback to creating a new recurrence
+              recurrence_id = await addRecurrence(payload);
+            }
+          } catch {
+            // If the old recurrence was removed or stale, create a new one and re-link
+            recurrence_id = await addRecurrence(payload);
+          }
         } else {
           recurrence_id = await addRecurrence(payload);
         }
-      } else if (recurrence_id) {
-        await removeRecurrence(recurrence_id);
-        recurrence_id = undefined;
+        try { if (loadRecurrences) await loadRecurrences(); } catch {}
+        // Persist habit meta to record when auto-complete was enabled. This
+        // prevents retroactive marking of past occurrences when the user turns
+        // on auto-complete during an edit. Only set enabledAt when auto flag is true.
+        try {
+          if (recurrence_id && (global as any).__habitFlags?.auto) {
+            // store epoch ms of now as enabledAt
+            await setHabitMeta(recurrence_id, { auto: true, merge: !!(global as any).__habitFlags?.merge, enabledAt: Date.now() } as any);
+          } else if (recurrence_id) {
+            // ensure meta reflects current flags (clear enabledAt when auto disabled)
+            await setHabitMeta(recurrence_id, { auto: !!(global as any).__habitFlags?.auto, merge: !!(global as any).__habitFlags?.merge } as any);
+          }
+        } catch {}
+      } else {
+        // User disabled recurrence in the UI. If they left auto-complete on, persist/update a single-day recurrence
+        // so the auto flag remains stored; otherwise remove existing recurrence as before.
+        if ((global as any).__habitFlags?.auto) {
+          const singlePayload: Partial<Recurrence> = {
+            type: 'daily',
+            interval: 1,
+            start_date: startAt,
+            end_date: startAt,
+            auto_complete_expired: 1,
+            merge_streak: (global as any).__habitFlags?.merge ? 1 : 0,
+          };
+          try {
+            if (recurrence_id) {
+              try { await editRecurrence(recurrence_id, singlePayload as any); } catch { /* fall through to create */ }
+              try {
+                const exists = await getRecurrenceById(recurrence_id);
+                if (!exists) {
+                  recurrence_id = await addRecurrence(singlePayload as any);
+                }
+              } catch {
+                recurrence_id = await addRecurrence(singlePayload as any);
+              }
+            } else {
+              recurrence_id = await addRecurrence(singlePayload as any);
+            }
+            try { if (loadRecurrences) await loadRecurrences(); } catch {}
+            try { if (recurrence_id) await setHabitMeta(recurrence_id, { auto: true, merge: !!(global as any).__habitFlags?.merge, enabledAt: Date.now() } as any); } catch {}
+          } catch {}
+        } else if (recurrence_id) {
+          await removeRecurrence(recurrence_id);
+          recurrence_id = undefined;
+          try { if (loadRecurrences) await loadRecurrences(); } catch {}
+        }
       }
 
       // Update task
@@ -562,6 +853,85 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
         end_at: endAt ? new Date(endAt).toISOString() : undefined,
         recurrence_id,
       } as any);
+
+      // Trigger immediate auto-complete when auto is enabled on an edited recurring task
+      try {
+        if (recurrence_id && (global as any).__habitFlags?.auto) {
+          const rec = await getRecurrenceById(recurrence_id);
+          if (rec) {
+            const taskLike = {
+              id: taskId,
+              title: updatedTask.title ?? existing.title,
+              start_at: startAt ? new Date(startAt).toISOString() : undefined,
+              end_at: endAt ? new Date(endAt).toISOString() : undefined,
+              recurrence_id,
+              status,
+            } as unknown as Task;
+            await autoCompletePastIfEnabled(taskLike, rec as any);
+            const p = await computeHabitProgress(taskLike, rec as any);
+            if (p.total > 0 && p.completed >= p.total && status !== 'completed') {
+              let dueMs: number | undefined;
+              try {
+                const occs = plannedHabitOccurrences(taskLike as any, rec as any);
+                if (occs && occs.length) dueMs = occs[occs.length - 1].endAt;
+              } catch {}
+              if (!dueMs && (rec as any).end_date) dueMs = new Date((rec as any).end_date).getTime();
+              if (!dueMs && endAt) dueMs = endAt;
+              let diffMinutes: number | undefined;
+              let completionStatus: 'early' | 'on_time' | 'late' | undefined;
+              if (dueMs) {
+                diffMinutes = Math.round((Date.now() - dueMs) / 60000);
+                if (diffMinutes < -1) completionStatus = 'early';
+                else if (diffMinutes > 1) completionStatus = 'late';
+                else completionStatus = 'on_time';
+              }
+              await updateTask(taskId, {
+                status: 'completed',
+                completed_at: new Date().toISOString(),
+                completion_diff_minutes: diffMinutes,
+                completion_status: completionStatus,
+              } as any);
+              try { (global as any).__reloadTasks?.(); } catch {}
+            }
+          }
+        }
+      } catch {}
+
+      // After editing: schedule/clear timer for non-recurring auto-complete based on current flags
+      try {
+        const timers = (global as any).__autoCompleteTimers as Record<number, any>;
+        if (!recurrence_id && (global as any).__habitFlags?.auto) {
+          const nowMs = Date.now();
+          const endMs = endAt ?? nowMs;
+          const delay = Math.max(0, endMs - nowMs);
+          if (timers[taskId]) clearTimeout(timers[taskId]);
+          if (delay === 0) {
+            await updateTask(taskId, {
+              status: 'completed',
+              completed_at: new Date().toISOString(),
+              completion_diff_minutes: endMs ? Math.round((Date.now() - endMs) / 60000) : undefined,
+            } as any);
+            try { (global as any).__reloadTasks?.(); } catch {}
+          } else {
+            timers[taskId] = setTimeout(async () => {
+              try {
+                await updateTask(taskId, {
+                  status: 'completed',
+                  completed_at: new Date().toISOString(),
+                  completion_diff_minutes: endMs ? Math.round((Date.now() - endMs) / 60000) : undefined,
+                } as any);
+                try { (global as any).__reloadTasks?.(); } catch {}
+              } catch {}
+            }, delay);
+          }
+        } else {
+          // if recurrence now exists or auto disabled, clear any timer
+          if (timers && timers[taskId]) {
+            clearTimeout(timers[taskId]);
+            delete timers[taskId];
+          }
+        }
+      } catch {}
 
       // Reminder (edit) with lead-time validation
       const taskReminder = reminders?.find((r) => r.task_id === taskId);
@@ -595,7 +965,9 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
         await loadReminders();
       }
 
-      if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã cập nhật công việc!' }); else Alert.alert("Thành công", "Đã cập nhật công việc!");
+  // Lập lịch lại thông báo sau khi sửa
+  try { await refreshNotifications(); } catch {}
+  if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã cập nhật công việc!' }); else Alert.alert("Thành công", "Đã cập nhật công việc!");
       return true;
     } catch (error) {
       if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Không thể cập nhật công việc' }); else Alert.alert("Lỗi", "Không thể cập nhật công việc");
@@ -619,6 +991,7 @@ export const useTaskOperations = (tasks: Task[], schedules: ScheduleLike[], opti
             }
           await loadReminders();
           await removeTask(taskId);
+          try { await refreshNotifications(); } catch {}
           if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã xóa công việc!' }); else Alert.alert("Thành công", "Đã xóa công việc!");
           resolve(true);
         } catch (error) {

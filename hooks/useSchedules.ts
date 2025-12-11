@@ -1,4 +1,3 @@
-// hooks/useSchedules.ts
 import { useState, useCallback } from "react";
 import { eq } from "drizzle-orm";
 import { db } from "../database/database";
@@ -47,9 +46,9 @@ export function useSchedules() {
     async (params: CreateScheduleParams) => {
       setLoading(true);
       try {
-        const count = await createSchedule(params);
+        const { sessionsCreated } = await createSchedule(params);
         await loadSchedules();
-        return count;
+        return sessionsCreated;
       } finally {
         setLoading(false);
       }
@@ -77,7 +76,6 @@ export function useSchedules() {
     async (subject: string) => {
       setLoading(true);
       try {
-        // tìm course_id tương ứng
         const found = await db
           .select({ id: courses.id })
           .from(courses)
@@ -101,64 +99,65 @@ export function useSchedules() {
     async (id: number, params: CreateScheduleParams) => {
       setLoading(true);
       try {
-        // 1) find or create course row
-        let courseId: number;
-        const trimmedName = params.courseName.trim();
-        const found = await db
-          .select({ id: courses.id })
-          .from(courses)
-          .where(eq(courses.name, trimmedName))
-          .get();
-
-        if (found) {
-          courseId = found.id;
+        if (params.type === "Lịch tạm ngưng") {
           await db
-            .update(courses)
-            .set({
-              instructor_name: params.instructorName ?? null,
-              location:        params.location       ?? null,
-            })
-            .where(eq(courses.id, courseId))
+            .delete(schedule_entries)
+            .where(eq(schedule_entries.id, id))
             .run();
+          await createSchedule(params);
         } else {
-          const code = trimmedName
-            .split(/\s+/)
-            .map(w => w[0].toUpperCase())
-            .join("")
-            .slice(0, 6)
-            || `UNK${Date.now().toString().slice(-4)}`;
-
-          const ins = await db
-            .insert(courses)
-            .values({
-              code,
-              name:            trimmedName,
-              instructor_name: params.instructorName ?? null,
-              location:        params.location       ?? null,
-              color_tag:       null,
-            })
-            .returning({ id: courses.id })
+          // ✅ CHỈ TÌM hoặc TẠO course, KHÔNG UPDATE
+          let courseId: number;
+          const trimmedName = params.courseName.trim();
+          const found = await db
+            .select({ id: courses.id })
+            .from(courses)
+            .where(eq(courses.name, trimmedName))
             .get();
-          courseId = ins.id;
+
+          if (found) {
+            courseId = found.id;
+            // ✅ KHÔNG CẬP NHẬT instructor/location của course nữa
+          } else {
+            const code = trimmedName
+              .split(/\s+/)
+              .map(w => w[0].toUpperCase())
+              .join("")
+              .slice(0, 6)
+              || `UNK${Date.now().toString().slice(-4)}`;
+
+            const ins = await db
+              .insert(courses)
+              .values({
+                code,
+                name:            trimmedName,
+                instructor_name: null, // ✅ Không lưu ở đây
+                location:        null, // ✅ Không lưu ở đây
+                color_tag:       null,
+              })
+              .returning({ id: courses.id })
+              .get();
+            courseId = ins.id;
+          }
+
+          const baseDate = params.singleDate ?? params.startDate!;
+          const s = new Date(`${baseDate}T${params.startTime}:00`);
+          const e = new Date(`${baseDate}T${params.endTime}:00`);
+
+          // ✅ CẬP NHẬT instructor và location vào schedule_entries
+          await db
+            .update(schedule_entries)
+            .set({
+              course_id:       courseId,
+              type:            params.type,
+              start_at:        s,
+              end_at:          e,
+              instructor_name: params.instructorName ?? null, // ✅ LƯU RIÊNG
+              location:        params.location ?? null,       // ✅ LƯU RIÊNG
+            })
+            .where(eq(schedule_entries.id, id))
+            .run();
         }
-
-        // 2) compute new start/end
-        const baseDate = params.singleDate ?? params.startDate!;
-        const s = new Date(`${baseDate}T${params.startTime}:00`);
-        const e = new Date(`${baseDate}T${params.endTime}:00`);
-
-        // 3) update entry
-        await db
-          .update(schedule_entries)
-          .set({
-            course_id: courseId,
-            type:      params.type,
-            start_at:  s,
-            end_at:    e,
-          })
-          .where(eq(schedule_entries.id, id))
-          .run();
-
         await loadSchedules();
       } finally {
         setLoading(false);

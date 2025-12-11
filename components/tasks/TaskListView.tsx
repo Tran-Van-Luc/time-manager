@@ -1,5 +1,6 @@
-import React from "react";
-import { SectionList, View, Text } from "react-native";
+import React, { useState } from "react";
+import { SectionList, View, Text, TouchableOpacity, Platform } from "react-native";
+import DateTimePicker from '@react-native-community/datetimepicker';
 import type { Task } from "../../types/Task";
 import type { Reminder} from "../../types/Reminder";
 import type { Recurrence } from "../../types/Recurrence";
@@ -7,6 +8,8 @@ import TaskItem from "./TaskItem";
 
 interface TaskListViewProps {
   filteredTasks: Task[];
+  search?: string;
+  // allTasks: Task[]; // Removed to simplify the props
   reminders: Reminder[];
   recurrences: Recurrence[];
   REPEAT_OPTIONS: { label: string; value: string }[];
@@ -14,10 +17,13 @@ interface TaskListViewProps {
   openEditModal: (task: Task) => void;
   handleDeleteTask: (id: number) => void;
   loading: boolean;
+  onInlineAlert?: (info: { tone: 'error'|'warning'|'success'|'info'; title: string; message: string }) => void;
 }
 
 export default function TaskListView({
   filteredTasks,
+  search,
+  // allTasks, // Removed to simplify the props
   reminders,
   recurrences,
   REPEAT_OPTIONS,
@@ -25,6 +31,7 @@ export default function TaskListView({
   openEditModal,
   handleDeleteTask,
   loading,
+  onInlineAlert,
 }: TaskListViewProps) {
   if (loading) {
     return <Text>Đang tải...</Text>;
@@ -41,41 +48,68 @@ export default function TaskListView({
     x.setHours(23, 59, 59, 999);
     return x.getTime();
   };
-  const today = new Date();
-  const todayStart = startOfDay(today);
-  const todayEnd = endOfDay(today);
+
+  // State for selected date
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
+  // Utils
+  const isSameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
   const getRecurrenceFor = (task: Task) =>
     task.recurrence_id
       ? recurrences.find((r) => r.id === task.recurrence_id)
       : undefined;
 
-  const getTodayOccurrence = (task: Task): { start: number; end?: number } | null => {
+  // Filter tasks for selected date
+  const getOccurrenceForDate = (task: Task, date: Date): { start: number; end?: number } | null => {
     const baseStart = task.start_at ? new Date(task.start_at) : null;
-    if (!baseStart) return null;
-    const baseStartMs = baseStart.getTime();
+    const baseStartMs = baseStart ? baseStart.getTime() : undefined;
     const baseEndMs = task.end_at ? new Date(task.end_at).getTime() : undefined;
-    const duration = baseEndMs && baseEndMs > baseStartMs ? (baseEndMs - baseStartMs) : undefined;
 
+    // Non-repeating: include if any part of [start, end] overlaps the selected date
+    const selStart = startOfDay(date);
+    const selEnd = endOfDay(date);
+    if (!task.recurrence_id) {
+      const s = (baseStartMs != null) ? baseStartMs : (baseEndMs != null ? baseEndMs : undefined);
+      const e = (baseEndMs != null) ? baseEndMs : (baseStartMs != null ? baseStartMs : undefined);
+      if (s == null || e == null) return null;
+      const overlaps = s <= selEnd && e >= selStart;
+      if (!overlaps) return null;
+      const occStart = Math.max(s, selStart);
+      const occEnd = baseEndMs != null ? Math.min(baseEndMs, selEnd) : undefined;
+      return { start: occStart, end: occEnd };
+    }
+
+  const rec = getRecurrenceFor(task);
+    if (!rec) {
+      // Fallback: treat as non-recurring if recurrence record is missing
+      const s = (baseStartMs != null) ? baseStartMs : (baseEndMs != null ? baseEndMs : undefined);
+      const e = (baseEndMs != null) ? baseEndMs : (baseStartMs != null ? baseStartMs : undefined);
+      if (s == null || e == null) return null;
+      const overlaps = s <= selEnd && e >= selStart;
+      if (!overlaps) return null;
+      const occStart = Math.max(s, selStart);
+      const occEnd = baseEndMs != null ? Math.min(baseEndMs, selEnd) : undefined;
+      return { start: occStart, end: occEnd };
+    }
+    // Recurrence exists: need base start to compute time-of-day candidate
+    if (baseStartMs == null || !baseStart) return null;
+    const bs = baseStartMs as number;
+    const duration = (baseEndMs != null && baseEndMs > bs) ? (baseEndMs - bs) : undefined;
     const timeH = baseStart.getHours();
     const timeM = baseStart.getMinutes();
     const timeS = baseStart.getSeconds();
     const timeMs = baseStart.getMilliseconds();
-
-    // Candidate occurrence today at same time-of-day
-    const candidateStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), timeH, timeM, timeS, timeMs).getTime();
+    const candidateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), timeH, timeM, timeS, timeMs).getTime();
     const candidateEnd = duration !== undefined ? candidateStart + duration : undefined;
 
-    // Non-repeating: check if base starts today
-    if (!task.recurrence_id) {
-      return (baseStartMs >= todayStart && baseStartMs <= todayEnd) ? { start: baseStartMs, end: baseEndMs } : null;
-    }
-
-    const rec = getRecurrenceFor(task);
-    if (!rec) return null;
-
-    const endBoundary = rec.end_date ?? Infinity;
-    const boundaryStart = Math.max(baseStartMs, rec.start_date ?? baseStartMs);
+    // Convert recurrence boundaries to ms and make endDate inclusive (end of day)
+    const recStartMs = rec.start_date ? new Date(rec.start_date).getTime() : undefined;
+    const recEndMs = rec.end_date ? endOfDay(new Date(rec.end_date)) : undefined;
+    const endBoundary = recEndMs ?? Infinity;
+    const boundaryStart = Math.max(bs, recStartMs ?? bs);
     if (candidateStart < boundaryStart || candidateStart > endBoundary) return null;
 
     const freq = (rec.type || "daily").toLowerCase();
@@ -92,7 +126,7 @@ export default function TaskListView({
         } catch {}
       }
       if (days.length === 0) days = [baseStart.getDay()];
-      return days.includes(today.getDay()) ? { start: candidateStart, end: candidateEnd } : null;
+      return days.includes(date.getDay()) ? { start: candidateStart, end: candidateEnd } : null;
     }
     if (freq === "monthly") {
       let dom: number[] = [];
@@ -102,80 +136,155 @@ export default function TaskListView({
         } catch {}
       }
       if (dom.length === 0) dom = [baseStart.getDate()];
-      return dom.includes(today.getDate()) ? { start: candidateStart, end: candidateEnd } : null;
+      return dom.includes(date.getDate()) ? { start: candidateStart, end: candidateEnd } : null;
     }
     if (freq === "yearly") {
-      return (today.getDate() === baseStart.getDate() && today.getMonth() === baseStart.getMonth())
+      return (date.getDate() === baseStart.getDate() && date.getMonth() === baseStart.getMonth())
         ? { start: candidateStart, end: candidateEnd }
         : null;
     }
     return null;
   };
 
-  const todayItems: Task[] = [];
-  const otherItems: Task[] = [];
-
-  for (const t of filteredTasks) {
-    const occ = getTodayOccurrence(t);
-    if (occ) {
-      todayItems.push({
-        ...t,
-        start_at: new Date(occ.start).toISOString(),
-        end_at: occ.end !== undefined ? new Date(occ.end).toISOString() : undefined,
-      } as Task);
-    } else {
-      otherItems.push(t);
+  // Prepare items to display.
+  // If `search` is provided (non-empty) we should show matches across all days
+  // (the parent already filtered by text). For recurring tasks we show only
+  // the base/first occurrence (do not expand to multiple daily occurrences).
+  const selectedItems: Task[] = [];
+  const occurrenceStartMap = new Map<number, number>();
+  const isSearching = !!(search && String(search).trim());
+  if (isSearching) {
+    for (const t of filteredTasks) {
+      selectedItems.push(t);
+      // Determine a sensible sort key: prefer task.start_at, then recurrence start, then 0
+      try {
+        const baseStart = t.start_at ? (typeof t.start_at === 'string' ? new Date(t.start_at).getTime() : t.start_at) : undefined;
+        if (t.id != null) occurrenceStartMap.set(t.id, baseStart ?? 0);
+      } catch {
+        if (t.id != null) occurrenceStartMap.set(t.id, 0);
+      }
+    }
+  } else {
+    for (const t of filteredTasks) {
+      const occ = getOccurrenceForDate(t, selectedDate);
+      if (occ) {
+        selectedItems.push(t);
+        if (t.id != null) occurrenceStartMap.set(t.id, occ.start);
+      }
     }
   }
 
-  // Sort each section by start time
-  const byStart = (a: Task, b: Task) => {
-    const aStart = a.start_at
-      ? (typeof a.start_at === "string" ? new Date(a.start_at).getTime() : a.start_at)
-      : Number.POSITIVE_INFINITY;
-    const bStart = b.start_at
-      ? (typeof b.start_at === "string" ? new Date(b.start_at).getTime() : b.start_at)
-      : Number.POSITIVE_INFINITY;
-    if (aStart !== bStart) return aStart - bStart;
-    // Tie-breaker by title for stable ordering
+  // Sort by occurrence start time, then title
+  selectedItems.sort((a, b) => {
+    const aOcc = a.id != null ? occurrenceStartMap.get(a.id) : undefined;
+    const bOcc = b.id != null ? occurrenceStartMap.get(b.id) : undefined;
+    if (aOcc != null && bOcc != null) {
+      if (aOcc !== bOcc) return aOcc - bOcc;
+      return (a.title || "").localeCompare(b.title || "");
+    }
+    if (aOcc != null) return -1;
+    if (bOcc != null) return 1;
+    // fallback: sort by start_at
+    const aStartRaw = a.start_at ? (typeof a.start_at === "string" ? new Date(a.start_at).getTime() : a.start_at) : Number.POSITIVE_INFINITY;
+    const bStartRaw = b.start_at ? (typeof b.start_at === "string" ? new Date(b.start_at).getTime() : b.start_at) : Number.POSITIVE_INFINITY;
+    if (aStartRaw !== bStartRaw) return aStartRaw - bStartRaw;
     return (a.title || "").localeCompare(b.title || "");
-  };
-  todayItems.sort(byStart);
-  otherItems.sort(byStart);
+  });
 
-  const sections = [
-    { title: "Hôm nay", data: todayItems },
-    { title: "Các công việc khác", data: otherItems },
-  ];
+  // Date navigation handlers
+  const goPrevDay = () => {
+    setSelectedDate(prev => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() - 1);
+      return d;
+    });
+  };
+  const goNextDay = () => {
+    setSelectedDate(prev => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() + 1);
+      return d;
+    });
+  };
+  const onPressToday = () => {
+    // Always return to today's date in day mode
+    setSelectedDate(new Date());
+  };
+  const goToday = () => {
+    setSelectedDate(new Date());
+  };
+
+  // Date display
+  const dateLabel = `${selectedDate.getDate().toString().padStart(2, '0')}/${(selectedDate.getMonth()+1).toString().padStart(2, '0')}/${selectedDate.getFullYear()}`;
+  const isTodaySelected = isSameDay(selectedDate, new Date());
+
+  // Prepare items and title based on mode
+  const listItems = selectedItems;
+  const sectionTitle = isSearching ? `Kết quả tìm kiếm` : dateLabel;
 
   return (
-    <SectionList
-      sections={sections}
-      keyExtractor={(item) => item.id?.toString() || Math.random().toString()}
-      renderSectionHeader={({ section: { title } }) => (
-        <View className="bg-gray-100 px-3 py-2">
-          <Text className="font-semibold">{title}</Text>
+    <View style={{ flex: 1 }}>
+      {!isSearching && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 as any, marginVertical: 8 }}>
+          <TouchableOpacity onPress={goPrevDay} style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}>
+            <Text style={{ fontSize: 18 }}>{'<'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => { setShowDatePicker(true); }} style={{ paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: '#ddd', borderRadius: 20, backgroundColor: '#f5f5f5' }}>
+            <Text style={{ fontWeight: '600', fontSize: 16 }}>{dateLabel}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={goNextDay} style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}>
+            <Text style={{ fontSize: 18 }}>{'>'}</Text>
+          </TouchableOpacity>
+          <View style={{ position: 'relative', marginHorizontal: 6 }}>
+            <TouchableOpacity onPress={onPressToday} style={{ paddingVertical: 6, paddingHorizontal: 16, borderWidth: 1, borderColor: isTodaySelected ? '#007AFF' : '#ddd', borderRadius: 20, backgroundColor: isTodaySelected ? '#007AFF' : '#f5f5f5' }}>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: isTodaySelected ? '#fff' : '#000' }}>Hôm nay</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
-      renderSectionFooter={({ section }) => (
-        section.data.length === 0 ? (
-          <View className="px-3 py-2">
-            <Text className="italic text-gray-500">Không có công việc</Text>
-          </View>
-        ) : null
-      )}
-      renderItem={({ item }) => (
-        <TaskItem
-          item={item}
-          reminders={reminders}
-          recurrences={recurrences}
-          REPEAT_OPTIONS={REPEAT_OPTIONS}
-          editTask={editTask}
-          openEditModal={openEditModal}
-          handleDeleteTask={handleDeleteTask}
+      {!isSearching && showDatePicker && (
+        <DateTimePicker
+          value={selectedDate}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'inline' : 'default'}
+          onChange={(event, date) => {
+            setShowDatePicker(false);
+            if (date) {
+              setSelectedDate(date);
+            }
+          }}
         />
       )}
-  // Tổng thể rỗng vẫn có hai footer ở trên; bỏ ListEmptyComponent để tránh trùng
-    />
+      {/* Mode selection handled inline by CompactSelect */}
+      <SectionList
+        sections={[{ title: sectionTitle, data: listItems }]}
+        keyExtractor={(item) => item.id?.toString() || Math.random().toString()}
+        renderSectionHeader={() => null}
+        stickySectionHeadersEnabled={false}
+        renderSectionFooter={({ section }) => (
+          section.data.length === 0 ? (
+            <View className="px-3 py-2">
+              <Text className="italic text-gray-500">Không có công việc</Text>
+            </View>
+          ) : null
+        )}
+        renderItem={({ item }) => (
+          <TaskItem
+            item={item}
+            allTasks={filteredTasks} // Use filteredTasks for conflict detection
+            reminders={reminders}
+            recurrences={recurrences}
+            REPEAT_OPTIONS={REPEAT_OPTIONS}
+            editTask={editTask}
+            openEditModal={openEditModal}
+            handleDeleteTask={handleDeleteTask}
+            onInlineAlert={onInlineAlert}
+            hideDate={isSearching ? false : true}
+            allMode={isSearching}
+            selectedDate={selectedDate}
+          />
+        )}
+      />
+    </View>
   );
 }
