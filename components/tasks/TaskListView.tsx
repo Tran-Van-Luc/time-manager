@@ -5,6 +5,7 @@ import type { Task } from "../../types/Task";
 import type { Reminder} from "../../types/Reminder";
 import type { Recurrence } from "../../types/Recurrence";
 import TaskItem from "./TaskItem";
+import { useLanguage } from '../../context/LanguageContext';
 
 interface TaskListViewProps {
   filteredTasks: Task[];
@@ -33,8 +34,9 @@ export default function TaskListView({
   loading,
   onInlineAlert,
 }: TaskListViewProps) {
+  const { t } = useLanguage();
   if (loading) {
-    return <Text>Đang tải...</Text>;
+    return <Text>{t.tasks?.list?.loading}</Text>;
   }
 
   // Helpers
@@ -220,7 +222,7 @@ export default function TaskListView({
 
   // Prepare items and title based on mode
   const listItems = selectedItems;
-  const sectionTitle = isSearching ? `Kết quả tìm kiếm` : dateLabel;
+  const sectionTitle = isSearching ? (t.tasks?.list?.searchResults || 'Search results') : dateLabel;
 
   return (
     <View style={{ flex: 1 }}>
@@ -237,7 +239,7 @@ export default function TaskListView({
           </TouchableOpacity>
           <View style={{ position: 'relative', marginHorizontal: 6 }}>
             <TouchableOpacity onPress={onPressToday} style={{ paddingVertical: 6, paddingHorizontal: 16, borderWidth: 1, borderColor: isTodaySelected ? '#007AFF' : '#ddd', borderRadius: 20, backgroundColor: isTodaySelected ? '#007AFF' : '#f5f5f5' }}>
-              <Text style={{ fontSize: 16, fontWeight: '600', color: isTodaySelected ? '#fff' : '#000' }}>Hôm nay</Text>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: isTodaySelected ? '#fff' : '#000' }}>{t.tasks?.list?.today}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -264,7 +266,7 @@ export default function TaskListView({
         renderSectionFooter={({ section }) => (
           section.data.length === 0 ? (
             <View className="px-3 py-2">
-              <Text className="italic text-gray-500">Không có công việc</Text>
+              <Text className="italic text-gray-500">{t.tasks?.list?.noTasks}</Text>
             </View>
           ) : null
         )}

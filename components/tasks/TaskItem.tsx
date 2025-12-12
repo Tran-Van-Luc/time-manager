@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, Modal, Alert } from "react-native";
 import type { Task } from "../../types/Task";
 import type { Recurrence } from "../../types/Recurrence";
 import { computeHabitProgress, markHabitRange, markHabitToday, getTodayCompletionDelta, plannedHabitOccurrences, unmarkHabitToday, isHabitDoneOnDate, unmarkHabitRange, subscribeHabitProgress, unsubscribeHabitProgress } from "../../utils/habits";
+import { useLanguage } from "../../context/LanguageContext";
 
 type RepeatOption = { label: string; value: string };
 
@@ -35,6 +36,7 @@ export default function TaskItem({
   selectedDate,
   allMode = false,
 }: Props) {
+  const { t } = useLanguage();
   const reminder = reminders.find((r) => r.task_id === item.id);
   const rec = item.recurrence_id
     ? recurrences.find((r) => r.id === item.recurrence_id)
@@ -83,9 +85,12 @@ export default function TaskItem({
     const h = Math.floor((abs % 1440) / 60);
     const m = abs % 60;
     let short = '';
-    if (d) short += `${d}n`;
-    if (h) short += `${h}g`;
-    if (m || (!d && !h)) short += `${m}p`;
+    const sd = t.tasks?.item?.shortDay ?? 'n';
+    const sh = t.tasks?.item?.shortHour ?? 'g';
+    const sm = t.tasks?.item?.shortMinute ?? 'p';
+    if (d) short += `${d}${sd}`;
+    if (h) short += `${h}${sh}`;
+    if (m || (!d && !h)) short += `${m}${sm}`;
     return short;
   };
 
@@ -201,13 +206,13 @@ export default function TaskItem({
       if (onInlineAlert) {
         onInlineAlert({
           tone: 'warning',
-          title: 'Không thể bỏ hoàn thành ⛔',
-          message: `Công việc này bị trùng thời gian với công việc khác đang hoạt động trong ngày đã chọn:\n\n${list}\n\nVui lòng giải quyết xung đột trước.`,
+          title: t.tasks?.item?.uncompleteBlockedTitle ?? 'Không thể bỏ hoàn thành ⛔',
+          message: (t.tasks?.item?.uncompleteBlockedMsgSelectedDay ?? ((lst: string) => `Công việc này bị trùng thời gian với công việc khác đang hoạt động trong ngày đã chọn:\n\n${lst}\n\nVui lòng giải quyết xung đột trước.`))(list),
         });
       } else {
         Alert.alert(
-          'Không thể bỏ hoàn thành',
-          `Công việc này bị trùng thời gian với công việc khác đang hoạt động trong ngày đã chọn:\n\n${list}\n\nVui lòng giải quyết xung đột trước.`,
+          t.tasks?.item?.uncompleteBlockedTitle ?? 'Không thể bỏ hoàn thành ⛔',
+          (t.tasks?.item?.uncompleteBlockedMsgSelectedDay ?? ((lst: string) => `Công việc này bị trùng thời gian với công việc khác đang hoạt động trong ngày đã chọn:\n\n${lst}\n\nVui lòng giải quyết xung đột trước.`))(list),
         );
       }
       return true;
@@ -228,7 +233,9 @@ export default function TaskItem({
         if (todayDelta && todayDelta.status) {
           const abs = Math.abs(todayDelta.diffMinutes ?? 0);
           const short = buildShortFromMinutes(abs);
-          const label = todayDelta.status === 'on_time' ? 'đúng hạn' : `${todayDelta.status === 'early' ? 'sớm' : 'trễ'} ${short}`;
+          const label = todayDelta.status === 'on_time'
+            ? (t.tasks?.item?.todayOnTime ?? 'đúng hạn')
+            : `${todayDelta.status === 'early' ? (t.tasks?.item?.todayEarly ?? 'sớm') : (t.tasks?.item?.todayLate ?? 'trễ')} ${short}`;
           setTodayDisplayLabel(label);
         }
         return;
@@ -241,25 +248,27 @@ export default function TaskItem({
       if (isSameLocalDate(dueMs, now) && cutoffMs > dueMs) {
         if (now <= dueMs) {
           const mins = Math.abs(Math.round((now - dueMs) / 60000));
-          label = `sớm ${buildShortFromMinutes(mins)}`;
+          label = `${t.tasks?.item?.todayEarly ?? 'sớm'} ${buildShortFromMinutes(mins)}`;
         } else if (now <= cutoffMs) {
-          label = 'đúng hạn';
+          label = t.tasks?.item?.todayOnTime ?? 'đúng hạn';
         } else {
           const mins = Math.round((now - cutoffMs) / 60000);
-          label = `trễ ${buildShortFromMinutes(mins)}`;
+          label = `${t.tasks?.item?.todayLate ?? 'trễ'} ${buildShortFromMinutes(mins)}`;
         }
       } else {
         const diff = Math.round((now - dueMs) / 60000);
-        if (diff < -1) label = `sớm ${buildShortFromMinutes(Math.abs(diff))}`;
-        else if (diff > 1) label = `trễ ${buildShortFromMinutes(diff)}`;
-        else label = 'đúng hạn';
+        if (diff < -1) label = `${t.tasks?.item?.todayEarly ?? 'sớm'} ${buildShortFromMinutes(Math.abs(diff))}`;
+        else if (diff > 1) label = `${t.tasks?.item?.todayLate ?? 'trễ'} ${buildShortFromMinutes(diff)}`;
+        else label = t.tasks?.item?.todayOnTime ?? 'đúng hạn';
       }
       setTodayDisplayLabel(label);
     } catch {
       if (todayDelta && todayDelta.status) {
         const abs = Math.abs(todayDelta.diffMinutes ?? 0);
         const short = buildShortFromMinutes(abs);
-        const label = todayDelta.status === 'on_time' ? 'đúng hạn' : `${todayDelta.status === 'early' ? 'sớm' : 'trễ'} ${short}`;
+        const label = todayDelta.status === 'on_time'
+          ? (t.tasks?.item?.todayOnTime ?? 'đúng hạn')
+          : `${todayDelta.status === 'early' ? (t.tasks?.item?.todayEarly ?? 'sớm') : (t.tasks?.item?.todayLate ?? 'trễ')} ${short}`;
         setTodayDisplayLabel(label);
       }
     }
@@ -511,16 +520,16 @@ export default function TaskItem({
               <View className="flex-row flex-wrap items-center gap-1">
                 {item.status === "pending" && (
                   <Text className="bg-gray-200 text-gray-600 rounded-full px-2 py-0.5 text-base border border-gray-600">
-                    Chờ thực hiện
+                    {t.tasks?.item?.statusPending ?? 'Chờ thực hiện'}
                   </Text>
                 )}
                 {item.status === "in-progress" && (
                   <Text className="bg-blue-100 text-blue-600 rounded-full px-2 py-0.5 text-base border border-blue-600">
-                    Đang thực hiện
+                    {t.tasks?.item?.statusInProgress ?? 'Đang thực hiện'}
                   </Text>
                 )}
                 {item.status === 'completed' && (
-                  <Text className="bg-green-100 text-green-600 rounded-full px-2 py-0.5 text-base border border-green-600">Hoàn thành</Text>
+                  <Text className="bg-green-100 text-green-600 rounded-full px-2 py-0.5 text-base border border-green-600">{t.tasks?.item?.statusCompleted ?? 'Hoàn thành'}</Text>
                 )}
 
                 {!!reminder && (
@@ -543,15 +552,15 @@ export default function TaskItem({
     <View className="mt-1 mb-2">
             {/* Không hiển thị chữ 'Hoàn thành' cho công việc lặp gộp; chỉ hiện với không gộp khi có hoàn thành trong ngày */}
             {!mergeStreak && habitProgress.total > 1 && todayDelta?.status ? (
-              <Text className="text-green-600 mb-1">Hoàn thành</Text>
+              <Text className="text-green-600 mb-1">{t.tasks?.item?.completedWord ?? 'Hoàn thành'}</Text>
             ) : null}
             {/* Chỉ hiển thị thanh tiến độ khi gộp chuỗi hoặc có nhiều hơn 1 lần trong ngày */}
             {(mergeStreak || habitProgress.total > 1) && (
               <>
                 <View className="flex-row items-center justify-between mb-1">
-                  <Text className="text-gray-700">Tiến độ</Text>
+                  <Text className="text-gray-700">{t.tasks?.item?.progressLabel ?? 'Tiến độ'}</Text>
                   <Text className="text-gray-800 font-medium">
-                    {habitProgress.completed}/{habitProgress.total} ({habitProgress.percent}%) {mergeStreak ? 'đã gộp' : ''}
+                    {habitProgress.completed}/{habitProgress.total} ({habitProgress.percent}%) {mergeStreak ? (t.tasks?.item?.mergedSuffix ?? 'đã gộp') : ''}
                   </Text>
                 </View>
                 <View className="h-2 bg-gray-200 rounded-full overflow-hidden">

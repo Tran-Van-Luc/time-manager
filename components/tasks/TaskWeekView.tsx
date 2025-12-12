@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { View, Text, TouchableOpacity, ScrollView } from "react-native";
 import type { Task } from "../../types/Task";
 import type { Recurrence } from "../../types/Recurrence";
+import { useLanguage } from '../../context/LanguageContext';
 
 interface TaskWeekViewProps {
   filteredTasks: Task[];
@@ -20,6 +21,7 @@ export default function TaskWeekView({
   setShowDetail,
   recurrences,
 }: TaskWeekViewProps) {
+  const { t } = useLanguage();
   const MIN_ROW_HEIGHT = 44; // đảm bảo đủ cao để hiển thị trọn chữ "Sáng/Chiều/Tối"
   const COL_WIDTH = 100; // chiều rộng mỗi cột ngày (nhỏ hơn để đỡ phải kéo ngang nhiều)
   // Tính Monday của tuần hiện tại (00:00) để so với currentWeekStart
@@ -265,7 +267,7 @@ export default function TaskWeekView({
           }}
           style={{ paddingVertical: 6, paddingHorizontal: 16, borderWidth: 1, borderColor: isCurrentWeek ? '#007AFF' : '#ddd', borderRadius: 20, backgroundColor: isCurrentWeek ? '#007AFF' : '#f5f5f5' }}
         >
-          <Text style={{ fontSize: 16, fontWeight: '600', color: isCurrentWeek ? '#fff' : '#000' }}>Tuần hiện tại</Text>
+          <Text style={{ fontSize: 16, fontWeight: '600', color: isCurrentWeek ? '#fff' : '#000' }}>{t.tasks?.week?.currentWeek}</Text>
         </TouchableOpacity>
       </View>
 
@@ -283,16 +285,16 @@ export default function TaskWeekView({
             {/* Cột trái cố định */}
             <View className="border border-gray-300 rounded-l bg-white">
               <View className="w-20 h-10 bg-gray-200 justify-center items-center border-b border-gray-300">
-                <Text className="text-xs font-bold">Khung giờ</Text>
+                <Text className="text-xs font-bold">{t.tasks?.week?.timeSlots}</Text>
               </View>
-              { ["Sáng", "Chiều", "Tối"].map((_, pIdx) => (
+              { ["morning", "afternoon", "evening"].map((key, pIdx) => (
                 <View
                   key={`left-${pIdx}`}
                   style={{ height: Math.max(MIN_ROW_HEIGHT, rowHeights[pIdx]) }}
                   className="w-20 justify-center items-center border-b border-gray-300 bg-gray-100 px-1"
                 >
                   <Text className="text-xs font-medium text-center">
-                    {pIdx === 0 ? "🌞 Sáng" : pIdx === 1 ? "🌇 Chiều" : "🌙 Tối"}
+                    {pIdx === 0 ? `🌞 ${t.tasks?.week?.morning}` : pIdx === 1 ? `🌇 ${t.tasks?.week?.afternoon}` : `🌙 ${t.tasks?.week?.evening}`}
                   </Text>
                 </View>
               ))}
@@ -310,14 +312,14 @@ export default function TaskWeekView({
                       style={{ width: COL_WIDTH }}
                     >
                       <Text className="text-xs font-bold text-white">
-                        {["T2", "T3", "T4", "T5", "T6", "T7", "CN"][idx]} {formatDDMMYYYY(day)}
+                        {(t.tasks?.week?.dayShorts ?? ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"])[idx]} {formatDDMMYYYY(day)}
                       </Text>
                     </View>
                   ))}
                 </View>
 
                 {/* 3 hàng nội dung; đo chiều cao để sync với cột trái */}
-                {["Sáng", "Chiều", "Tối"].map((period, pIdx) => (
+                {["morning", "afternoon", "evening"].map((period, pIdx) => (
                   <View
                     key={`row-${period}`}
                     className="flex-row"

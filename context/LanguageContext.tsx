@@ -107,6 +107,132 @@ interface Translations {
     addError: (row: number, message: string) => string;
     conflict: (row: number, message: string) => string;
   };
+  // Tasks Screen
+  tasks?: {
+    title: string;
+    viewCalendar: string;
+    viewList: string;
+    searchPlaceholder: string;
+    allPriorities: string;
+    allStatuses: string;
+    addTask: string;
+    addManual: string;
+    addFromFile: string;
+    importFromExcel: string;
+    pathLabel: string;
+    filePathPlaceholder: string;
+    downloadTemplate: string;
+    confirm: string;
+    cancel: string;
+    noFile: string;
+    chooseFileMsg: string;
+    // TaskModal specific
+    modal: {
+      addTitle: string;
+      editTitle: string;
+      titleLabel: string;
+      descriptionLabel: string;
+      startDateLabel: string;
+      startTimeLabel: string;
+      endTimeLabel: string;
+      priorityLabel: string;
+      reminderToggle: string;
+      reminderLeadLabel: string;
+      reminderCustomLabel: string;
+      reminderCustomHint: string;
+      reminderCustomLimit: string;
+      reminderMethodLabel: string;
+      methodNotification: string;
+      methodAlarm: string;
+      repeatToggle: string;
+      completionOptions: string;
+      autoCompleteExpired: string;
+      mergeStreak: string;
+      repeatFrequencyLabel: string;
+      weeklyPickDays: string;
+      monthlyPickDays: string;
+      selectAll: string;
+      yearlyCountLabel: string;
+      yearlyCountPlaceholder: string;
+      autoEndDateLabel: (dateText: string) => string;
+      repeatEndDateLabel: string;
+      addButton: string;
+      saveButton: string;
+      cancelButton: string;
+      // Validation messages
+      invalidStartTitle: string;
+      invalidStartMessage: string;
+      invalidTimeTitle: string;
+      invalidTimeMessageEndAfterStart: string;
+      missingWeeklyDaysTitle: string;
+      missingWeeklyDaysMessage: string;
+      missingMonthlyDaysTitle: string;
+      missingMonthlyDaysMessage: string;
+      startAfterEndTitle: string;
+      startAfterEndMessage: string;
+      missingRepeatEndTitle: string;
+      missingRepeatEndMessage: string;
+      yearlyCountInvalidTitle: string;
+      yearlyCountInvalidMessage: string;
+      endTooEarlyTitle: string;
+      endTooEarlyMessage: string;
+      needNotificationPermissionTitle: string;
+      needNotificationPermissionMsg: string;
+      // Segments
+      priorityLow: string;
+      priorityMedium: string;
+      priorityHigh: string;
+      repeatDaily: string;
+      repeatWeekly: string;
+      repeatMonthly: string;
+      repeatYearly: string;
+      minutes: string;
+      hours: string;
+      days: string;
+      dayShorts: string[];
+    };
+    // TaskListView
+    list?: {
+      loading: string;
+      searchResults: string;
+      today: string;
+      noTasks: string;
+    };
+    // TaskWeekView
+    week?: {
+      currentWeek: string;
+      timeSlots: string;
+      morning: string;
+      afternoon: string;
+      evening: string;
+      dayShorts: string[];
+    };
+    // TaskItem/Detail shared
+    item?: {
+      statusPending: string;
+      statusInProgress: string;
+      statusCompleted: string;
+      progressLabel: string;
+      mergedSuffix: string;
+      completedWord: string;
+      // Reminder unit labels
+      unitDay: string;
+      unitHour: string;
+      unitMinute: string;
+      // Today status labels
+      todayEarly: string; // label start (e.g., "sớm" / "early")
+      todayOnTime: string;
+      todayLate: string;
+      // Short units for compact time strings
+      shortDay: string; // e.g., "n" or "d"
+      shortHour: string; // e.g., "g" or "h"
+      shortMinute: string; // e.g., "p" or "m"
+      // Conflict alerts when un-completing
+      uncompleteBlockedTitle: string;
+      uncompleteBlockedMsgSelectedDay: (list: string) => string;
+      uncompleteBlockedMsgGeneric: (list: string) => string;
+    };
+  };
 }
 
 const translations: Record<Language, Translations> = {
@@ -203,6 +329,121 @@ const translations: Record<Language, Translations> = {
       addError: (row: number, message: string) => `Dòng ${row}: Không thể thêm (${message})`,
       conflict: (row: number, message: string) => `Dòng ${row}: ${message}`,
     },
+    tasks: {
+      title: 'Công việc của tôi',
+      viewCalendar: 'Dạng lịch',
+      viewList: 'Dạng danh sách',
+      searchPlaceholder: 'Tìm kiếm công việc theo tiêu đề hoặc mô tả...',
+      allPriorities: 'Tất cả mức độ',
+      allStatuses: 'Tất cả trạng thái',
+      addTask: 'Thêm công việc',
+      addManual: 'Nhập thủ công',
+      addFromFile: 'Nhập bằng file',
+      importFromExcel: 'Nhập dữ liệu từ Excel',
+      pathLabel: 'Đường dẫn',
+      filePathPlaceholder: 'Đường dẫn tệp',
+      downloadTemplate: 'Tải mẫu',
+      confirm: 'Đồng ý',
+      cancel: 'Hủy bỏ',
+      noFile: 'Không có tệp',
+      chooseFileMsg: 'Vui lòng chọn tệp để nhập.',
+      modal: {
+        addTitle: 'Thêm công việc mới',
+        editTitle: 'Sửa công việc',
+        titleLabel: 'Tiêu đề',
+        descriptionLabel: 'Mô tả',
+        startDateLabel: 'Ngày bắt đầu*',
+        startTimeLabel: 'Giờ bắt đầu*',
+        endTimeLabel: 'Giờ kết thúc*',
+        priorityLabel: 'Mức độ',
+        reminderToggle: 'Bật nhắc nhở',
+        reminderLeadLabel: 'Nhắc trước',
+        reminderCustomLabel: 'Tùy chỉnh',
+        reminderCustomHint: 'Nhập giá trị nhắc tùy chỉnh',
+        reminderCustomLimit: 'Giới hạn tối đa: 7 ngày (10080 phút).',
+        reminderMethodLabel: 'Phương thức nhắc',
+        methodNotification: 'Thông báo',
+        methodAlarm: 'Chuông báo',
+        repeatToggle: 'Lặp lại',
+        completionOptions: 'Tuỳ chọn hoàn thành',
+        autoCompleteExpired: 'Tự động đánh hoàn thành nếu hết hạn',
+        mergeStreak: 'Gộp các ngày lặp thành một lần hoàn thành',
+        repeatFrequencyLabel: 'Lặp theo',
+        weeklyPickDays: 'Chọn các ngày trong tuần',
+        monthlyPickDays: 'Chọn các ngày trong tháng',
+        selectAll: 'Tất cả',
+        yearlyCountLabel: 'Số lần lặp (2-100) *',
+        yearlyCountPlaceholder: 'Nếu không nhập mặc định là 2',
+        autoEndDateLabel: (dateText: string) => `Tự tính ngày kết thúc: ${dateText}`,
+        repeatEndDateLabel: 'Ngày kết thúc lặp *',
+        addButton: 'Thêm công việc',
+        saveButton: 'Lưu',
+        cancelButton: 'Hủy',
+        invalidStartTitle: 'Giờ bắt đầu chưa hợp lệ',
+        invalidStartMessage: 'Vui lòng đặt giờ bắt đầu muộn hơn hiện tại ít nhất 1 giờ.',
+        invalidTimeTitle: 'Thời gian không hợp lệ',
+        invalidTimeMessageEndAfterStart: 'Giờ kết thúc phải sau giờ bắt đầu!',
+        missingWeeklyDaysTitle: 'Thiếu ngày trong tuần',
+        missingWeeklyDaysMessage: 'Vui lòng chọn ít nhất một ngày trong tuần.',
+        missingMonthlyDaysTitle: 'Thiếu ngày trong tháng',
+        missingMonthlyDaysMessage: 'Vui lòng chọn ít nhất một ngày trong tháng.',
+        startAfterEndTitle: 'Thời gian không hợp lệ',
+        startAfterEndMessage: 'Ngày bắt đầu không thể sau ngày kết thúc lặp!',
+        missingRepeatEndTitle: 'Thiếu ngày kết thúc lặp',
+        missingRepeatEndMessage: 'Vui lòng chọn ngày kết thúc lặp để có ít nhất 2 lần.',
+        yearlyCountInvalidTitle: 'Số lần lặp không hợp lệ',
+        yearlyCountInvalidMessage: 'Lặp theo năm phải ít nhất 2 lần.',
+        endTooEarlyTitle: 'Ngày kết thúc quá sớm',
+        endTooEarlyMessage: 'Ngày kết thúc lặp phải cho ít nhất 2 lần lặp.',
+        needNotificationPermissionTitle: 'Cần quyền thông báo',
+        needNotificationPermissionMsg: 'Vui lòng cấp quyền thông báo để bật nhắc nhở.',
+        priorityLow: 'Thấp',
+        priorityMedium: 'Trung bình',
+        priorityHigh: 'Cao',
+        repeatDaily: 'ngày',
+        repeatWeekly: 'tuần',
+        repeatMonthly: 'tháng',
+        repeatYearly: 'năm',
+        minutes: 'Phút',
+        hours: 'Giờ',
+        days: 'Ngày',
+        dayShorts: ['CN','T2','T3','T4','T5','T6','T7'],
+      },
+      list: {
+        loading: 'Đang tải...',
+        searchResults: 'Kết quả tìm kiếm',
+        today: 'Hôm nay',
+        noTasks: 'Không có công việc',
+      },
+      week: {
+        currentWeek: 'Tuần hiện tại',
+        timeSlots: 'Khung giờ',
+        morning: 'Sáng',
+        afternoon: 'Chiều',
+        evening: 'Tối',
+        dayShorts: ['T2','T3','T4','T5','T6','T7','CN'],
+      },
+      item: {
+        statusPending: 'Chờ thực hiện',
+        statusInProgress: 'Đang thực hiện',
+        statusCompleted: 'Hoàn thành',
+        progressLabel: 'Tiến độ',
+        mergedSuffix: 'đã gộp',
+        completedWord: 'Hoàn thành',
+        unitDay: 'ngày',
+        unitHour: 'giờ',
+        unitMinute: 'phút',
+        todayEarly: 'sớm',
+        todayOnTime: 'đúng hạn',
+        todayLate: 'trễ',
+        shortDay: 'n',
+        shortHour: 'g',
+        shortMinute: 'p',
+        uncompleteBlockedTitle: 'Không thể bỏ hoàn thành ⛔',
+        uncompleteBlockedMsgSelectedDay: (list: string) => `Công việc này bị trùng thời gian với công việc khác đang hoạt động trong ngày đã chọn:\n\n${list}\n\nVui lòng giải quyết xung đột trước.`,
+        uncompleteBlockedMsgGeneric: (list: string) => `Công việc này bị trùng thời gian với công việc khác đang hoạt động:\n\n${list}\n\nVui lòng giải quyết xung đột trước.`,
+      },
+    },
   },
   en: {
     settings: {
@@ -295,6 +536,121 @@ const translations: Record<Language, Translations> = {
       parseError: (row: number, message: string) => `Row ${row}: Date/time parsing error (${message})`,
       addError: (row: number, message: string) => `Row ${row}: Cannot add (${message})`,
       conflict: (row: number, message: string) => `Row ${row}: ${message}`,
+    },
+    tasks: {
+      title: 'My Tasks',
+      viewCalendar: 'Calendar view',
+      viewList: 'List view',
+      searchPlaceholder: 'Search tasks by title or description...',
+      allPriorities: 'All priorities',
+      allStatuses: 'All statuses',
+      addTask: 'Add Task',
+      addManual: 'Add manually',
+      addFromFile: 'Import from file',
+      importFromExcel: 'Import data from Excel',
+      pathLabel: 'Path',
+      filePathPlaceholder: 'File path',
+      downloadTemplate: 'Download template',
+      confirm: 'Confirm',
+      cancel: 'Cancel',
+      noFile: 'No file',
+      chooseFileMsg: 'Please choose a file to import.',
+      modal: {
+        addTitle: 'Add new task',
+        editTitle: 'Edit task',
+        titleLabel: 'Title',
+        descriptionLabel: 'Description',
+        startDateLabel: 'Start date*',
+        startTimeLabel: 'Start time*',
+        endTimeLabel: 'End time*',
+        priorityLabel: 'Priority',
+        reminderToggle: 'Enable reminder',
+        reminderLeadLabel: 'Remind before',
+        reminderCustomLabel: 'Custom',
+        reminderCustomHint: 'Enter custom reminder value',
+        reminderCustomLimit: 'Maximum: 7 days (10080 minutes).',
+        reminderMethodLabel: 'Reminder method',
+        methodNotification: 'Notification',
+        methodAlarm: 'Alarm',
+        repeatToggle: 'Repeat',
+        completionOptions: 'Completion options',
+        autoCompleteExpired: 'Auto-complete when expired',
+        mergeStreak: 'Merge repeating days into one completion',
+        repeatFrequencyLabel: 'Repeat by',
+        weeklyPickDays: 'Pick days of week',
+        monthlyPickDays: 'Pick days of month',
+        selectAll: 'Select all',
+        yearlyCountLabel: 'Repeat count (2-100) *',
+        yearlyCountPlaceholder: 'Default is 2 if left empty',
+        autoEndDateLabel: (dateText: string) => `Auto end date: ${dateText}`,
+        repeatEndDateLabel: 'Repeat end date *',
+        addButton: 'Add Task',
+        saveButton: 'Save',
+        cancelButton: 'Cancel',
+        invalidStartTitle: 'Invalid start time',
+        invalidStartMessage: 'Please set start at least 1 hour later than now.',
+        invalidTimeTitle: 'Invalid time',
+        invalidTimeMessageEndAfterStart: 'End time must be after start time!',
+        missingWeeklyDaysTitle: 'Missing week days',
+        missingWeeklyDaysMessage: 'Please select at least one day of week.',
+        missingMonthlyDaysTitle: 'Missing month days',
+        missingMonthlyDaysMessage: 'Please select at least one day of month.',
+        startAfterEndTitle: 'Invalid time',
+        startAfterEndMessage: 'Start time cannot be after repeat end date!',
+        missingRepeatEndTitle: 'Missing repeat end date',
+        missingRepeatEndMessage: 'Please choose a repeat end date to have at least 2 occurrences.',
+        yearlyCountInvalidTitle: 'Invalid repeat count',
+        yearlyCountInvalidMessage: 'Yearly repeat must have at least 2 times.',
+        endTooEarlyTitle: 'End date too early',
+        endTooEarlyMessage: 'Repeat end must allow at least 2 occurrences.',
+        needNotificationPermissionTitle: 'Notification permission required',
+        needNotificationPermissionMsg: 'Please grant notification permission to enable reminders.',
+        priorityLow: 'Low',
+        priorityMedium: 'Medium',
+        priorityHigh: 'High',
+        repeatDaily: 'Daily',
+        repeatWeekly: 'Weekly',
+        repeatMonthly: 'Monthly',
+        repeatYearly: 'Yearly',
+        minutes: 'Minutes',
+        hours: 'Hours',
+        days: 'Days',
+        dayShorts: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],
+      },
+      list: {
+        loading: 'Loading...',
+        searchResults: 'Search results',
+        today: 'Today',
+        noTasks: 'No tasks',
+      },
+      week: {
+        currentWeek: 'Current week',
+        timeSlots: 'Time slots',
+        morning: 'Morning',
+        afternoon: 'Afternoon',
+        evening: 'Evening',
+        dayShorts: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+      },
+      item: {
+        statusPending: 'Pending',
+        statusInProgress: 'In progress',
+        statusCompleted: 'Completed',
+        progressLabel: 'Progress',
+        mergedSuffix: 'merged',
+        completedWord: 'Completed',
+        unitDay: 'day',
+        unitHour: 'hour',
+        unitMinute: 'minute',
+        todayEarly: 'early',
+        todayOnTime: 'on time',
+        todayLate: 'late',
+        shortDay: 'd',
+        shortHour: 'h',
+        shortMinute: 'm',
+        uncompleteBlockedTitle: 'Cannot un-complete ⛔',
+        uncompleteBlockedMsgSelectedDay: (list: string) => `This task overlaps with other active tasks on the selected day:\n\n${list}\n\nPlease resolve the conflicts first.`,
+        uncompleteBlockedMsgGeneric: (list: string) => `This task overlaps with other active tasks:\n\n${list}\n\nPlease resolve the conflicts first.`,
+      },
     },
   },
 };

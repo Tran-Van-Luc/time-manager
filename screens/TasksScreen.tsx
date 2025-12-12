@@ -8,6 +8,7 @@ import {
   Modal,
   ActivityIndicator, // Thêm ActivityIndicator
 } from "react-native";
+import { useLanguage } from "../context/LanguageContext";
 const CUT_OFF_KEY = 'endOfDayCutoff';
 const AsyncStorage = require('@react-native-async-storage/async-storage').default;
 
@@ -48,10 +49,15 @@ import {
   STATUS_OPTIONS,
   REMINDER_OPTIONS,
   REPEAT_OPTIONS,
+  getPriorityOptions,
+  getStatusOptions,
+  getReminderOptions,
+  getRepeatOptions,
 } from "../constants/taskConstants";
 // Hỗ trợ nhập/xuất Excel
 
 export default function TasksScreen() {
+  const { t } = useLanguage();
   const { tasks, loadTasks, addTask, removeTask, editTask, loading } =
     useTasks();
   const {
@@ -80,7 +86,7 @@ export default function TasksScreen() {
         resolve(false);
       },
       onNotify: ({ tone, title, message }) => {
-        setAlertState({ visible:true, tone, title, message, buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel'}] });
+        setAlertState({ visible:true, tone, title, message, buttons:[{ text: t.settings.close, onPress:()=>{}, tone:'cancel'}] });
       },
       onConfirm: ({ tone='info', title, message, buttons }) => {
         setAlertState({
@@ -131,7 +137,7 @@ export default function TasksScreen() {
           setShowModal(false);
           setNewTask({ title: "", priority: "medium", status: "pending" });
           setReminder(false);
-          setReminderTime(REMINDER_OPTIONS[0].value);
+          setReminderTime((REMINDER_LOCALIZED[0]?.value ?? REMINDER_OPTIONS[0].value));
           setReminderMethod("notification");
           setRepeat(false);
           setRepeatFrequency("daily");
@@ -145,7 +151,7 @@ export default function TasksScreen() {
         setShowModal(false);
         setNewTask({ title: "", priority: "medium", status: "pending" });
         setReminder(false);
-        setReminderTime(REMINDER_OPTIONS[0].value);
+        setReminderTime((REMINDER_LOCALIZED[0]?.value ?? REMINDER_OPTIONS[0].value));
         setReminderMethod("notification");
         setRepeat(false);
         setRepeatFrequency("daily");
@@ -186,7 +192,7 @@ export default function TasksScreen() {
       setNewTask({ title: "", priority: "medium", status: "pending" });
       setReminder(false);
       setRepeat(false);
-  setReminderTime(REMINDER_OPTIONS[0].value);
+  setReminderTime((REMINDER_LOCALIZED[0]?.value ?? REMINDER_OPTIONS[0].value));
       setRepeatFrequency("daily");
       await loadTasks();
       await loadReminders();
@@ -208,8 +214,12 @@ export default function TasksScreen() {
   const [status, setStatus] = useState("");
   const [filtersWidth, setFiltersWidth] = useState<number | undefined>(undefined);
   // Options for filters with an explicit "All" entry so users can clear selection
-  const PRIORITY_OPTIONS_FILTER = useMemo(() => ([{ label: "Tất cả mức độ", value: "" }, ...PRIORITY_OPTIONS]), []);
-  const STATUS_OPTIONS_FILTER = useMemo(() => ([{ label: "Tất cả trạng thái", value: "" }, ...STATUS_OPTIONS]), []);
+  const PRIORITY_LOCALIZED = useMemo(() => getPriorityOptions(t), [t]);
+  const STATUS_LOCALIZED = useMemo(() => getStatusOptions(t), [t]);
+  const REMINDER_LOCALIZED = useMemo(() => getReminderOptions(t), [t]);
+  const REPEAT_LOCALIZED = useMemo(() => getRepeatOptions(t), [t]);
+  const PRIORITY_OPTIONS_FILTER = useMemo(() => ([{ label: (t.tasks?.allPriorities ?? "All priorities"), value: "" }, ...PRIORITY_LOCALIZED]), [t, PRIORITY_LOCALIZED]);
+  const STATUS_OPTIONS_FILTER = useMemo(() => ([{ label: (t.tasks?.allStatuses ?? "All statuses"), value: "" }, ...STATUS_LOCALIZED]), [t, STATUS_LOCALIZED]);
   const [showModal, setShowModal] = useState(false);
   // Lưu thời điểm bắt đầu nhập task
   const [addTaskStartTime, setAddTaskStartTime] = useState<number | null>(null);
@@ -315,7 +325,7 @@ export default function TasksScreen() {
     setShowModal(true);
     setNewTask({ title: '', priority: 'medium', status: 'pending' });
     setReminder(false);
-    setReminderTime(REMINDER_OPTIONS[0].value);
+    setReminderTime(REMINDER_LOCALIZED[0]?.value ?? REMINDER_OPTIONS[0].value);
     setReminderMethod('notification');
     setRepeat(false);
     setRepeatFrequency('daily');
@@ -349,11 +359,11 @@ export default function TasksScreen() {
     const taskReminder = reminders.find((r) => r.task_id === item.id);
     if (taskReminder) {
       setReminder(true);
-      setReminderTime(taskReminder.remind_before ?? REMINDER_OPTIONS[0].value);
+      setReminderTime(taskReminder.remind_before ?? (REMINDER_LOCALIZED[0]?.value ?? REMINDER_OPTIONS[0].value));
       setReminderMethod(taskReminder.method ?? 'notification');
     } else {
       setReminder(false);
-      setReminderTime(REMINDER_OPTIONS[0].value);
+      setReminderTime((REMINDER_LOCALIZED[0]?.value ?? REMINDER_OPTIONS[0].value));
       setReminderMethod('notification');
     }
 
@@ -498,7 +508,7 @@ export default function TasksScreen() {
       status: r.status || 'pending',
     });
     setReminder(!!r.reminderEnabled);
-    setReminderTime(r.reminderTime ?? REMINDER_OPTIONS[0].value);
+    setReminderTime(r.reminderTime ?? (REMINDER_LOCALIZED[0]?.value ?? REMINDER_OPTIONS[0].value));
     setReminderMethod(r.reminderMethod || 'notification');
     setRepeat(!!r.repeatEnabled);
     setRepeatFrequency(r.repeatFrequency || 'daily');
@@ -914,13 +924,13 @@ export default function TasksScreen() {
       />
       {/* Header */}
       <View className="flex-row items-center justify-between mb-4">
-        <Text className="text-lg font-bold">Công việc của tôi</Text>
+        <Text className="text-lg font-bold">{t.tasks?.title ?? 'My Tasks'}</Text>
         <View className="flex-row items-center">
           <TouchableOpacity
             onPress={() => setViewMode(viewMode === "list" ? "week" : "list")}
             className="px-3 py-2 bg-gray-200 rounded"
           >
-            <Text>{viewMode === "list" ? "Dạng lịch" : "Dạng danh sách"}</Text>
+            <Text>{viewMode === "list" ? (t.tasks?.viewCalendar ?? 'Calendar view') : (t.tasks?.viewList ?? 'List view')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -928,7 +938,7 @@ export default function TasksScreen() {
       {/* Ô tìm kiếm + lọc */}
       <View className="mb-4">
         <TextInput
-          placeholder="Tìm kiếm công việc theo tiêu đề hoặc mô tả..."
+          placeholder={t.tasks?.searchPlaceholder ?? 'Search tasks by title or description...'}
           value={search}
           onChangeText={setSearch}
           className="border p-2 rounded mb-2"
@@ -975,7 +985,7 @@ export default function TasksScreen() {
           search={search}
           reminders={reminders}
           recurrences={recurrences}
-          REPEAT_OPTIONS={REPEAT_OPTIONS}
+          REPEAT_OPTIONS={REPEAT_LOCALIZED.length ? REPEAT_LOCALIZED : REPEAT_OPTIONS}
           editTask={editTask}
           openEditModal={openEditModal}
           handleDeleteTask={onDeleteTask}
@@ -986,7 +996,7 @@ export default function TasksScreen() {
               tone,
               title,
               message,
-              buttons: [{ text: 'Đóng', onPress: () => {}, tone: 'cancel' }],
+              buttons: [{ text: t.settings.close, onPress: () => {}, tone: 'cancel' }],
             })
           }
         />
@@ -1004,7 +1014,7 @@ export default function TasksScreen() {
           setImportRows([]);
           setImportIndex(0);
         }}
-        onInlineAlert={({ tone, title, message }: any)=> setAlertState({ visible:true, tone, title, message, buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel'}] })}
+        onInlineAlert={({ tone, title, message }: any)=> setAlertState({ visible:true, tone, title, message, buttons:[{ text: t.settings.close, onPress:()=>{}, tone:'cancel'}] })}
   // inputMode props removed
         editId={editId}
         setEditId={setEditId}
@@ -1038,9 +1048,9 @@ export default function TasksScreen() {
         setShowRepeatStartPicker={setShowRepeatStartPicker}
         showRepeatEndPicker={showRepeatEndPicker}
         setShowRepeatEndPicker={setShowRepeatEndPicker}
-        PRIORITY_OPTIONS={PRIORITY_OPTIONS}
-        REMINDER_OPTIONS={REMINDER_OPTIONS}
-        REPEAT_OPTIONS={REPEAT_OPTIONS}
+        PRIORITY_OPTIONS={PRIORITY_LOCALIZED}
+        REMINDER_OPTIONS={REMINDER_LOCALIZED}
+        REPEAT_OPTIONS={REPEAT_LOCALIZED}
         onPickExcel={handlePickExcel}
         importMode={importMode}
         importIndex={importIndex}
@@ -1064,7 +1074,7 @@ export default function TasksScreen() {
             tone,
             title,
             message,
-            buttons: [{ text: 'Đóng', onPress: () => {}, tone: 'cancel' }],
+            buttons: [{ text: t.settings.close, onPress: () => {}, tone: 'cancel' }],
           })
         }
         onStatusChange={async (taskId, status) => {
@@ -1114,16 +1124,16 @@ export default function TasksScreen() {
       <Modal visible={showAddChoice} transparent animationType="fade">
         <View style={{ flex:1, backgroundColor:'rgba(0,0,0,0.4)', justifyContent:'center', alignItems:'center' }}>
           <View style={{ width:320, backgroundColor:'#fff', borderRadius:8, padding:16 }}>
-            <Text style={{ fontSize:18, fontWeight:'600', marginBottom:12 }}>Thêm công việc</Text>
+            <Text style={{ fontSize:18, fontWeight:'600', marginBottom:12 }}>{t.tasks?.addTask ?? 'Add Task'}</Text>
             <TouchableOpacity onPress={() => { setShowAddChoice(false); openAddModal(); }} style={{ padding:12, backgroundColor:'#eef2ff', borderRadius:6, marginBottom:8 }}>
-              <Text>Nhập thủ công</Text>
+              <Text>{t.tasks?.addManual ?? 'Add manually'}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => { setShowAddChoice(false); setShowImportDialog(true); }} style={{ padding:12, backgroundColor:'#ecfdf5', borderRadius:6, marginBottom:8 }}>
-              <Text>Nhập bằng file</Text>
+              <Text>{t.tasks?.addFromFile ?? 'Import from file'}</Text>
             </TouchableOpacity>
             <View style={{ flexDirection:'row', justifyContent:'flex-end', marginTop:8 }}>
               <TouchableOpacity onPress={() => setShowAddChoice(false)} style={{ padding:8 }}>
-                <Text>Đóng</Text>
+                <Text>{t.settings.close}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1134,10 +1144,10 @@ export default function TasksScreen() {
       <Modal visible={showImportDialog} transparent animationType="fade">
         <View style={{ flex:1, backgroundColor:'rgba(0,0,0,0.4)', justifyContent:'center', alignItems:'center' }}>
           <View style={{ width:680, maxWidth:'95%', backgroundColor:'#fff', borderRadius:8, padding:18 }}>
-            <Text style={{ fontSize:18, fontWeight:'600', marginBottom:12 }}>Nhập dữ liệu từ Excel</Text>
-            <Text style={{ marginBottom:6 }}>Đường dẫn</Text>
+            <Text style={{ fontSize:18, fontWeight:'600', marginBottom:12 }}>{t.tasks?.importFromExcel ?? 'Import data from Excel'}</Text>
+            <Text style={{ marginBottom:6 }}>{t.tasks?.pathLabel ?? 'Path'}</Text>
             <View style={{ flexDirection:'row', alignItems:'center', marginBottom:12 }}>
-              <TextInput value={importDialogPath} onChangeText={setImportDialogPath} placeholder="Đường dẫn tệp" style={{ flex:1, borderWidth:1, borderColor:'#ddd', padding:8, borderRadius:4, marginRight:8 }} />
+              <TextInput value={importDialogPath} onChangeText={setImportDialogPath} placeholder={t.tasks?.filePathPlaceholder ?? 'File path'} style={{ flex:1, borderWidth:1, borderColor:'#ddd', padding:8, borderRadius:4, marginRight:8 }} />
               <TouchableOpacity onPress={async ()=>{
                 try {
                   const res = await DocumentPicker.getDocumentAsync({ type: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.ms-excel'] });
@@ -1156,21 +1166,21 @@ export default function TasksScreen() {
             <View style={{ height:1, backgroundColor:'#eee', marginVertical:8 }} />
             <View style={{ flexDirection:'row', justifyContent:'flex-end' }}>
               <TouchableOpacity onPress={handleExportTemplate} style={{ paddingVertical:10, paddingHorizontal:14, marginRight:8, backgroundColor:'#e5e7eb', borderRadius:6 }}>
-                <Text>Tải mẫu</Text>
+                <Text>{t.tasks?.downloadTemplate ?? 'Download template'}</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={async ()=>{
                 // If user picked a file via browse, prefer that; otherwise use typed path
                 const uri = importCandidateUri || importDialogPath;
                 if (!uri) {
-                  setAlertState({ visible:true, tone:'warning', title:'Không có tệp', message: 'Vui lòng chọn tệp để nhập.', buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
+                  setAlertState({ visible:true, tone:'warning', title: (t.tasks?.noFile ?? 'No file'), message: (t.tasks?.chooseFileMsg ?? 'Please choose a file to import.'), buttons:[{ text: t.settings.close, onPress:()=>{}, tone:'cancel' }] });
                   return;
                 }
                 await handleImportFromUri(uri);
               }} style={{ paddingVertical:10, paddingHorizontal:14, marginRight:8, backgroundColor:'#60a5fa', borderRadius:6 }}>
-                <Text style={{ color:'#fff' }}>Đồng ý</Text>
+                <Text style={{ color:'#fff' }}>{t.tasks?.confirm ?? 'Confirm'}</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => { setShowImportDialog(false); setImportDialogPath(''); setImportCandidateUri(null); }} style={{ paddingVertical:10, paddingHorizontal:14, backgroundColor:'#ef4444', borderRadius:6 }}>
-                <Text style={{ color:'#fff' }}>Hủy bỏ</Text>
+                <Text style={{ color:'#fff' }}>{t.tasks?.cancel ?? 'Cancel'}</Text>
               </TouchableOpacity>
             </View>
           </View>

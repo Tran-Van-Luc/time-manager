@@ -621,18 +621,6 @@ VĂN BẢN GỐC:
             </>
           )}
         </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.micButton, (isRecording ? styles.micButtonActive : {}), (!voiceAvailable || isProcessing) ? styles.micButtonDisabled : {}]}
-          onPress={() => { if (isRecording) stopRecording(); else startRecording(); }}
-          disabled={!voiceAvailable || isProcessing}
-        >
-          {isRecording ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Text style={styles.micIcon}>🎤</Text>
-          )}
-        </TouchableOpacity>
       </View>
 
       {isRecording ? (

@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, Modal, ScrollView, Alert } from "react-na
 import type { Task } from "../../types/Task";
 import type { Recurrence } from "../../types/Recurrence";
 import { REPEAT_OPTIONS } from "../../constants/taskConstants";
+import { useLanguage } from "../../context/LanguageContext";
 import {
   autoCompletePastIfEnabled,
   computeHabitProgress,
@@ -44,6 +45,7 @@ export default function TaskDetailModal({
   onInlineAlert,
 }: TaskDetailModalProps) {
   // --- Start of Hooks ---
+  const { t } = useLanguage();
   
   const { editTask } = useTasks();
 
@@ -327,11 +329,11 @@ export default function TaskDetailModal({
         if (onInlineAlert) {
           onInlineAlert({
             tone: 'warning',
-            title: 'Không thể bỏ hoàn thành ⛔',
-            message: `Công việc này bị trùng thời gian với công việc khác đang hoạt động:\n\n${list}\n\nVui lòng giải quyết xung đột trước.`,
+            title: t.tasks?.item?.uncompleteBlockedTitle ?? 'Không thể bỏ hoàn thành ⛔',
+            message: (t.tasks?.item?.uncompleteBlockedMsgGeneric ?? ((lst: string) => `Công việc này bị trùng thời gian với công việc khác đang hoạt động:\n\n${lst}\n\nVui lòng giải quyết xung đột trước.`))(list),
           });
         } else {
-          Alert.alert('Không thể bỏ hoàn thành', `Công việc này bị trùng thời gian với công việc khác đang hoạt động:\n\n${list}\n\nVui lòng giải quyết xung đột trước.`);
+          Alert.alert(t.tasks?.item?.uncompleteBlockedTitle ?? 'Không thể bỏ hoàn thành ⛔', (t.tasks?.item?.uncompleteBlockedMsgGeneric ?? ((lst: string) => `Công việc này bị trùng thời gian với công việc khác đang hoạt động:\n\n${lst}\n\nVui lòng giải quyết xung đột trước.`))(list));
         }
         return true;
       }
@@ -563,16 +565,16 @@ export default function TaskDetailModal({
                       <View className="flex-row flex-wrap items-center gap-1">
                         {task.status === "pending" && (
                           <Text className="bg-gray-200 text-gray-600 rounded-full px-2 py-0.5 text-base border border-gray-600">
-                            Chờ thực hiện
+                            {t.tasks?.item?.statusPending ?? 'Chờ thực hiện'}
                           </Text>
                         )}
                         {task.status === "in-progress" && (
                           <Text className="bg-blue-100 text-blue-600 rounded-full px-2 py-0.5 text-base border border-blue-600">
-                            Đang thực hiện
+                            {t.tasks?.item?.statusInProgress ?? 'Đang thực hiện'}
                           </Text>
                         )}
                         {task.status === 'completed' && (
-                          <Text className="bg-green-100 text-green-600 rounded-full px-2 py-0.5 text-base border border-green-600">Hoàn thành</Text>
+                          <Text className="bg-green-100 text-green-600 rounded-full px-2 py-0.5 text-base border border-green-600">{t.tasks?.item?.statusCompleted ?? 'Hoàn thành'}</Text>
                         )}
 
                         {!!reminder && (
@@ -595,12 +597,12 @@ export default function TaskDetailModal({
                   <View className="mt-1 mb-2">
                     {/* Không hiển thị chữ 'Hoàn thành' cho công việc lặp gộp; vẫn hiện với không gộp khi có hoàn thành trong ngày */}
                     {!mergeStreak && todayDelta?.status ? (
-                      <Text className="text-green-600 mb-1">Hoàn thành</Text>
+                      <Text className="text-green-600 mb-1">{t.tasks?.item?.completedWord ?? 'Hoàn thành'}</Text>
                     ) : null}
                     <View className="flex-row items-center justify-between mb-1">
-                      <Text className="text-gray-700">Tiến độ</Text>
+                      <Text className="text-gray-700">{t.tasks?.item?.progressLabel ?? 'Tiến độ'}</Text>
                       <Text className="text-gray-800 font-medium">
-                        {habitProgress.completed}/{habitProgress.total} ({habitProgress.percent}%) {mergeStreak ? 'đã gộp' : ''}
+                        {habitProgress.completed}/{habitProgress.total} ({habitProgress.percent}%) {mergeStreak ? (t.tasks?.item?.mergedSuffix ?? 'đã gộp') : ''}
                       </Text>
                     </View>
                     <View className="h-2 bg-gray-200 rounded-full overflow-hidden">

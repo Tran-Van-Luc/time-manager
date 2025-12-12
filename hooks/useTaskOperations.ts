@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { refreshNotifications } from '../utils/notificationScheduler';
 import { Alert } from "react-native";
+import { useLanguage } from "../context/LanguageContext";
 import { useTasks } from "./useTasks";
 import { useReminders } from "./useReminders";
 import { useRecurrences } from "./useRecurrences";
@@ -87,6 +88,7 @@ export const useTaskOperations = (
   options?: UseTaskOpsOptions,
   injectedReminders?: RemindersContext
 ) => {
+  const { t, language } = useLanguage();
   const { addTask, editTask: updateTask, removeTask } = useTasks();
 
   // If parent supplies reminders context, reuse it; else create internal (backward compatible)
@@ -368,7 +370,9 @@ export const useTaskOperations = (
 
     if (!newTask.title.trim()) {
       if (!suppress) {
-        if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Vui lòng nhập tiêu đề!' }); else Alert.alert("Lỗi", "Vui lòng nhập tiêu đề!");
+        const title = language === 'en' ? 'Error' : 'Lỗi';
+        const msg = language === 'en' ? 'Please enter a title!' : 'Vui lòng nhập tiêu đề!';
+        if (options?.onNotify) options.onNotify({ tone:'error', title: title, message: msg }); else Alert.alert(title, msg);
       }
       return false;
     }
@@ -395,7 +399,9 @@ export const useTaskOperations = (
       const timeError = validateTaskTime(startAt, endAt);
       if (timeError) {
         if (!suppress) {
-          if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message: timeError }); else Alert.alert("Lỗi", timeError);
+          const title = language === 'en' ? (t.tasks?.modal.invalidTimeTitle || 'Invalid time') : (t.tasks?.modal.invalidTimeTitle || 'Lỗi');
+          const msg = timeError;
+          if (options?.onNotify) options.onNotify({ tone:'error', title: title, message: msg }); else Alert.alert(title, msg);
         }
         return false;
       }
@@ -403,7 +409,9 @@ export const useTaskOperations = (
       // Recurrence end date requirement: always require user input
       if (recurrenceConfig?.enabled && !recurrenceConfig.endDate) {
         if (!suppress) {
-          if (options?.onNotify) options.onNotify({ tone:'warning', title:'Thiếu thông tin', message:'Vui lòng chọn ngày kết thúc cho lặp lại' }); else Alert.alert("Lỗi", "Vui lòng chọn ngày kết thúc cho lặp lại");
+          const title = language === 'en' ? (t.tasks?.modal.missingRepeatEndTitle || 'Missing information') : (t.tasks?.modal.missingRepeatEndTitle || 'Thiếu thông tin');
+          const msg = language === 'en' ? (t.tasks?.modal.missingRepeatEndMessage || 'Please choose a repeat end date') : (t.tasks?.modal.missingRepeatEndMessage || 'Vui lòng chọn ngày kết thúc cho lặp lại');
+          if (options?.onNotify) options.onNotify({ tone:'warning', title: title, message: msg }); else Alert.alert(title, msg);
         }
         return false;
       }
@@ -435,11 +443,11 @@ export const useTaskOperations = (
               options.onConflict({ raw: formatted, blocks: parseConflictMessage(formatted), resolve });
             } else {
               Alert.alert(
-                'Trùng thời gian ⛔',
-                `${formatted}\nBạn có muốn tiếp tục lưu không?`,
+                language === 'en' ? 'Time conflict ⛔' : 'Trùng thời gian ⛔',
+                language === 'en' ? `${formatted}\nDo you want to proceed with saving?` : `${formatted}\nBạn có muốn tiếp tục lưu không?`,
                 [
-                  { text: 'Hủy', style: 'cancel', onPress: () => resolve(false) },
-                  { text: 'Tiếp tục', style: 'destructive', onPress: () => resolve(true) },
+                  { text: t.tasks?.cancel || (language === 'en' ? 'Cancel' : 'Hủy'), style: 'cancel', onPress: () => resolve(false) },
+                  { text: language === 'en' ? 'Proceed' : 'Tiếp tục', style: 'destructive', onPress: () => resolve(true) },
                 ]
               );
             }
@@ -611,12 +619,16 @@ export const useTaskOperations = (
   // Lập lịch lại thông báo sau khi thêm
   try { await refreshNotifications(); } catch {}
   if (!suppress) {
-    if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã thêm công việc!' }); else Alert.alert("Thành công", "Đã thêm công việc!");
+    const title = language === 'en' ? 'Success' : 'Thành công';
+    const msg = language === 'en' ? 'Task added!' : 'Đã thêm công việc!';
+    if (options?.onNotify) options.onNotify({ tone:'success', title: title, message: msg }); else Alert.alert(title, msg);
   }
       return true;
     } catch (error) {
       if (!suppress) {
-        if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Không thể thêm công việc' }); else Alert.alert("Lỗi", "Không thể thêm công việc");
+        const title = language === 'en' ? 'Error' : 'Lỗi';
+        const msg = language === 'en' ? 'Cannot add task' : 'Không thể thêm công việc';
+        if (options?.onNotify) options.onNotify({ tone:'error', title: title, message: msg }); else Alert.alert(title, msg);
       }
       return false;
     } finally {
@@ -638,7 +650,9 @@ export const useTaskOperations = (
     }
   ) => {
     if (!updatedTask.title?.trim()) {
-      if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Vui lòng nhập tiêu đề!' }); else Alert.alert("Lỗi", "Vui lòng nhập tiêu đề!");
+      const title = language === 'en' ? 'Error' : 'Lỗi';
+      const msg = language === 'en' ? 'Please enter a title!' : 'Vui lòng nhập tiêu đề!';
+      if (options?.onNotify) options.onNotify({ tone:'error', title: title, message: msg }); else Alert.alert(title, msg);
       return false;
     }
 
@@ -646,7 +660,9 @@ export const useTaskOperations = (
     try {
       const existing = tasks.find((t) => t.id === taskId);
       if (!existing) {
-        if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Không tìm thấy công việc để sửa' }); else Alert.alert("Lỗi", "Không tìm thấy công việc để sửa");
+        const title = language === 'en' ? 'Error' : 'Lỗi';
+        const msg = language === 'en' ? 'Task not found to edit' : 'Không tìm thấy công việc để sửa';
+        if (options?.onNotify) options.onNotify({ tone:'error', title: title, message: msg }); else Alert.alert(title, msg);
         return false;
       }
 
@@ -702,14 +718,18 @@ export const useTaskOperations = (
   // Validate time (edit mode relaxes unchanged start time)
       const timeError = validateTaskTime(startAt, endAt, true, originalStartAt);
       if (timeError) {
-        if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message: timeError }); else Alert.alert("Lỗi", timeError);
+        const title = language === 'en' ? (t.tasks?.modal.invalidTimeTitle || 'Invalid time') : (t.tasks?.modal.invalidTimeTitle || 'Lỗi');
+        const msg = timeError;
+        if (options?.onNotify) options.onNotify({ tone:'error', title: title, message: msg }); else Alert.alert(title, msg);
         return false;
       }
 
       // Recurrence end date requirement (edit): require explicit endDate from user
       // Do NOT default to end-of-day; instead warn and abort so user must pick a date.
       if (recurrenceConfig?.enabled && !recurrenceConfig.endDate) {
-        if (options?.onNotify) options.onNotify({ tone:'warning', title:'Thiếu thông tin', message:'Vui lòng chọn ngày kết thúc cho lặp lại' }); else Alert.alert("Lỗi", "Vui lòng chọn ngày kết thúc cho lặp lại");
+        const title = language === 'en' ? (t.tasks?.modal.missingRepeatEndTitle || 'Missing information') : (t.tasks?.modal.missingRepeatEndTitle || 'Thiếu thông tin');
+        const msg = language === 'en' ? (t.tasks?.modal.missingRepeatEndMessage || 'Please choose a repeat end date') : (t.tasks?.modal.missingRepeatEndMessage || 'Vui lòng chọn ngày kết thúc cho lặp lại');
+        if (options?.onNotify) options.onNotify({ tone:'warning', title: title, message: msg }); else Alert.alert(title, msg);
         return false;
       }
 
@@ -738,11 +758,11 @@ export const useTaskOperations = (
               options.onConflict({ raw: formatted, blocks: parseConflictMessage(formatted), resolve });
             } else {
               Alert.alert(
-                'Trùng thời gian ⛔',
-                `${formatted}\nBạn có muốn tiếp tục lưu không?`,
+                language === 'en' ? 'Time conflict ⛔' : 'Trùng thời gian ⛔',
+                language === 'en' ? `${formatted}\nDo you want to proceed with saving?` : `${formatted}\nBạn có muốn tiếp tục lưu không?`,
                 [
-                  { text: 'Hủy', style: 'cancel', onPress: () => resolve(false) },
-                  { text: 'Tiếp tục', style: 'destructive', onPress: () => resolve(true) },
+                  { text: t.tasks?.cancel || (language === 'en' ? 'Cancel' : 'Hủy'), style: 'cancel', onPress: () => resolve(false) },
+                  { text: language === 'en' ? 'Proceed' : 'Tiếp tục', style: 'destructive', onPress: () => resolve(true) },
                 ]
               );
             }
@@ -967,10 +987,10 @@ export const useTaskOperations = (
 
   // Lập lịch lại thông báo sau khi sửa
   try { await refreshNotifications(); } catch {}
-  if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã cập nhật công việc!' }); else Alert.alert("Thành công", "Đã cập nhật công việc!");
+  if (options?.onNotify) options.onNotify({ tone:'success', title: language === 'en' ? 'Success' : 'Thành công', message: language === 'en' ? 'Task updated!' : 'Đã cập nhật công việc!' }); else Alert.alert(language === 'en' ? 'Success' : 'Thành công', language === 'en' ? 'Task updated!' : 'Đã cập nhật công việc!');
       return true;
     } catch (error) {
-      if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Không thể cập nhật công việc' }); else Alert.alert("Lỗi", "Không thể cập nhật công việc");
+      if (options?.onNotify) options.onNotify({ tone:'error', title: language === 'en' ? 'Error' : 'Lỗi', message: language === 'en' ? 'Cannot update task' : 'Không thể cập nhật công việc' }); else Alert.alert(language === 'en' ? 'Error' : 'Lỗi', language === 'en' ? 'Cannot update task' : 'Không thể cập nhật công việc');
       return false;
     } finally {
       setProcessing(false);
@@ -992,27 +1012,35 @@ export const useTaskOperations = (
           await loadReminders();
           await removeTask(taskId);
           try { await refreshNotifications(); } catch {}
-          if (options?.onNotify) options.onNotify({ tone:'success', title:'Thành công', message:'Đã xóa công việc!' }); else Alert.alert("Thành công", "Đã xóa công việc!");
+          {
+            const title = language === 'en' ? 'Success' : 'Thành công';
+            const msg = language === 'en' ? 'Task deleted!' : 'Đã xóa công việc!';
+            if (options?.onNotify) options.onNotify({ tone:'success', title: title, message: msg }); else Alert.alert(title, msg);
+          }
           resolve(true);
         } catch (error) {
-          if (options?.onNotify) options.onNotify({ tone:'error', title:'Lỗi', message:'Không thể xóa công việc' }); else Alert.alert("Lỗi", "Không thể xóa công việc");
+          {
+            const title = language === 'en' ? 'Error' : 'Lỗi';
+            const msg = language === 'en' ? 'Cannot delete task' : 'Không thể xóa công việc';
+            if (options?.onNotify) options.onNotify({ tone:'error', title: title, message: msg }); else Alert.alert(title, msg);
+          }
           resolve(false);
         }
       };
       if (options?.onConfirm) {
         options.onConfirm({
           tone: 'warning',
-          title: 'Xác nhận',
-          message: 'Bạn có chắc muốn xóa công việc này?',
+          title: language === 'en' ? 'Confirm' : 'Xác nhận',
+          message: language === 'en' ? 'Are you sure you want to delete this task?' : 'Bạn có chắc muốn xóa công việc này?',
           buttons: [
-            { text: 'Hủy', style: 'cancel', onPress: () => resolve(false) },
-            { text: 'Xóa', style: 'destructive', onPress: () => performDelete() },
+            { text: t.tasks?.cancel || (language === 'en' ? 'Cancel' : 'Hủy'), style: 'cancel', onPress: () => resolve(false) },
+            { text: language === 'en' ? 'Delete' : 'Xóa', style: 'destructive', onPress: () => performDelete() },
           ],
         });
       } else {
-        Alert.alert('Xác nhận', 'Bạn có chắc muốn xóa công việc này?', [
-          { text: 'Hủy', onPress: () => resolve(false) },
-          { text: 'Xóa', style: 'destructive', onPress: () => performDelete() },
+        Alert.alert(language === 'en' ? 'Confirm' : 'Xác nhận', language === 'en' ? 'Are you sure you want to delete this task?' : 'Bạn có chắc muốn xóa công việc này?', [
+          { text: t.tasks?.cancel || (language === 'en' ? 'Cancel' : 'Hủy'), onPress: () => resolve(false) },
+          { text: language === 'en' ? 'Delete' : 'Xóa', style: 'destructive', onPress: () => performDelete() },
         ]);
       }
     });
