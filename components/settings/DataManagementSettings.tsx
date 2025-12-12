@@ -7,6 +7,8 @@ import {
   SafeAreaView,
   StyleSheet,
   Alert,
+  Platform,
+  StatusBar,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "../../context/ThemeContext";
@@ -14,17 +16,14 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as DocumentPicker from "expo-document-picker";
 import { db } from "../../database/database";
-import * as schema from "../../database/schema"; // schema này không dùng trực tiếp nhưng để tham khảo
+import * as schema from "../../database/schema";
 
 const STORAGE_KEY_LANG = "appLanguage";
 
-// ✅ THÊM MỚI: Một hàm nhỏ để kiểm tra xem một chuỗi có phải là định dạng ngày ISO không
 const isIsoDateString = (value: any): value is string => {
   if (typeof value !== "string") return false;
-  // Regex đơn giản để khớp với định dạng "YYYY-MM-DDTHH:mm:ss.sssZ"
   return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(value);
 };
-
 
 export default function DataManagementSettings({
   visible,
@@ -43,11 +42,18 @@ export default function DataManagementSettings({
     import: "Phục hồi (Import)",
     clear: "Xoá hết dữ liệu",
     exportConfirm: "Tạo bản sao lưu của dữ liệu và lưu vào file?",
-    importConfirm: "Bạn muốn import file dữ liệu? (placeholder)",
+    importConfirm: "Bạn muốn import file dữ liệu?",
     clearConfirm: "Bạn chắc chắn muốn xóa tất cả dữ liệu? Hành động này không thể hoàn tác.",
     cancel: "Hủy",
     ok: "Đồng ý",
     cleared: "Đã xoá dữ liệu ứng dụng.",
+    importWarning: "HÀNH ĐỘNG NÀY SẼ XOÁ TOÀN BỘ DỮ LIỆU HIỆN TẠI VÀ THAY THẾ BẰNG DỮ LIỆU TRONG FILE BACKUP. Bạn chắc chắn muốn tiếp tục?",
+    error: "Lỗi",
+    invalidFile: "File backup không hợp lệ.",
+    success: "Thành công",
+    restored: "Dữ liệu đã được phục hồi thành công!",
+    failed: "Thất bại",
+    cannotProcess: "Không thể xử lý file",
   });
 
   useEffect(() => {
@@ -71,11 +77,18 @@ export default function DataManagementSettings({
         import: "Import backup",
         clear: "Clear all data",
         exportConfirm: "Create a backup file of your data?",
-        importConfirm: "Do you want to import a data file? (placeholder)",
+        importConfirm: "Do you want to import a data file?",
         clearConfirm: "Are you sure you want to delete all data? This cannot be undone.",
         cancel: "Cancel",
         ok: "OK",
         cleared: "Application data cleared.",
+        importWarning: "THIS WILL DELETE ALL CURRENT DATA AND REPLACE IT WITH DATA FROM THE BACKUP FILE. Are you sure you want to continue?",
+        error: "Error",
+        invalidFile: "Invalid backup file.",
+        success: "Success",
+        restored: "Data restored successfully!",
+        failed: "Failed",
+        cannotProcess: "Cannot process file",
       });
     } else {
       setLabels({
@@ -85,11 +98,18 @@ export default function DataManagementSettings({
         import: "Phục hồi (Import)",
         clear: "Xoá hết dữ liệu",
         exportConfirm: "Tạo bản sao lưu của dữ liệu và lưu vào file?",
-        importConfirm: "Bạn muốn import file dữ liệu? (placeholder)",
+        importConfirm: "Bạn muốn import file dữ liệu?",
         clearConfirm: "Bạn chắc chắn muốn xóa tất cả dữ liệu? Hành động này không thể hoàn tác.",
         cancel: "Hủy",
         ok: "Đồng ý",
         cleared: "Đã xoá dữ liệu ứng dụng.",
+        importWarning: "HÀNH ĐỘNG NÀY SẼ XOÁ TOÀN BỘ DỮ LIỆU HIỆN TẠI VÀ THAY THẾ BẰNG DỮ LIỆU TRONG FILE BACKUP. Bạn chắc chắn muốn tiếp tục?",
+        error: "Lỗi",
+        invalidFile: "File backup không hợp lệ.",
+        success: "Thành công",
+        restored: "Dữ liệu đã được phục hồi thành công!",
+        failed: "Thất bại",
+        cannotProcess: "Không thể xử lý file",
       });
     }
   }
@@ -101,7 +121,6 @@ export default function DataManagementSettings({
         text: labels.ok,
         onPress: async () => {
           try {
-            // Phần này giữ nguyên, Export đã hoạt động đúng
             const tablesToExport: { [key: string]: any[] } = {
               users: await db.select().from(schema.users).all(),
               tasks: await db.select().from(schema.tasks).all(),
@@ -136,140 +155,133 @@ export default function DataManagementSettings({
               Alert.alert(labels.export, "Backup saved to: " + path);
             }
           } catch (e: any) {
-            Alert.alert("Error", "Export failed: " + String(e));
+            Alert.alert(labels.error, "Export failed: " + String(e));
           }
         },
       },
     ]);
   }
 
-  // Dán hàm này vào file DataManagementSettings.tsx, thay thế cho hàm handleImport cũ
+  async function handleImport() {
+    Alert.alert(labels.import, labels.importConfirm, [
+      { text: labels.cancel, style: "cancel" },
+      {
+        text: labels.ok,
+        onPress: async () => {
+          try {
+            const res: any = await DocumentPicker.getDocumentAsync({ type: "application/json" });
+            if (res.canceled || !res.assets?.length) return;
 
-async function handleImport() {
-  Alert.alert(labels.import, labels.importConfirm, [
-    { text: labels.cancel, style: "cancel" },
-    {
-      text: labels.ok,
-      onPress: async () => {
-        try {
-          const res: any = await DocumentPicker.getDocumentAsync({ type: "application/json" });
-          if (res.canceled || !res.assets?.length) return;
+            const content = await FileSystem.readAsStringAsync(res.assets[0].uri);
+            const parsed = JSON.parse(content);
 
-          const content = await FileSystem.readAsStringAsync(res.assets[0].uri);
-          const parsed = JSON.parse(content);
+            if (!parsed || !parsed.tables) {
+              Alert.alert(labels.error, labels.invalidFile);
+              return;
+            }
 
-          if (!parsed || !parsed.tables) {
-            Alert.alert("Lỗi", "File backup không hợp lệ.");
-            return;
-          }
+            Alert.alert(
+              labels.import,
+              labels.importWarning,
+              [
+                { text: labels.cancel, style: "destructive" },
+                {
+                  text: labels.ok,
+                  onPress: async () => {
+                    const client: any = (db as any).$client;
+                    try {
+                      const importErrors: string[] = [];
+                      client.execSync("BEGIN; PRAGMA foreign_keys=OFF;");
 
-          Alert.alert(
-            labels.import,
-            "HÀNH ĐỘNG NÀY SẼ XOÁ TOÀN BỘ DỮ LIỆU HIỆN TẠI VÀ THAY THẾ BẰNG DỮ LIỆU TRONG FILE BACKUP. Bạn chắc chắn muốn tiếp tục?",
-            [
-              { text: labels.cancel, style: "destructive" },
-              {
-                text: labels.ok,
-                onPress: async () => {
-                  const client: any = (db as any).$client;
-                  try {
-                    const importErrors: string[] = [];
-                    client.execSync("BEGIN; PRAGMA foreign_keys=OFF;");
-
-                    const tableNames = Object.keys(parsed.tables);
-                    
-                    for (const t of tableNames) {
-                      try { client.execSync(`DELETE FROM ${t};`); } catch (e) { console.warn(`Không xóa được bảng ${t}:`, e); }
-                    }
-
-                    for (const tableName of tableNames) {
-                      const tableSchema = (schema as any)[tableName];
-                      if (!tableSchema) continue;
-
-                      let rows: any[] = parsed.tables[tableName] || [];
-                      if (rows.length === 0) continue;
-
-                      // --- SƠ CHẾ DỮ LIỆU ---
-                      // Chuyển các chuỗi ISO sang Date để Drizzle xử lý chính xác
-                      rows.forEach(row => {
-                          for (const key in row) {
-                              if (isIsoDateString(row[key])) {
-                                  row[key] = new Date(row[key]);
-                              }
-                          }
-                      });
-                      // --- KẾT THÚC SƠ CHẾ ---
-
-                      console.log(`Importing ${rows.length} rows into "${tableName}"...`);
-                      try {
-                        await db.insert(tableSchema).values(rows);
-                      } catch (e: any) {
-                        importErrors.push(`Lỗi bảng ${tableName}: ${e.message}`);
-                        console.error(`Lỗi khi import vào bảng "${tableName}":`, e);
+                      const tableNames = Object.keys(parsed.tables);
+                      
+                      for (const t of tableNames) {
+                        try { client.execSync(`DELETE FROM ${t};`); } catch (e) { console.warn(`Không xóa được bảng ${t}:`, e); }
                       }
-                    }
-                    
-                    client.execSync("PRAGMA foreign_keys=ON; COMMIT;");
-                    
-                    if (importErrors.length > 0) {
-                      Alert.alert("Hoàn tất với lỗi", `Phục hồi hoàn tất nhưng có ${importErrors.length} lỗi. Kiểm tra console.`);
-                    } else {
-                      Alert.alert("Thành công", "Dữ liệu đã được phục hồi thành công!");
-                    }
 
-                  } catch (e: any) {
-                    try { client.execSync("ROLLBACK;"); } catch {}
-                    Alert.alert("Thất bại", "Phục hồi thất bại: " + e.message);
-                  }
+                      for (const tableName of tableNames) {
+                        const tableSchema = (schema as any)[tableName];
+                        if (!tableSchema) continue;
+
+                        let rows: any[] = parsed.tables[tableName] || [];
+                        if (rows.length === 0) continue;
+
+                        rows.forEach(row => {
+                          for (const key in row) {
+                            if (isIsoDateString(row[key])) {
+                              row[key] = new Date(row[key]);
+                            }
+                          }
+                        });
+
+                        console.log(`Importing ${rows.length} rows into "${tableName}"...`);
+                        try {
+                          await db.insert(tableSchema).values(rows);
+                        } catch (e: any) {
+                          importErrors.push(`Lỗi bảng ${tableName}: ${e.message}`);
+                          console.error(`Lỗi khi import vào bảng "${tableName}":`, e);
+                        }
+                      }
+                      
+                      client.execSync("PRAGMA foreign_keys=ON; COMMIT;");
+                      
+                      if (importErrors.length > 0) {
+                        Alert.alert("Hoàn tất với lỗi", `Phục hồi hoàn tất nhưng có ${importErrors.length} lỗi. Kiểm tra console.`);
+                      } else {
+                        Alert.alert(labels.success, labels.restored);
+                      }
+
+                    } catch (e: any) {
+                      try { client.execSync("ROLLBACK;"); } catch {}
+                      Alert.alert(labels.failed, "Phục hồi thất bại: " + e.message);
+                    }
+                  },
                 },
-              },
-            ]
-          );
-        } catch (e: any) {
-          Alert.alert("Lỗi", "Không thể xử lý file: " + e.message);
-        }
+              ]
+            );
+          } catch (e: any) {
+            Alert.alert(labels.error, labels.cannotProcess + ": " + e.message);
+          }
+        },
       },
-    },
-  ]);
-}
+    ]);
+  }
 
-  // Giữ nguyên hàm handleClear và styles
   async function handleClear() {
     Alert.alert(labels.clear, labels.clearConfirm, [
-        { text: labels.cancel, style: "cancel" },
-        {
-            text: labels.ok,
-            style: "destructive",
-            onPress: async () => {
-                try {
-                    const client: any = (db as any).$client;
-                    client.execSync("BEGIN;");
-                    client.execSync("PRAGMA foreign_keys=OFF;");
-                    const tablesToClear = [
-                        "scheduled_notifications", "habit_completions", "reminders",
-                        "calendar_events", "cancelled_events", "schedule_entries",
-                        "tasks", "recurrences", "courses", "pomodoro_sessions", "pomodoro_settings",
-                    ];
-                    for (const t of tablesToClear) {
-                        try { client.execSync(`DELETE FROM ${t};`); } catch (e) { /* ignore */ }
-                    }
-                    client.execSync("PRAGMA foreign_keys=ON;");
-                    client.execSync("COMMIT;");
-                    Alert.alert(labels.ok, labels.cleared);
-                } catch (e: any) {
-                    try { (db as any).$client.execSync("ROLLBACK;"); } catch { }
-                    Alert.alert("Error", "Không thể xoá dữ liệu: " + String(e));
-                }
-            },
+      { text: labels.cancel, style: "cancel" },
+      {
+        text: labels.ok,
+        style: "destructive",
+        onPress: async () => {
+          try {
+            const client: any = (db as any).$client;
+            client.execSync("BEGIN;");
+            client.execSync("PRAGMA foreign_keys=OFF;");
+            const tablesToClear = [
+              "scheduled_notifications", "habit_completions", "reminders",
+              "calendar_events", "cancelled_events", "schedule_entries",
+              "tasks", "recurrences", "courses", "pomodoro_sessions", "pomodoro_settings",
+            ];
+            for (const t of tablesToClear) {
+              try { client.execSync(`DELETE FROM ${t};`); } catch (e) { /* ignore */ }
+            }
+            client.execSync("PRAGMA foreign_keys=ON;");
+            client.execSync("COMMIT;");
+            Alert.alert(labels.ok, labels.cleared);
+          } catch (e: any) {
+            try { (db as any).$client.execSync("ROLLBACK;"); } catch { }
+            Alert.alert(labels.error, "Không thể xoá dữ liệu: " + String(e));
+          }
         },
+      },
     ]);
-}
-
+  }
 
   const s = createStyles(isDark);
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
+    <Modal visible={visible} animationType="slide" transparent={false}>
       <SafeAreaView style={s.safe}>
         <View style={s.header}>
           <TouchableOpacity onPress={onClose}>
@@ -306,7 +318,11 @@ async function handleImport() {
 
 const createStyles = (isDark: boolean) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: isDark ? "#071226" : "#F6F7FB" },
+    safe: { 
+      flex: 1, 
+      backgroundColor: isDark ? "#071226" : "#F6F7FB",
+      paddingTop: Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0,
+    },
     header: {
       flexDirection: "row",
       alignItems: "center",

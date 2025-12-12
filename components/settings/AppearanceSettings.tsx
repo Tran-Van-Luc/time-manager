@@ -8,6 +8,8 @@ import {
   Modal,
   ScrollView,
   SafeAreaView,
+  Platform,
+  StatusBar,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Appearance } from "react-native";
@@ -82,7 +84,7 @@ export default function AppearanceSettings({
 
   return (
     <>
-      <Modal visible={visible} animationType="slide" transparent>
+      <Modal visible={visible} animationType="slide" transparent={false}>
         <SafeAreaView style={styles.safe}>
           <View style={styles.header}>
             <TouchableOpacity onPress={onClose}>
@@ -161,6 +163,7 @@ const createStyles = (isDark: boolean) =>
     safe: {
       flex: 1,
       backgroundColor: isDark ? "#071226" : "#F5F6F7",
+      paddingTop: Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0,
     },
     header: {
       flexDirection: "row",

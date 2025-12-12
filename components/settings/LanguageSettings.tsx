@@ -1,3 +1,4 @@
+// components/settings/LanguageSettings.tsx
 import React from "react";
 import {
   View,
@@ -6,6 +7,8 @@ import {
   TouchableOpacity,
   SafeAreaView,
   StyleSheet,
+  Platform,
+  StatusBar,
 } from "react-native";
 import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageContext";
@@ -33,7 +36,7 @@ export default function LanguageSettings({
   const s = createStyles(isDark);
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
+    <Modal visible={visible} animationType="slide" transparent={false}>
       <SafeAreaView style={s.safe}>
         <View style={s.header}>
           <TouchableOpacity onPress={onClose}>
@@ -71,6 +74,7 @@ const createStyles = (isDark: boolean) =>
     safe: {
       flex: 1,
       backgroundColor: isDark ? "#071226" : "#F6F7FB",
+      paddingTop: Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0,
     },
     header: {
       flexDirection: "row",

@@ -86,7 +86,7 @@ export async function parseVoiceWithGemini(
     throw new Error("Missing Gemini API key. Set EXPO_PUBLIC_GEMINI_API_KEY in your environment.");
   }
 
-  const MODEL = 'gemini-2.0-flash';
+  const MODEL = 'gemini-2.5-flash';
 
   try {
     const response = await axios.post(
