@@ -232,6 +232,29 @@ interface Translations {
       uncompleteBlockedMsgSelectedDay: (list: string) => string;
       uncompleteBlockedMsgGeneric: (list: string) => string;
     };
+    // Voice input / AI add task
+    voice?: {
+      addWithAI: string;
+      notSupportedTitle: string;
+      notSupportedMsg: string;
+      permissionTitle: string;
+      permissionMsg: string;
+      allow: string;
+      deny: string;
+      permissionDeniedTitle: string;
+      permissionDeniedMsg: string;
+      speechErrorTitle: string;
+      speechErrorMsg: string;
+      recordingLabel: string;
+      recordingHint: string;
+      analyzedLabel: string;
+      inputTitle: string;
+      inputPlaceholder: string;
+      analyze: string;
+      errorTitle: string;
+      emptyInputMsg: string;
+      processErrorMsg: string;
+    };
   };
 }
 
@@ -443,6 +466,28 @@ const translations: Record<Language, Translations> = {
         uncompleteBlockedMsgSelectedDay: (list: string) => `Công việc này bị trùng thời gian với công việc khác đang hoạt động trong ngày đã chọn:\n\n${list}\n\nVui lòng giải quyết xung đột trước.`,
         uncompleteBlockedMsgGeneric: (list: string) => `Công việc này bị trùng thời gian với công việc khác đang hoạt động:\n\n${list}\n\nVui lòng giải quyết xung đột trước.`,
       },
+      voice: {
+        addWithAI: 'Thêm công việc bằng AI',
+        notSupportedTitle: 'Không hỗ trợ',
+        notSupportedMsg: 'Tính năng nhận diện giọng nói chưa được cài đặt trên thiết bị này.',
+        permissionTitle: 'Quyền ghi âm',
+        permissionMsg: 'Ứng dụng cần quyền ghi âm để nhận diện giọng nói',
+        allow: 'Cho phép',
+        deny: 'Hủy',
+        permissionDeniedTitle: 'Quyền bị từ chối',
+        permissionDeniedMsg: 'Không thể ghi âm vì quyền bị từ chối',
+        speechErrorTitle: 'Lỗi nhận diện giọng nói',
+        speechErrorMsg: 'Không thể nhận diện giọng nói',
+        recordingLabel: '🔴 Đang ghi âm...',
+        recordingHint: 'Nói để thêm công việc — quá trình sẽ tự động phân tích khi dừng.',
+        analyzedLabel: '✅ Đã phân tích:',
+        inputTitle: 'Nhập mô tả công việc',
+        inputPlaceholder: 'VD: Chuẩn bị báo cáo tiến độ tuần — bắt đầu 09:00, kết thúc 11:30 ngày 15/11, ưu tiên cao, nhắc 40 phút trước, lặp hàng tháng, tự động hoàn thành.',
+        analyze: 'Phân tích',
+        errorTitle: 'Lỗi',
+        emptyInputMsg: 'Vui lòng nhập mô tả công việc',
+        processErrorMsg: 'Không thể phân tích. Vui lòng thử lại.',
+      },
     },
   },
   en: {
@@ -650,6 +695,28 @@ const translations: Record<Language, Translations> = {
         uncompleteBlockedTitle: 'Cannot un-complete ⛔',
         uncompleteBlockedMsgSelectedDay: (list: string) => `This task overlaps with other active tasks on the selected day:\n\n${list}\n\nPlease resolve the conflicts first.`,
         uncompleteBlockedMsgGeneric: (list: string) => `This task overlaps with other active tasks:\n\n${list}\n\nPlease resolve the conflicts first.`,
+      },
+      voice: {
+        addWithAI: 'Add task with AI',
+        notSupportedTitle: 'Not supported',
+        notSupportedMsg: 'Speech recognition is not available on this device.',
+        permissionTitle: 'Microphone permission',
+        permissionMsg: 'The app needs microphone access to recognize speech.',
+        allow: 'Allow',
+        deny: 'Cancel',
+        permissionDeniedTitle: 'Permission denied',
+        permissionDeniedMsg: 'Cannot record because permission was denied.',
+        speechErrorTitle: 'Speech recognition error',
+        speechErrorMsg: 'Unable to recognize speech.',
+        recordingLabel: '🔴 Recording...',
+        recordingHint: 'Speak to add a task — analysis will run when you stop.',
+        analyzedLabel: '✅ Analyzed:',
+        inputTitle: 'Enter task description',
+        inputPlaceholder: 'e.g., Prepare weekly progress report — start 09:00, end 11:30 on 11/15, high priority, remind 40 minutes before, repeat monthly, auto-complete when expired.',
+        analyze: 'Analyze',
+        errorTitle: 'Error',
+        emptyInputMsg: 'Please enter a task description',
+        processErrorMsg: 'Cannot analyze. Please try again.',
       },
     },
   },

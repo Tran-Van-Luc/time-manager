@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, Modal, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '../context/LanguageContext';
+import { useTheme } from '../context/ThemeContext';
 
 type Props = {
   visible: boolean;
@@ -12,6 +13,22 @@ type Props = {
 // Component này tự động đọc API key từ biến môi trường
 export default function AIChatModal({ visible, onClose, initialPrompt }: Props) {
   const { language, t } = useLanguage();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+  const colors = {
+    background: isDark ? '#071226' : '#ffffff',
+    surface: isDark ? '#0b1220' : '#ffffff',
+    text: isDark ? '#E6EEF8' : '#111827',
+    muted: isDark ? '#C6D4E1' : '#374151',
+    cardBorder: isDark ? '#223049' : '#eee',
+    inputBg: isDark ? '#0f1a2c' : '#ffffff',
+    inputBorder: isDark ? '#223049' : '#ddd',
+    userBubbleBg: isDark ? '#13233f' : '#eef2ff',
+    modelBubbleBg: isDark ? '#0f2a23' : '#f0fdf4',
+    primary: '#2563EB',
+    danger: '#ef4444',
+    warning: '#f59e0b',
+  };
   const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<Array<{ role: 'user' | 'model'; text: string }>>([]);
   const [expandedMessages, setExpandedMessages] = useState<Record<number, boolean>>({});
@@ -222,11 +239,11 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
             padding: 12,
             paddingTop: 12 + insets.top,
             paddingBottom: 12 + Math.max(insets.bottom, 8),
-            backgroundColor: '#fff',
+            backgroundColor: colors.surface,
           }}
         >
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <Text style={{ fontSize: 18, fontWeight: '700' }}>{language === 'en' ? 'AI Chat' : 'AI Chat'}</Text>
+          <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>{language === 'en' ? 'AI Chat' : 'AI Chat'}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             {/* Small info badge: shows that conversation will be cleared after leaving */}
             <TouchableOpacity
@@ -239,12 +256,12 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
                 justifyContent: 'center',
                 alignItems: 'center',
                 borderWidth: 1,
-                borderColor: '#f59e0b',
+                borderColor: colors.warning,
                 backgroundColor: 'transparent',
                 marginRight: 8,
               }}
             >
-              <Text style={{ color: '#f59e0b', fontWeight: '800' }}>!</Text>
+              <Text style={{ color: colors.warning, fontWeight: '800' }}>!</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -255,12 +272,12 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
                 paddingHorizontal: 10,
                 borderRadius: 10,
                 borderWidth: 1,
-                borderColor: '#ef4444',
+                borderColor: colors.danger,
                 backgroundColor: 'transparent',
                 marginRight: 8,
               }}
             >
-              <Text style={{ color: '#ef4444', fontWeight: '700' }}>{language === 'en' ? 'Clear' : 'Xóa'}</Text>
+              <Text style={{ color: colors.danger, fontWeight: '700' }}>{language === 'en' ? 'Clear' : 'Xóa'}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={onClose}
@@ -269,7 +286,7 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
                 paddingVertical: 6,
                 paddingHorizontal: 12,
                 borderRadius: 10,
-                backgroundColor: '#2563EB',
+                backgroundColor: colors.primary,
                 shadowColor: '#000',
                 shadowOpacity: 0.15,
                 shadowRadius: 4,
@@ -283,7 +300,7 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
 
         <ScrollView
           ref={scrollRef}
-          style={{ flex: 1, marginBottom: 8, borderWidth: 1, borderColor: '#eee', borderRadius: 6, padding: 8 }}
+          style={{ flex: 1, marginBottom: 8, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 6, padding: 8, backgroundColor: colors.surface }}
           contentContainerStyle={{ paddingBottom: 20 + Math.max(insets.bottom, 8) }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
@@ -299,18 +316,18 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
                   const rest = match[2];
                   if (highlightNumbers) {
                     return (
-                      <Text key={`l-${i}-${li}`} style={{ marginBottom: li === lines.length - 1 ? 0 : 4 }}>
-                        <Text style={{ color: '#ef4444', fontWeight: '700' }}>{number + '. '}</Text>
-                        <Text>{rest}</Text>
+                      <Text key={`l-${i}-${li}`} style={{ marginBottom: li === lines.length - 1 ? 0 : 4, color: colors.text }}>
+                        <Text style={{ color: colors.danger, fontWeight: '700' }}>{number + '. '}</Text>
+                        <Text style={{ color: colors.text }}>{rest}</Text>
                       </Text>
                     );
                   }
                   return (
-                    <Text key={`l-${i}-${li}`} style={{ marginBottom: li === lines.length - 1 ? 0 : 4 }}>{number + '. ' + rest}</Text>
+                    <Text key={`l-${i}-${li}`} style={{ marginBottom: li === lines.length - 1 ? 0 : 4, color: colors.text }}>{number + '. ' + rest}</Text>
                   );
                 }
                 return (
-                  <Text key={`l-${i}-${li}`} style={{ marginBottom: li === lines.length - 1 ? 0 : 4 }}>{line}</Text>
+                  <Text key={`l-${i}-${li}`} style={{ marginBottom: li === lines.length - 1 ? 0 : 4, color: colors.text }}>{line}</Text>
                 );
               });
             };
@@ -333,7 +350,7 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
               <View key={i} style={{ marginBottom: 12, alignSelf: isUser ? 'flex-end' : 'flex-start' }}>
                 <Text style={{ fontWeight: '700', color: isUser ? '#0b5cff' : '#0b8a44' }}>{isUser ? (language === 'en' ? 'You' : 'Bạn') : 'AI'}</Text>
                 <View style={{
-                  backgroundColor: isUser ? '#eef2ff' : '#f0fdf4',
+                  backgroundColor: isUser ? colors.userBubbleBg : colors.modelBubbleBg,
                   padding: 10,
                   borderRadius: 8,
                   marginTop: 4,
@@ -342,7 +359,7 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
                   {renderLines(shownText, isUser)}
                   {isUser && isLong && i === 0 ? (
                     <TouchableOpacity onPress={toggleExpanded} style={{ marginTop: 8 }}>
-                      <Text style={{ color: '#2563EB', fontWeight: '700' }}>
+                      <Text style={{ color: colors.primary, fontWeight: '700' }}>
                         {expanded
                           ? language === 'en'
                             ? 'Collapse'
@@ -369,13 +386,14 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
             value={input}
             onChangeText={setInput}
             placeholder={language === 'en' ? 'Type your question...' : 'Gõ câu hỏi của bạn...'}
+            placeholderTextColor={colors.muted}
             multiline
             // limit visual height to ~5 lines; after that TextInput scrolls internally
             onContentSizeChange={(e) => setInputHeight(e.nativeEvent.contentSize.height)}
             style={{
               flex: 1,
               borderWidth: 1,
-              borderColor: '#ddd',
+              borderColor: colors.inputBorder,
               padding: 10,
               borderRadius: 8,
               // enforce a max height (approx 5 lines). Use measured height when available.
@@ -383,10 +401,12 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
               minHeight: 40,
               height: Math.min(Math.max(40, inputHeight || 40), 120),
               textAlignVertical: 'top',
+              backgroundColor: colors.inputBg,
+              color: colors.text,
             }}
             scrollEnabled={true}
           />
-          <TouchableOpacity onPress={send} disabled={loading} style={{ padding: 10, backgroundColor: '#2563EB', borderRadius: 8, opacity: loading ? 0.5 : 1 }}>
+          <TouchableOpacity onPress={send} disabled={loading} style={{ padding: 10, backgroundColor: colors.primary, borderRadius: 8, opacity: loading ? 0.5 : 1 }}>
             <Text style={{ color: '#fff' }}>{loading ? '...' : (language === 'en' ? 'Send' : 'Gửi')}</Text>
           </TouchableOpacity>
         </View>
