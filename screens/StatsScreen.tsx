@@ -1,5 +1,5 @@
 // app/stats.tsx
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -94,28 +94,36 @@ export default function StatsScreen() {
       .filter((d) => d.getTime() >= minWeekStart.getTime());
   }, []);
 
-  // ref to the week picker scroll so we can auto-scroll to the selected week
-  const weekScrollRef = useRef<any>(null);
-  const WEEK_ITEM_HEIGHT = 48; // approximate item height used for scrolling
-  // list scrolling helpers: show a scroll region when list has more than N items
-  const LIST_ITEM_HEIGHT = 84; // approximate height per task item
+  const weekScrollRef = useRef<ScrollView>(null);
+  const monthScrollRef = useRef<ScrollView>(null);
+  const WEEK_ITEM_HEIGHT = 48;
+  const MONTH_ITEM_HEIGHT = 48;
+  const LIST_ITEM_HEIGHT = 84;
   const LIST_VISIBLE_COUNT = 3;
 
-  // when the picker opens for weeks, scroll to the selected week so it's visible
-  useEffect(() => {
-    if (!showPicker || viewMode !== "week") return;
+  // Safe scroll function with error handling
+  const safeScrollTo = useCallback((ref: React.RefObject<ScrollView | null>, offset: number) => {
     try {
-      const idx = weekOptions.findIndex((w) => isSameDay(w, selectedWeekStart));
-      if (idx >= 0 && weekScrollRef.current && typeof weekScrollRef.current.scrollTo === 'function') {
-        const y = Math.max(0, idx * WEEK_ITEM_HEIGHT - WEEK_ITEM_HEIGHT * 2);
-        weekScrollRef.current.scrollTo({ y, animated: true });
+      if (ref.current && typeof ref.current.scrollTo === 'function') {
+        // Use setTimeout to ensure the scroll happens after render
+        setTimeout(() => {
+          ref.current?.scrollTo({ y: offset, animated: true });
+        }, 100);
       }
     } catch (e) {
-      // ignore
+      console.log('Scroll error:', e);
     }
-  }, [showPicker, viewMode, weekOptions, selectedWeekStart]);
+  }, []);
 
-  
+  // Auto-scroll for week picker
+  useEffect(() => {
+    if (!showPicker || viewMode !== "week") return;
+    const idx = weekOptions.findIndex((w) => isSameDay(w, selectedWeekStart));
+    if (idx >= 0) {
+      const offset = Math.max(0, idx * WEEK_ITEM_HEIGHT - WEEK_ITEM_HEIGHT * 2);
+      safeScrollTo(weekScrollRef, offset);
+    }
+  }, [showPicker, viewMode, weekOptions, selectedWeekStart, safeScrollTo]);
 
   const monthOptions = useMemo(() => {
     const now = startOfMonth(new Date());
@@ -125,21 +133,15 @@ export default function StatsScreen() {
       .filter((d) => d.getTime() >= minMonthStart.getTime());
   }, []);
 
-  // month picker scroll ref + auto-scroll
-  const monthScrollRef = useRef<any>(null);
-  const MONTH_ITEM_HEIGHT = 48;
+  // Auto-scroll for month picker
   useEffect(() => {
     if (!showPicker || viewMode !== "month") return;
-    try {
-      const idx = monthOptions.findIndex((m) => m.getTime() === selectedMonthStart.getTime());
-      if (idx >= 0 && monthScrollRef.current && typeof monthScrollRef.current.scrollTo === 'function') {
-        const y = Math.max(0, idx * MONTH_ITEM_HEIGHT - MONTH_ITEM_HEIGHT * 2);
-        monthScrollRef.current.scrollTo({ y, animated: true });
-      }
-    } catch (e) {
-      // ignore
+    const idx = monthOptions.findIndex((m) => m.getTime() === selectedMonthStart.getTime());
+    if (idx >= 0) {
+      const offset = Math.max(0, idx * MONTH_ITEM_HEIGHT - MONTH_ITEM_HEIGHT * 2);
+      safeScrollTo(monthScrollRef, offset);
     }
-  }, [showPicker, viewMode, monthOptions, selectedMonthStart]);
+  }, [showPicker, viewMode, monthOptions, selectedMonthStart, safeScrollTo]);
 
   const recurrenceMap = useMemo(() => {
     const m: Record<number, any> = {};
@@ -205,7 +207,6 @@ export default function StatsScreen() {
               tmp.setHours(23, 59, 59, 999);
               return tmp.getTime();
             })();
-        // Normalize recurrence end date to end-of-day so the last day is included
         const recEnd = t.recurrence.end_date
           ? (() => {
               const d = new Date(t.recurrence.end_date);
@@ -290,7 +291,6 @@ export default function StatsScreen() {
               tmp.setHours(23, 59, 59, 999);
               return tmp.getTime();
             })();
-        // Normalize recurrence end date to end-of-day so the last day is included
         const recEnd = t.recurrence.end_date
           ? (() => {
               const d = new Date(t.recurrence.end_date);
@@ -358,7 +358,6 @@ export default function StatsScreen() {
 
   const weekTasks = weekData.tasksInWeek;
 
-  // Lists of occurrences/items to render in the UI (computed asynchronously)
   const [doingList, setDoingList] = useState<any[]>([]);
   const [doneList, setDoneList] = useState<any[]>([]);
   const [overdueList, setOverdueList] = useState<any[]>([]);
@@ -373,7 +372,7 @@ export default function StatsScreen() {
 
   const [aiModalVisible, setAiModalVisible] = useState(false);
 
-  const buildAiPrompt = () => {
+  const buildAiPrompt = useCallback(() => {
     const header =
       language === "en"
         ? `I have ${computedCounts.total} tasks in this range, of which ${computedCounts.done} are completed, ${computedCounts.doing} in progress and ${computedCounts.overdue} overdue. (Upcoming: ${computedCounts.upcoming || 0}).`
@@ -396,9 +395,9 @@ export default function StatsScreen() {
       const absMin = Math.abs(Math.round(mins));
       const parts: string[] = [];
       const units: { name: string; value: number }[] = [
-        { name: language === "en" ? 'year' : 'năm', value: 525600 }, // 365*24*60
-        { name: language === "en" ? 'month' : 'tháng', value: 43200 }, // 30*24*60 (approx)
-        { name: language === "en" ? 'week' : 'tuần', value: 10080 }, // 7*24*60
+        { name: language === "en" ? 'year' : 'năm', value: 525600 },
+        { name: language === "en" ? 'month' : 'tháng', value: 43200 },
+        { name: language === "en" ? 'week' : 'tuần', value: 10080 },
         { name: language === "en" ? 'day' : 'ngày', value: 1440 },
         { name: language === "en" ? 'hour' : 'giờ', value: 60 },
         { name: language === "en" ? 'minute' : 'phút', value: 1 },
@@ -415,7 +414,6 @@ export default function StatsScreen() {
       return parts.join(' ');
     };
 
-    // Helpers for AI prompt diff computations with fixed cutoff
     const parseCutoffMs = (msDate: number) => {
       const d = new Date(msDate);
       return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0, 0).getTime();
@@ -427,7 +425,7 @@ export default function StatsScreen() {
     };
 
     allItems.forEach((it, idx) => {
-  const title = it.title || (language === "en" ? "(no title)" : "(không tên)");
+      const title = it.title || (language === "en" ? "(no title)" : "(không tên)");
       const scheduled = (() => {
         try {
           if (it.start && it.end) {
@@ -440,14 +438,11 @@ export default function StatsScreen() {
         } catch (e) {}
         return language === "en" ? "(no time)" : "(không có thời gian)";
       })();
-      // best-effort: if completion diff is available on the item, use it;
-      // otherwise if completed_at exists compute relative to due; otherwise
-      // compute a live diff (now vs due) so overdue/upcoming items also show a minutes delta
+      
       let diff: number | null = null;
       if ((it as any).completion_diff_minutes != null) {
         diff = (it as any).completion_diff_minutes;
       } else if (it.completed_at) {
-        // Completed but without stored diff: compute using fixed cutoff semantics
         try {
           const compMs = new Date(it.completed_at).getTime();
           const dueMs = it.end ? it.end.getTime() : it.start ? it.start.getTime() : null;
@@ -465,7 +460,6 @@ export default function StatsScreen() {
           diff = null;
         }
       } else {
-        // Not completed: live diff vs effective deadline (extend to 23:59 when same day)
         try {
           const dueMs = it.end ? it.end.getTime() : it.start ? it.start.getTime() : null;
           if (dueMs != null) {
@@ -478,6 +472,7 @@ export default function StatsScreen() {
           diff = null;
         }
       }
+      
       let statusLabel = "";
       if (it.__status === "done") {
         statusLabel = language === "en" ? "Completed" : "Đã hoàn thành";
@@ -492,7 +487,6 @@ export default function StatsScreen() {
       let diffPart = "";
       if (diff != null) {
         const human = formatMinutesToVn(diff);
-        // For completed items, prefer 'sớm/trễ/đúng hạn'; for others use 'còn' or 'trễ'
         if (it.__status === 'done') {
           if (language === 'en') {
             const when = diff > 0 ? 'late' : diff < 0 ? 'early' : 'on time';
@@ -513,22 +507,16 @@ export default function StatsScreen() {
       }
       lines.push(`${idx + 1}. ${title} — ${scheduled} — ${statusLabel}${diffPart}`);
     });
+    
     lines.push(
       language === "en"
         ? "\nBased on the list above, please: \n1) Evaluate whether my schedule is reasonable or not and provide details.\n2) Assess completion, overdue and on-time rates.\n3) Draw conclusions and suggest improvements."
         : "\nDựa trên danh sách trên, vui lòng đưa ra:\n1) Hãy đánh giá thời gian biểu của tôi một cách chi tiết phù hợp hay không hợp lý gì không.\n2) Đánh giá tỷ lệ hoàn thành, trễ hạn, đúng hạn.\n3) Rút ra kết luận, đưa ra hướng khắc phục."
     );
     return lines.join("\n");
-  };
-  const aiPrompt = buildAiPrompt();
+  }, [computedCounts, doneList, doingList, overdueList, upcomingList, language]);
 
-  const classifications = weekTasks.map((t) => {
-    if (t.completedFlag) {
-      if (t.completion_status === "late") return "overdue";
-      return "done";
-    }
-    return "doing";
-  });
+  const aiPrompt = buildAiPrompt();
 
   const totalTasks = computedCounts.total;
   const doneTasks = computedCounts.done;
@@ -558,7 +546,7 @@ export default function StatsScreen() {
       legendFontSize: 12,
     },
   ];
-  // If current range (week or month), include upcoming slice
+  
   const isCurrentRange = viewMode === "week" ? isCurrentWeek : isCurrentMonth;
   const pieDataWithUpcoming = isCurrentRange
     ? [
@@ -582,6 +570,7 @@ export default function StatsScreen() {
     (d) => weekData.occsForBar.filter((o) => isSameDay(o.start, d)).length
   );
   const maxWeekCount = useMemo(() => Math.max(0, ...weekCounts), [weekCounts]);
+  
   const monthDays = useMemo(() => {
     const days = [] as Date[];
     const d = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1);
@@ -591,10 +580,12 @@ export default function StatsScreen() {
     }
     return days;
   }, [monthStart, monthEnd]);
+  
   const monthLabels = useMemo(
     () => monthDays.map((d) => String(d.getDate())),
     [monthDays]
   );
+  
   const monthCounts = useMemo(
     () =>
       monthDays.map(
@@ -604,11 +595,13 @@ export default function StatsScreen() {
       ),
     [monthDays, monthData.occsForBar]
   );
+  
   const maxMonthCount = useMemo(
     () => Math.max(0, ...(monthCounts.length ? monthCounts : [0])),
     [monthCounts]
   );
-  // Classify occurrences taking into account recurring tasks and merge_streak.
+
+  // Classify occurrences - optimized to prevent infinite loops
   useEffect(() => {
     let cancelled = false;
     const compute = async () => {
@@ -618,7 +611,6 @@ export default function StatsScreen() {
           (viewMode === "week" ? weekData.occsForBar : monthData.occsForBar) ||
           [];
 
-        // Fixed cutoff policy: always use 23:59 as the end-of-day cutoff
         const cutoffEnabled = true;
         const cutoffString = '23:59';
 
@@ -645,7 +637,6 @@ export default function StatsScreen() {
           );
         };
 
-        // Group occurrences by recurrence id for optimized loading
         const nonMergeOccs: any[] = [];
         const mergeRecMap: Record<number, { task: any; rec: any }> = {};
         const nonRecOccs: any[] = [];
@@ -656,7 +647,6 @@ export default function StatsScreen() {
           if (!rec) {
             nonRecOccs.push(o);
           } else if (rec.merge_streak === 1) {
-            // collect a representative task+rec for this recurrence id
             if (rec.id != null && !mergeRecMap[rec.id])
               mergeRecMap[rec.id] = { task: base, rec };
           } else {
@@ -669,12 +659,9 @@ export default function StatsScreen() {
         const overdue: any[] = [];
         const upcoming: any[] = [];
 
-        // Non-recurring occurrences: use task.completedFlag or end time
         for (const o of nonRecOccs) {
           const t = o.baseTask;
           const isDone = !!t.completedFlag;
-          // Apply cutoff: when enabled and the occurrence falls on today's local date,
-          // extend effective deadline to the cutoff time for that date.
           let effectiveDeadline = o.end.getTime();
           if (
             cutoffEnabled &&
@@ -693,7 +680,6 @@ export default function StatsScreen() {
             end: o.end,
             priority: t.priority,
           };
-          // attach stored completion metadata if available from the base task
           if (t.completed_at) item.completed_at = t.completed_at;
           if (t.completion_diff_minutes != null) item.completion_diff_minutes = t.completion_diff_minutes;
           if (t.completion_status) item.completion_status = t.completion_status;
@@ -704,8 +690,6 @@ export default function StatsScreen() {
             upcoming.push(item);
         }
 
-        // Non-merge recurring occurrences: check completions per ymd
-        // Load completions and completion times per recurrence id to avoid repeated async calls
         const recGroups: Record<number, any[]> = {};
         for (const o of nonMergeOccs) {
           const rid = o.baseTask.recurrence_id;
@@ -722,7 +706,6 @@ export default function StatsScreen() {
             d.setHours(0, 0, 0, 0);
             const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
             const isDone = completions.has(ymd);
-            // Apply cutoff same as non-recurring: extend today's deadline to cutoff when enabled
             const dueMs = o.end.getTime();
             let effectiveDeadlineRec = dueMs;
             if (cutoffEnabled && isSameLocalDate(o.end.getTime(), now)) {
@@ -741,13 +724,11 @@ export default function StatsScreen() {
               priority: t.priority,
             };
 
-            // If we have a recorded completion time for this ymd, attach completed_at and compute minute diff & status
             const completionTs = times && times[ymd] != null ? times[ymd] : null;
             if (completionTs != null) {
               const completionMs = typeof completionTs === 'number' ? completionTs : Date.parse(String(completionTs));
               if (!isNaN(completionMs)) {
                 item.completed_at = new Date(completionMs).toISOString();
-                // Apply fixed cutoff semantics: early vs due; due->cutoff on_time (0p); late vs cutoff
                 try {
                   const cutoffForDue = parseCutoffMs(dueMs, cutoffString);
                   const withinSameDay = isSameLocalDate(completionMs, dueMs);
@@ -774,25 +755,20 @@ export default function StatsScreen() {
           }
         }
 
-        // Merge recurrences: count once per recurrence cycle; assign to week if last occurrence end falls inside week
         for (const ridStr of Object.keys(mergeRecMap)) {
           if (cancelled) break;
           const rid = Number(ridStr);
           const { task: baseTask, rec } = mergeRecMap[rid];
-          // compute planned occurrences for this recurrence
           const occsAll = plannedHabitOccurrences(baseTask, rec);
           if (!occsAll || occsAll.length === 0) continue;
-          // If any occurrence of the cycle intersects the week, we will count one item for the cycle in this week
           const intersects = occsAll.some(
             (o) =>
               !(o.endAt < weekStart.getTime() || o.startAt > weekEnd.getTime())
           );
           if (!intersects) continue;
 
-          // Determine if the cycle has been completed and when (based on per-day completion times)
           const completions = await getHabitCompletions(rid);
           const times = await getHabitCompletionTimes(rid);
-          // Build ymd list for the cycle
           const ymds: string[] = occsAll.map((o) => {
             const d = new Date(o.startAt);
             d.setHours(0, 0, 0, 0);
@@ -801,7 +777,6 @@ export default function StatsScreen() {
           const allDone = ymds.every((ymd) => completions.has(ymd));
           let completionTimestamp: number | null = null;
           if (allDone) {
-            // determine the completion time for the cycle as the latest recorded time among days
             let maxT = 0;
             for (const y of ymds) {
               const tt = times[y];
@@ -812,9 +787,6 @@ export default function StatsScreen() {
 
           const last = occsAll[occsAll.length - 1];
 
-          // Decide which week to attribute the done status to: only attribute done to this week
-          // if completionTimestamp falls inside [weekStart, weekEnd]. If completed earlier/later,
-          // we will not mark this cycle as done for the current week.
           if (allDone && completionTimestamp) {
             if (
               completionTimestamp >=
@@ -852,12 +824,10 @@ export default function StatsScreen() {
               done.push(item);
               continue;
             } else {
-              // completed outside this range: do not count here
               continue;
             }
           }
 
-          // Not fully completed within this week; determine overdue vs doing by last.endAt
           let effectiveDeadlineMerge = last.endAt;
           if (cutoffEnabled && isSameLocalDate(last.endAt, now)) {
             const cutoffForDate = parseCutoffMs(last.endAt, cutoffString);
@@ -882,8 +852,6 @@ export default function StatsScreen() {
         const total =
           done.length + doing.length + overdue.length + upcoming.length;
         if (!cancelled) {
-          // Only update state when contents actually changed to avoid
-          // causing unnecessary re-renders (which can lead to max update depth).
           const sameIds = (a: any[], b: any[]) => {
             if (a === b) return true;
             if (!a || !b) return false;
@@ -907,7 +875,6 @@ export default function StatsScreen() {
               overdue: overdue.length,
               upcoming: upcoming.length,
             };
-            // shallow compare
             if (
               prev.total === next.total &&
               prev.done === next.done &&
@@ -921,7 +888,7 @@ export default function StatsScreen() {
           });
         }
       } catch (e) {
-        // swallow errors to avoid breaking UI; keep previous lists
+        console.error('Compute error:', e);
       }
     };
     compute();
@@ -931,18 +898,17 @@ export default function StatsScreen() {
   }, [
     weekData.occsForBar,
     monthData.occsForBar,
-    mappedTasks,
-    recurrences,
+    viewMode,
+    isCurrentWeek,
+    isCurrentMonth,
     weekStart,
     weekEnd,
     monthStart,
     monthEnd,
-    viewMode,
   ]);
-  // update effect dependencies to include monthData and viewMode
 
   const renderTaskItem = ({ item }: { item: any }) => {
-  const time = item.start ? `${item.start.toLocaleString()}` : (language === "en" ? "No time" : "Không có giờ");
+    const time = item.start ? `${item.start.toLocaleString()}` : (language === "en" ? "No time" : "Không có giờ");
     const statusColor = item.completedFlag
       ? colors.positive
       : item.end && item.end.getTime() < Date.now()
@@ -971,44 +937,6 @@ export default function StatsScreen() {
       priorityLabel =
         priorityLabel.charAt(0).toUpperCase() + priorityLabel.slice(1);
 
-    // Compute minute delta / human-friendly minute label (prefer attached fields)
-    const computeMinuteLabel = () => {
-      // If we have an explicit completion diff (minutes), use it
-      const cDiff = (item as any).completion_diff_minutes;
-      const cStatus = (item as any).completion_status;
-      const completedAt = item.completed_at || (item.completed_at === null ? null : undefined);
-      if (cDiff != null) {
-        if (cStatus === 'on_time' || cDiff <= 0)
-          return language === "en" ? `on time / early ${Math.abs(cDiff)} minutes` : `đúng hạn / sớm ${Math.abs(cDiff)} phút`;
-        return language === "en" ? `late ${cDiff} minutes` : `trễ ${cDiff} phút`;
-      }
-      // If we have a completed timestamp but no diff, compute best-effort
-      if (item.completed_at) {
-        try {
-          const compMs = new Date(item.completed_at).getTime();
-          const dueMs = item.end ? item.end.getTime() : item.start ? item.start.getTime() : null;
-          if (dueMs) {
-            const diff = Math.round((compMs - dueMs) / 60000);
-            if (diff <= 0) return language === "en" ? `on time / early ${Math.abs(diff)} minutes` : `đúng hạn / sớm ${Math.abs(diff)} phút`;
-            return language === "en" ? `late ${diff} minutes` : `trễ ${diff} phút`;
-          }
-        } catch {}
-      }
-      // If not completed, but has an end time, show how many minutes until/after due
-      if (item.end) {
-        try {
-          const nowMs = Date.now();
-          const dueMs = item.end.getTime();
-          const diffNow = Math.round((nowMs - dueMs) / 60000);
-          if (diffNow > 0) return language === "en" ? `late ${diffNow} minutes` : `trễ ${diffNow} phút`;
-          return language === "en" ? `remaining ${Math.abs(diffNow)} minutes` : `còn ${Math.abs(diffNow)} phút`;
-        } catch {}
-      }
-      return null;
-    };
-
-    const minuteLabel = computeMinuteLabel();
-
     return (
       <View
         style={[
@@ -1031,7 +959,6 @@ export default function StatsScreen() {
         </View>
         <View style={styles.itemMeta}>
           <Text style={[styles.rowTime, { color: colors.muted }]}>{time}</Text>
-          {/* minute diff moved to AI prompt; do not show 'trễ/sớm/đúng hạn X phút' on the card */}
           {item.priority ? (
             <View
               style={[styles.priorityPill, { backgroundColor: priorityColor }]}
@@ -1041,8 +968,6 @@ export default function StatsScreen() {
           ) : null}
         </View>
       </View>
-
-      
     );
   };
 
@@ -1109,7 +1034,6 @@ export default function StatsScreen() {
     thường: "#2563EB",
   };
 
-  // --- per-course stats with taken counts up to today ---
   const perCourseStats = useMemo(() => {
     const map: Record<
       string,
@@ -1122,8 +1046,8 @@ export default function StatsScreen() {
         bu: number;
         thi: number;
         sessions: any[];
-        takenLyThuyet: number; // buổi LT đã học tới hôm nay
-        takenThucHanh: number; // buổi TH đã học tới hôm nay
+        takenLyThuyet: number;
+        takenThucHanh: number;
       }
     > = {};
     const todayEnd = new Date();
@@ -1165,9 +1089,6 @@ export default function StatsScreen() {
           break;
       }
 
-      // count taken occurrences up to today (best-effort):
-      // - if session has a start date (s.start) use it
-      // - if session has singleDate or startDate string, try to parse
       const occDate = s.start ?? s.singleDate ?? s.startDate ?? null;
       let occ: Date | null = null;
       if (occDate instanceof Date) occ = occDate;
@@ -1175,14 +1096,12 @@ export default function StatsScreen() {
         const d = new Date(occDate);
         if (!isNaN(d.getTime())) occ = d;
         else {
-          // try yyyy-MM-dd
           const m = occDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
           if (m) occ = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
         }
       }
 
       if (occ) {
-        // treat sessions with endAt if available
         const end = s.end ?? s.endAt ?? occ;
         const endDate = end instanceof Date ? end : new Date(end);
         if (endDate.getTime() <= todayEnd.getTime()) {
@@ -1190,19 +1109,15 @@ export default function StatsScreen() {
           else if (s.typeNormalized === "thực hành") map[key].takenThucHanh += 1;
         }
       } else {
-        // If no explicit date but there is an explicit date range (startDate & endDate),
-        // try approximate counting: if endDate <= today, count number of sessions in range.
         if (s.startDate && s.endDate) {
           const sd = new Date(s.startDate);
           const ed = new Date(s.endDate);
           if (!isNaN(sd.getTime()) && !isNaN(ed.getTime())) {
             if (ed.getTime() <= todayEnd.getTime()) {
-              // crude approximation: count days in range as sessions
               const days = Math.max(1, Math.floor((ed.getTime() - sd.getTime()) / (24 * 3600 * 1000)) + 1);
               if (s.typeNormalized === "lý thuyết") map[key].takenLyThuyet += days;
               else if (s.typeNormalized === "thực hành") map[key].takenThucHanh += days;
             } else if (sd.getTime() <= todayEnd.getTime() && ed.getTime() > todayEnd.getTime()) {
-              // partially happened up to today
               const days = Math.max(1, Math.floor((todayEnd.getTime() - sd.getTime()) / (24 * 3600 * 1000)) + 1);
               if (s.typeNormalized === "lý thuyết") map[key].takenLyThuyet += days;
               else if (s.typeNormalized === "thực hành") map[key].takenThucHanh += days;
@@ -1250,20 +1165,26 @@ export default function StatsScreen() {
     });
     return counts;
   }, [filteredSchedules]);
+  
   const maxSchedCount = useMemo(
     () => Math.max(0, ...weekCountsSched),
     [weekCountsSched]
   );
 
-  const onSelectWeek = (d: Date) => {
+  const onSelectWeek = useCallback((d: Date) => {
     setSelectedWeekStart(startOfWeek(d, { weekStartsOn: 1 }));
     setShowPicker(false);
-  };
+  }, []);
 
-  const onSelectMonth = (m: Date) => {
+  const onSelectMonth = useCallback((m: Date) => {
     setSelectedMonthStart(startOfMonth(m));
     setShowPicker(false);
-  };
+  }, []);
+
+  const onSelectYear = useCallback((year: number | null) => {
+    setSelectedYear(year);
+    setShowYearModal(false);
+  }, []);
 
   return (
     <ScrollView
@@ -1319,13 +1240,13 @@ export default function StatsScreen() {
             ]}
             onPress={() => setSelectedKind("tasks")}
           >
-              <Text
-                style={[
-                  styles.kindBtnText,
-                  selectedKind === "tasks" && styles.kindBtnTextActive,
-                  { color: selectedKind === "tasks" ? "#fff" : colors.text },
-                ]}
-              >
+            <Text
+              style={[
+                styles.kindBtnText,
+                selectedKind === "tasks" && styles.kindBtnTextActive,
+                { color: selectedKind === "tasks" ? "#fff" : colors.text },
+              ]}
+            >
               {language === "en" ? "Tasks" : "Công việc"}
             </Text>
           </TouchableOpacity>
@@ -1341,19 +1262,20 @@ export default function StatsScreen() {
             ]}
             onPress={() => setSelectedKind("schedules")}
           >
-              <Text
-                style={[
-                  styles.kindBtnText,
-                  selectedKind === "schedules" && styles.kindBtnTextActive,
-                  { color: selectedKind === "schedules" ? "#fff" : colors.text },
-                ]}
-              >
+            <Text
+              style={[
+                styles.kindBtnText,
+                selectedKind === "schedules" && styles.kindBtnTextActive,
+                { color: selectedKind === "schedules" ? "#fff" : colors.text },
+              ]}
+            >
               {language === "en" ? "Schedules" : "Lịch học"}
             </Text>
           </TouchableOpacity>
         </View>
       </View>
 
+      {/* Year Modal for Schedules */}
       <Modal
         visible={showYearModal && selectedKind === "schedules"}
         transparent
@@ -1364,14 +1286,16 @@ export default function StatsScreen() {
           style={[styles.modalOverlay, { backgroundColor: colors.modalBg }]}
           onPress={() => setShowYearModal(false)}
         >
-          <View style={[styles.weekModal, { backgroundColor: colors.panel }]}> 
+          <View style={[styles.weekModal, { backgroundColor: colors.panel }]}
+            onStartShouldSetResponder={() => true}
+          > 
             <Text style={{ fontWeight: "700", fontSize: 16, marginBottom: 8, color: colors.text }}>
               {language === "en" ? "Select year" : "Chọn năm"}
             </Text>
             <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ paddingVertical: 4 }}>
               <TouchableOpacity
                 style={[styles.weekModalItem, selectedYear == null && styles.weekModalItemActive, { backgroundColor: selectedYear == null ? colors.accent : colors.panel }]}
-                onPress={() => { setSelectedYear(null); setShowYearModal(false); }}
+                onPress={() => onSelectYear(null)}
               >
                 <Text style={[styles.weekModalItemText, selectedYear == null && styles.weekModalItemTextActive, { color: selectedYear == null ? '#fff' : colors.text }]}>
                   {language === "en" ? "All years" : "Tất cả"}
@@ -1383,7 +1307,7 @@ export default function StatsScreen() {
                   <TouchableOpacity
                     key={String(y)}
                     style={[styles.weekModalItem, isSelected && styles.weekModalItemActive, { backgroundColor: isSelected ? colors.accent : colors.panel }]}
-                    onPress={() => { setSelectedYear(y); setShowYearModal(false); }}
+                    onPress={() => onSelectYear(y)}
                   >
                     <Text style={[styles.weekModalItemText, isSelected && styles.weekModalItemTextActive, { color: isSelected ? '#fff' : colors.text }]}>{String(y)}</Text>
                   </TouchableOpacity>
@@ -1394,7 +1318,6 @@ export default function StatsScreen() {
         </Pressable>
       </Modal>
 
-      {/* AI suggestion quick action - only visible on Tasks view */}
       {selectedKind === "tasks" && (
         <View style={{ marginBottom: 12 }}>
           <TouchableOpacity
@@ -1406,6 +1329,7 @@ export default function StatsScreen() {
         </View>
       )}
 
+      {/* Week/Month Picker Modal */}
       <Modal
         visible={showPicker && selectedKind === "tasks"}
         transparent
