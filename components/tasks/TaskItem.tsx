@@ -4,6 +4,7 @@ import type { Task } from "../../types/Task";
 import type { Recurrence } from "../../types/Recurrence";
 import { computeHabitProgress, markHabitRange, markHabitToday, getTodayCompletionDelta, plannedHabitOccurrences, unmarkHabitToday, isHabitDoneOnDate, unmarkHabitRange, subscribeHabitProgress, unsubscribeHabitProgress } from "../../utils/habits";
 import { useLanguage } from "../../context/LanguageContext";
+import { useTheme } from "../../context/ThemeContext";
 
 type RepeatOption = { label: string; value: string };
 
@@ -37,6 +38,14 @@ export default function TaskItem({
   allMode = false,
 }: Props) {
   const { t } = useLanguage();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+  const colors = {
+    containerBg: isDark ? '#0b1220' : '#F8FAFF',
+    text: isDark ? '#E6EEF8' : '#111827',
+    muted: isDark ? '#C6D4E1' : '#374151',
+    border: isDark ? '#223049' : '#E5E7EB',
+  };
   const reminder = reminders.find((r) => r.task_id === item.id);
   const rec = item.recurrence_id
     ? recurrences.find((r) => r.id === item.recurrence_id)
@@ -414,7 +423,7 @@ export default function TaskItem({
   };
 
   return (
-    <View className="flex-row mb-3 bg-gray-50 rounded-xl">
+    <View className="flex-row mb-3 rounded-xl" style={{ backgroundColor: colors.containerBg, borderColor: colors.border, borderWidth: 1 }}>
       {/* Border-left màu theo priority */}
       <View
         className={`w-1 rounded-l-xl ${
@@ -429,9 +438,9 @@ export default function TaskItem({
 
       {/* Nội dung task */}
       <View className="flex-1 p-3">
-        <Text className="font-bold text-lg mb-1">{item.title}</Text>
+        <Text className="font-bold text-lg mb-1" style={{ color: colors.text }}>{item.title}</Text>
         {!!item.description && (
-          <Text className="text-gray-600 text-base mb-1">
+          <Text className="text-base mb-1" style={{ color: colors.muted }}>
             {item.description}
           </Text>
         )}
@@ -753,11 +762,11 @@ export default function TaskItem({
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => openEditModal(item)}>
-          <Text className="text-lg">✏️</Text>
+          <Text className="text-lg" style={{ color: colors.text }}>✏️</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => handleDeleteTask(item.id!)}>
-          <Text className="text-lg">🗑️</Text>
+          <Text className="text-lg" style={{ color: colors.text }}>🗑️</Text>
         </TouchableOpacity>
       </View>
 

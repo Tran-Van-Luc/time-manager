@@ -6,6 +6,7 @@ import type { Reminder} from "../../types/Reminder";
 import type { Recurrence } from "../../types/Recurrence";
 import TaskItem from "./TaskItem";
 import { useLanguage } from '../../context/LanguageContext';
+import { useTheme } from '../../context/ThemeContext';
 
 interface TaskListViewProps {
   filteredTasks: Task[];
@@ -35,6 +36,19 @@ export default function TaskListView({
   onInlineAlert,
 }: TaskListViewProps) {
   const { t } = useLanguage();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+  const colors = {
+    background: isDark ? '#071226' : '#fff',
+    surface: isDark ? '#0b1220' : '#FFFFFF',
+    cardBorder: isDark ? '#223049' : '#ddd',
+    text: isDark ? '#E6EEF8' : '#111827',
+    pillBg: isDark ? '#0f1724' : '#f5f5f5',
+    todayBorder: isDark ? '#60A5FA' : '#007AFF',
+    todayBg: isDark ? '#1e40af' : '#007AFF',
+    buttonBg: isDark ? '#0f172a' : '#FFFFFF',
+    buttonBorder: isDark ? '#223049' : '#ddd',
+  };
   if (loading) {
     return <Text>{t.tasks?.list?.loading}</Text>;
   }
@@ -225,21 +239,21 @@ export default function TaskListView({
   const sectionTitle = isSearching ? (t.tasks?.list?.searchResults || 'Search results') : dateLabel;
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       {!isSearching && (
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 as any, marginVertical: 8 }}>
-          <TouchableOpacity onPress={goPrevDay} style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}>
-            <Text style={{ fontSize: 18 }}>{'<'}</Text>
+          <TouchableOpacity onPress={goPrevDay} style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: colors.buttonBorder, borderRadius: 8, backgroundColor: colors.buttonBg }}>
+            <Text style={{ fontSize: 18, color: colors.text }}>{'<'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => { setShowDatePicker(true); }} style={{ paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: '#ddd', borderRadius: 20, backgroundColor: '#f5f5f5' }}>
-            <Text style={{ fontWeight: '600', fontSize: 16 }}>{dateLabel}</Text>
+          <TouchableOpacity onPress={() => { setShowDatePicker(true); }} style={{ paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 20, backgroundColor: colors.pillBg }}>
+            <Text style={{ fontWeight: '600', fontSize: 16, color: colors.text }}>{dateLabel}</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={goNextDay} style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}>
-            <Text style={{ fontSize: 18 }}>{'>'}</Text>
+          <TouchableOpacity onPress={goNextDay} style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: colors.buttonBorder, borderRadius: 8, backgroundColor: colors.buttonBg }}>
+            <Text style={{ fontSize: 18, color: colors.text }}>{'>'}</Text>
           </TouchableOpacity>
           <View style={{ position: 'relative', marginHorizontal: 6 }}>
-            <TouchableOpacity onPress={onPressToday} style={{ paddingVertical: 6, paddingHorizontal: 16, borderWidth: 1, borderColor: isTodaySelected ? '#007AFF' : '#ddd', borderRadius: 20, backgroundColor: isTodaySelected ? '#007AFF' : '#f5f5f5' }}>
-              <Text style={{ fontSize: 16, fontWeight: '600', color: isTodaySelected ? '#fff' : '#000' }}>{t.tasks?.list?.today}</Text>
+            <TouchableOpacity onPress={onPressToday} style={{ paddingVertical: 6, paddingHorizontal: 16, borderWidth: 1, borderColor: isTodaySelected ? colors.todayBorder : colors.cardBorder, borderRadius: 20, backgroundColor: isTodaySelected ? colors.todayBg : colors.pillBg }}>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: isTodaySelected ? '#fff' : colors.text }}>{t.tasks?.list?.today}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -266,7 +280,7 @@ export default function TaskListView({
         renderSectionFooter={({ section }) => (
           section.data.length === 0 ? (
             <View className="px-3 py-2">
-              <Text className="italic text-gray-500">{t.tasks?.list?.noTasks}</Text>
+              <Text className="italic" style={{ color: isDark ? '#C6D4E1' : '#6b7280' }}>{t.tasks?.list?.noTasks}</Text>
             </View>
           ) : null
         )}

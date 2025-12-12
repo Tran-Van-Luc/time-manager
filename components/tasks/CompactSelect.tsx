@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
+import { useTheme } from '../../context/ThemeContext';
 
 interface Option {
   label: string;
@@ -20,6 +21,16 @@ interface Props {
 // A simple inline dropdown that expands below the selector instead of full screen
 export default function CompactSelect({ value, onChange, options, placeholder = 'Chọn', maxHeight = 180, fontSizeClassName = 'text-sm', iconOnly = false, buttonStyle, menuWidth }: Props) {
   const [open, setOpen] = useState(false);
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+  const colors = {
+    text: isDark ? '#E6EEF8' : '#111827',
+    surface: isDark ? '#0b1220' : '#F8FAFF',
+    inputBg: isDark ? '#071226' : '#ffffff',
+    inputBorder: isDark ? '#223049' : '#D1D5DB',
+    cardBorder: isDark ? '#223049' : '#E5E7EB',
+    primary: '#2563eb',
+  };
 
   const currentLabel = useMemo(() => {
     const found = options.find(o => o.value === value);
@@ -36,15 +47,25 @@ export default function CompactSelect({ value, onChange, options, placeholder = 
       <TouchableOpacity
         activeOpacity={0.7}
         onPress={() => setOpen(o => !o)}
-        className="border rounded px-3 py-2 bg-white flex-row justify-between items-center"
-        style={buttonStyle}
+        style={{
+          borderWidth: 1,
+          borderColor: colors.inputBorder, // keep visible outer border
+          borderRadius: 6,
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          backgroundColor: colors.inputBg,
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          ...(buttonStyle || {}),
+        }}
       >
         {!iconOnly && (
-          <Text className={`${fontSizeClassName} font-medium`} numberOfLines={1}>{currentLabel}</Text>
+          <Text className={`${fontSizeClassName} font-medium`} numberOfLines={1} style={{ color: colors.text }}>{currentLabel}</Text>
         )}
         <Text
           className={`${iconOnly ? '' : 'ml-1'} ${fontSizeClassName}`}
-          style={iconOnly ? { fontSize: 15, lineHeight: 22, fontWeight: '700' } : undefined}
+          style={{ color: colors.text, ...(iconOnly ? { fontSize: 15, lineHeight: 22, fontWeight: '700' } : {}) }}
         >
           ▼
         </Text>
@@ -61,19 +82,43 @@ export default function CompactSelect({ value, onChange, options, placeholder = 
             onPress={() => setOpen(false)}
           />
           <View
-            className="mt-1 border rounded bg-white shadow"
-            style={{ maxHeight, overflow: 'hidden' }}
+            style={{
+              marginTop: 4,
+              borderWidth: 1,
+              borderColor: colors.cardBorder,
+              borderRadius: 6,
+              backgroundColor: colors.surface,
+              shadowColor: '#000',
+              shadowOpacity: isDark ? 0.35 : 0.15,
+              shadowRadius: 6,
+              shadowOffset: { width: 0, height: 3 },
+              maxHeight,
+              overflow: 'hidden',
+            }}
           >
             {options.map(item => {
               const selected = item.value === value;
+              const isLast = options[options.length - 1].value === item.value;
               return (
                 <TouchableOpacity
                   key={item.value}
                   onPress={() => handlePick(item.value)}
-                  className={`px-2 py-2 ${selected ? 'bg-blue-600' : ''}`}
                   activeOpacity={0.6}
+                  style={{
+                    paddingHorizontal: 8,
+                    paddingVertical: 8,
+                    backgroundColor: selected ? colors.primary : 'transparent',
+                    borderBottomWidth: isLast ? 0 : 1,
+                    borderBottomColor: colors.cardBorder,
+                  }}
                 >
-                  <Text numberOfLines={1} className={`${fontSizeClassName} ${selected ? 'text-white font-semibold' : 'text-black'}`}>{item.label}</Text>
+                  <Text
+                    numberOfLines={1}
+                    className={`${fontSizeClassName}`}
+                    style={{ color: selected ? '#fff' : colors.text, fontWeight: selected ? '600' as any : '400' as any }}
+                  >
+                    {item.label}
+                  </Text>
                 </TouchableOpacity>
               );
             })}
