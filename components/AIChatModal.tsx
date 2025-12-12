@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, Modal, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { View, Text, Modal, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '../context/LanguageContext';
 import { useTheme } from '../context/ThemeContext';
@@ -35,6 +35,16 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
   const [inputHeight, setInputHeight] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<ScrollView | null>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const inputRef = useRef<TextInput | null>(null);
+
+  // Use platform-specific behavior and offset
+  // Android: leave behavior undefined to avoid conflicts with adjustResize
+  const keyboardBehavior = useMemo<"padding" | undefined>(() => (Platform.OS === 'ios' ? 'padding' : undefined), []);
+  const keyboardOffset = useMemo(() => {
+    // On iOS, offset by safe area to keep content aligned
+    return Platform.OS === 'ios' ? insets.top : 0;
+  }, [insets.top]);
 
   useEffect(() => {
     if (!visible) return;
@@ -58,7 +68,7 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
 
         setLoading(true);
         try {
-          const endpoint = `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+          const endpoint = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
           const contents = [
             {
@@ -114,6 +124,23 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
     }
   }, [visible, initialPrompt]);
 
+  // Android-specific: manually adjust bottom padding when keyboard shows
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const showSub = Keyboard.addListener('keyboardDidShow', (e: any) => {
+      const h = e?.endCoordinates?.height ?? 0;
+      setKeyboardHeight(h);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+    });
+    return () => {
+      try { showSub?.remove?.(); } catch {}
+      try { hideSub?.remove?.(); } catch {}
+    };
+  }, []);
+
   const append = (role: 'user' | 'model', text: string) => {
     const sanitizeAIResponse = (t: string) => {
       try {
@@ -145,12 +172,14 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
       return;
     }
 
-    append('user', currentInput);
+    // Clear input first for instant feedback, then dismiss keyboard and send
     setInput('');
+    Keyboard.dismiss();
+    append('user', currentInput);
     setLoading(true);
 
     try {
-      const endpoint = `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+      const endpoint = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
       const contents = messages.map(m => ({
         role: m.role,
@@ -203,6 +232,8 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
     }
   };
 
+  // Directly call send() from UI handlers
+
   const clear = () => {
     setMessages([]);
     setInput('');
@@ -210,6 +241,11 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={keyboardBehavior}
+        keyboardVerticalOffset={keyboardOffset}
+      >
       <View style={{ 
         flex: 1, 
         backgroundColor: colors.surface,
@@ -372,63 +408,70 @@ export default function AIChatModal({ visible, onClose, initialPrompt }: Props) 
           )}
         </ScrollView>
 
-        {/* Input area - wrapped with KeyboardAvoidingView */}
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-        >
-          <View style={{ 
-            flexDirection: 'row', 
-            gap: 8, 
-            alignItems: 'flex-end',
-            paddingHorizontal: 12,
-            paddingTop: 8,
-            paddingBottom: Math.max(insets.bottom, 8),
-            backgroundColor: colors.surface,
-            borderTopWidth: 1,
-            borderTopColor: colors.cardBorder,
-          }}>
-            <TextInput
-              value={input}
-              onChangeText={setInput}
-              placeholder={language === 'en' ? 'Type your question...' : 'Gõ câu hỏi của bạn...'}
-              placeholderTextColor={colors.muted}
-              multiline
-              onContentSizeChange={(e) => setInputHeight(e.nativeEvent.contentSize.height)}
-              style={{
-                flex: 1,
-                borderWidth: 1,
-                borderColor: colors.inputBorder,
-                padding: 10,
-                borderRadius: 8,
-                maxHeight: 120,
-                minHeight: 40,
-                height: Math.min(Math.max(40, inputHeight || 40), 120),
-                textAlignVertical: 'top',
-                backgroundColor: colors.inputBg,
-                color: colors.text,
-              }}
-              scrollEnabled={true}
-            />
-            <TouchableOpacity 
-              onPress={send} 
-              disabled={loading} 
-              style={{ 
-                padding: 10, 
-                backgroundColor: colors.primary, 
-                borderRadius: 8, 
-                opacity: loading ? 0.5 : 1,
-                minHeight: 40,
-                justifyContent: 'center',
-              }}
-            >
-              <Text style={{ color: '#fff' }}>
-                {loading ? '...' : (language === 'en' ? 'Send' : 'Gửi')}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
+        {/* Input area - now inside global KeyboardAvoidingView */}
+        <View style={{ 
+          flexDirection: 'row', 
+          gap: 8, 
+          alignItems: 'flex-end',
+          paddingHorizontal: 12,
+          paddingTop: 8,
+          // Add keyboard height on Android to push input above keyboard
+          paddingBottom: Math.max(insets.bottom, 8) + (Platform.OS === 'android' ? keyboardHeight : 0),
+          backgroundColor: colors.surface,
+          borderTopWidth: 1,
+          borderTopColor: colors.cardBorder,
+        }}>
+          <TextInput
+            ref={inputRef}
+            value={input}
+            onChangeText={setInput}
+            placeholder={language === 'en' ? 'Type your question...' : 'Gõ câu hỏi của bạn...'}
+            placeholderTextColor={colors.muted}
+            multiline
+            onContentSizeChange={(e) => setInputHeight(e.nativeEvent.contentSize.height)}
+            // Auto-scroll to bottom when focusing input so it stays visible
+            onFocus={() => {
+              setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
+            }}
+            blurOnSubmit={false}
+            returnKeyType={Platform.OS === 'ios' ? 'send' : 'done'}
+            onSubmitEditing={() => {
+                if (!loading) send();
+            }}
+            style={{
+              flex: 1,
+              borderWidth: 1,
+              borderColor: colors.inputBorder,
+              padding: 10,
+              borderRadius: 8,
+              maxHeight: 120,
+              minHeight: 40,
+              height: Math.min(Math.max(40, inputHeight || 40), 120),
+              textAlignVertical: 'top',
+              backgroundColor: colors.inputBg,
+              color: colors.text,
+            }}
+            scrollEnabled={true}
+          />
+          <TouchableOpacity 
+            onPress={() => { if (!loading) send(); }} 
+            disabled={loading} 
+            style={{ 
+              padding: 10, 
+              backgroundColor: colors.primary, 
+              borderRadius: 8, 
+              opacity: loading ? 0.5 : 1,
+              minHeight: 40,
+              justifyContent: 'center',
+            }}
+          >
+            <Text style={{ color: '#fff' }}>
+              {loading ? '...' : (language === 'en' ? 'Send' : 'Gửi')}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

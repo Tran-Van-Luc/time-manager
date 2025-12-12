@@ -172,7 +172,7 @@ export default function VoiceTaskInput({ onParsed }: Props) {
         if (!GEMINI_API_KEY) {
           throw new Error('Thiếu khóa Gemini. Hãy đặt EXPO_PUBLIC_GEMINI_API_KEY trong môi trường.');
         }
-        const MODEL = 'gemini-2.0-flash';
+        const MODEL = 'gemini-2.5-flash';
         try { console.log('[AI] Sending prompt:', prompt); } catch {}
         const resp = await axios.post(
           `https://generativelanguage.googleapis.com/v1/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`,
@@ -180,7 +180,7 @@ export default function VoiceTaskInput({ onParsed }: Props) {
             contents: [
               { parts: [ { text: prompt } ] }
             ],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 700 },
+            generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
           }
         );
         const textOut: string = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';

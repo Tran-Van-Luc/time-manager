@@ -302,7 +302,7 @@ export default function CompletedScreen() {
       <View style={[s.container, { padding: 12 }]}>
         {/* Cutoff (luôn bật, không thể chỉnh sửa) */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginHorizontal: 4, marginBottom: 8 }}>
-          <Text style={{ color: '#666' }}>Tổng hợp hoàn thành vào lúc:</Text>
+          <Text style={{ color: '#666' }}>Hoàn thành trước mốc sau sẽ không bị tính trễ:</Text>
           {/* Thay TouchableOpacity bằng View không thể nhấn */}
           <View style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#E5E7EB', borderRadius: 8 }}>
             <Text style={{ color: '#111' }}>{cutoffString || '23:59'}</Text>
