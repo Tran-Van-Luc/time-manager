@@ -12,6 +12,7 @@ import {
   Platform,
 } from 'react-native';
 import axios from 'axios';
+import { useLanguage } from '../../context/LanguageContext';
 
 // Note: NewTaskData type above is not exported in that hook file currently. The component
 // uses a loose typing for the parsed payload to avoid tight coupling. Parent should
@@ -41,6 +42,7 @@ interface Props {
 }
 
 export default function VoiceTaskInput({ onParsed }: Props) {
+  const { t, language } = useLanguage();
   const [isProcessing, setIsProcessing] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [showInputModal, setShowInputModal] = useState(false);
@@ -89,10 +91,10 @@ export default function VoiceTaskInput({ onParsed }: Props) {
         return true;
       }
       const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO, {
-        title: 'Quyền ghi âm',
-        message: 'Ứng dụng cần quyền ghi âm để nhận diện giọng nói',
-        buttonPositive: 'Cho phép',
-        buttonNegative: 'Hủy',
+        title: t.tasks?.voice?.permissionTitle || 'Microphone permission',
+        message: t.tasks?.voice?.permissionMsg || 'The app needs microphone access to recognize speech.',
+        buttonPositive: t.tasks?.voice?.allow || 'Allow',
+        buttonNegative: t.tasks?.voice?.deny || (t.settings?.close || 'Cancel'),
       });
       const ok = granted === PermissionsAndroid.RESULTS.GRANTED;
       setHasMicPermission(ok);
@@ -120,18 +122,18 @@ export default function VoiceTaskInput({ onParsed }: Props) {
 
   const onSpeechError = (e: any) => {
     console.error('speech error', e);
-    Alert.alert('Lỗi nhận diện giọng nói', (e && e.error && e.error.message) || 'Không thể nhận diện giọng nói');
+    Alert.alert(t.tasks?.voice?.speechErrorTitle || 'Speech recognition error', (e && e.error && e.error.message) || (t.tasks?.voice?.speechErrorMsg || 'Unable to recognize speech'));
     setIsRecording(false);
   };
 
   const startRecording = async () => {
     if (!voiceAvailable || !VoiceRef.current) {
-      Alert.alert('Không hỗ trợ', 'Tính năng nhận diện giọng nói chưa được cài đặt trên thiết bị này.');
+      Alert.alert(t.tasks?.voice?.notSupportedTitle || 'Not supported', t.tasks?.voice?.notSupportedMsg || 'Speech recognition is not available on this device.');
       return;
     }
     const ok = await requestAndroidRecordPermission();
     if (!ok) {
-      Alert.alert('Quyền bị từ chối', 'Không thể ghi âm vì quyền bị từ chối');
+      Alert.alert(t.tasks?.voice?.permissionDeniedTitle || 'Permission denied', t.tasks?.voice?.permissionDeniedMsg || 'Cannot record because permission was denied.');
       return;
     }
     try {
@@ -139,13 +141,13 @@ export default function VoiceTaskInput({ onParsed }: Props) {
       if (V && V.onSpeechResults) V.onSpeechResults = onSpeechResults;
       if (V && V.onSpeechEnd) V.onSpeechEnd = () => setIsRecording(false);
       if (V && V.onSpeechError) V.onSpeechError = onSpeechError;
-      const locale = Platform.OS === 'ios' ? 'vi_VN' : 'vi-VN';
+      const locale = Platform.OS === 'ios' ? (language === 'en' ? 'en_US' : 'vi_VN') : (language === 'en' ? 'en-US' : 'vi-VN');
       await V.start(locale).catch(async () => await V.start('en-US'));
       setIsRecording(true);
     } catch (err) {
       console.error('start recording failed', err);
       setIsRecording(false);
-      Alert.alert('Lỗi', 'Không thể bắt đầu nhận diện giọng nói');
+      Alert.alert(t.tasks?.voice?.errorTitle || 'Error', t.tasks?.voice?.processErrorMsg || 'Cannot start speech recognition');
     }
   };
 
@@ -170,7 +172,7 @@ export default function VoiceTaskInput({ onParsed }: Props) {
         if (!GEMINI_API_KEY) {
           throw new Error('Thiếu khóa Gemini. Hãy đặt EXPO_PUBLIC_GEMINI_API_KEY trong môi trường.');
         }
-        const MODEL = 'gemini-2.0-flash';
+        const MODEL = 'gemini-2.5-flash';
         try { console.log('[AI] Sending prompt:', prompt); } catch {}
         const resp = await axios.post(
           `https://generativelanguage.googleapis.com/v1/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`,
@@ -178,7 +180,7 @@ export default function VoiceTaskInput({ onParsed }: Props) {
             contents: [
               { parts: [ { text: prompt } ] }
             ],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 700 },
+            generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
           }
         );
         const textOut: string = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
@@ -332,7 +334,7 @@ export default function VoiceTaskInput({ onParsed }: Props) {
 
       // Build strict task prompt and include today's markers for resolving relative dates
       const todayISO = new Date().toISOString().split('T')[0];
-      const todayHuman = new Date().toLocaleDateString('vi-VN');
+      const todayHuman = new Date().toLocaleDateString(language === 'en' ? 'en-US' : 'vi-VN');
       const composedText = `${text}\n\nHIDDEN_TODAY_ISO: ${todayISO}\nHIDDEN_TODAY_HUMAN: ${todayHuman}`;
       const fullTaskPrompt = `Bạn là trợ lý phân tích cho MODAL THÊM CÔNG VIỆC dưới đây. Các trường thực tế người dùng có trong giao diện:
 1. Tiêu đề (title)
@@ -581,7 +583,7 @@ VĂN BẢN GỐC:
   onParsed(payload);
     } catch (err: any) {
       console.error('Process error (task)', err);
-      Alert.alert('Lỗi', err?.message || 'Không thể phân tích. Vui lòng thử lại.');
+      Alert.alert(t.tasks?.voice?.errorTitle || 'Error', err?.message || (t.tasks?.voice?.processErrorMsg || 'Cannot analyze. Please try again.'));
     } finally {
       setIsProcessing(false);
     }
@@ -596,7 +598,7 @@ VĂN BẢN GỐC:
 
   const handleSubmit = async () => {
     if (!tempInput.trim()) {
-      Alert.alert('Lỗi', 'Vui lòng nhập mô tả công việc');
+      Alert.alert(t.tasks?.voice?.errorTitle || 'Error', t.tasks?.voice?.emptyInputMsg || 'Please enter a task description');
       return;
     }
     setShowInputModal(false);
@@ -617,32 +619,20 @@ VĂN BẢN GỐC:
           ) : (
             <>
               <Text style={styles.buttonIcon}>✨</Text>
-              <Text style={styles.buttonText}>Thêm công việc bằng AI</Text>
+              <Text style={styles.buttonText}>{t.tasks?.voice?.addWithAI || 'Add task with AI'}</Text>
             </>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.micButton, (isRecording ? styles.micButtonActive : {}), (!voiceAvailable || isProcessing) ? styles.micButtonDisabled : {}]}
-          onPress={() => { if (isRecording) stopRecording(); else startRecording(); }}
-          disabled={!voiceAvailable || isProcessing}
-        >
-          {isRecording ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Text style={styles.micIcon}>🎤</Text>
           )}
         </TouchableOpacity>
       </View>
 
       {isRecording ? (
         <View style={[styles.transcriptBox, { backgroundColor: '#fff3f3', borderColor: '#ff5252' }]}> 
-          <Text style={[styles.transcriptLabel, { color: '#b71c1c' }]}>🔴 Đang ghi âm...</Text>
-          <Text style={[styles.transcriptText, { color: '#b71c1c' }]}>Nói để thêm công việc — quá trình sẽ tự động phân tích khi dừng.</Text>
+          <Text style={[styles.transcriptLabel, { color: '#b71c1c' }]}>{t.tasks?.voice?.recordingLabel || '🔴 Recording...'}</Text>
+          <Text style={[styles.transcriptText, { color: '#b71c1c' }]}>{t.tasks?.voice?.recordingHint || 'Speak to add a task — analysis will run when you stop.'}</Text>
         </View>
       ) : transcript ? (
         <View style={styles.transcriptBox}>
-          <Text style={styles.transcriptLabel}>✅ Đã phân tích:</Text>
+          <Text style={styles.transcriptLabel}>{t.tasks?.voice?.analyzedLabel || '✅ Analyzed:'}</Text>
           <Text style={styles.transcriptText}>{transcript}</Text>
         </View>
       ) : null}
@@ -656,7 +646,7 @@ VĂN BẢN GỐC:
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Nhập mô tả công việc</Text>
+              <Text style={styles.modalTitle}>{t.tasks?.voice?.inputTitle || 'Enter task description'}</Text>
               <TouchableOpacity onPress={() => setShowInputModal(false)}>
                 <Text style={styles.closeButton}>✕</Text>
               </TouchableOpacity>
@@ -664,7 +654,7 @@ VĂN BẢN GỐC:
 
             <TextInput
             style={styles.textInput}
-            placeholder="VD: Chuẩn bị báo cáo tiến độ tuần — bắt đầu 09:00, kết thúc 11:30 ngày 15/11, ưu tiên cao, nhắc 40 phút trước, lặp hàng tháng, tự động hoàn thành."
+            placeholder={t.tasks?.voice?.inputPlaceholder || 'e.g., Prepare weekly progress report — start 09:00, end 11:30 on 11/15, high priority, remind 40 minutes before, repeat monthly, auto-complete when expired.'}
             placeholderTextColor="#999"
             value={tempInput}
             onChangeText={setTempInput}
@@ -680,13 +670,13 @@ VĂN BẢN GỐC:
                 style={[styles.modalButton, styles.cancelButton]}
                 onPress={() => setShowInputModal(false)}
               >
-                <Text style={styles.cancelButtonText}>Hủy</Text>
+                <Text style={styles.cancelButtonText}>{t.tasks?.cancel || t.settings?.close || 'Cancel'}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalButton, styles.submitButton]}
                 onPress={handleSubmit}
               >
-                <Text style={styles.submitButtonText}>Phân tích</Text>
+                <Text style={styles.submitButtonText}>{t.tasks?.voice?.analyze || 'Analyze'}</Text>
               </TouchableOpacity>
             </View>
           </View>

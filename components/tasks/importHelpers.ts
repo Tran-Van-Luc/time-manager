@@ -378,16 +378,21 @@ const getCell = (row: any, primary: string, aliases: string[] = []): any => {
 
 export type ParseResult = { rows: ParsedRow[]; errors: string[] };
 
-export async function parseFile(uri: string, options?: { dryRun?: boolean }): Promise<ParseResult> {
+export async function parseFile(uri: string, options?: { dryRun?: boolean; language?: "vi" | "en" }): Promise<ParseResult> {
   const dryRun = !!options?.dryRun;
+  const language = options?.language === "en" ? "en" : "vi";
   const base64 = await FileSystem.readAsStringAsync(uri, {
     encoding: FileSystem.EncodingType.Base64,
   });
   const wb = XLSX.read(base64, { type: "base64", cellDates: true });
 
-  const ws_tasks = wb.Sheets["Công việc"];
+  // Support both Vietnamese and English sheet names
+  const ws_tasks = wb.Sheets["Công việc"] || wb.Sheets["Tasks"];
   if (!ws_tasks) {
-    throw new Error("Sheet 'Công việc' không tồn tại trong file Excel.");
+    const msg = language === "en"
+      ? "Sheet 'Tasks' does not exist in the Excel file."
+      : "Sheet 'Công việc' không tồn tại trong file Excel.";
+    throw new Error(msg);
   }
 
   // Xác định dòng header linh hoạt (hỗ trợ cả template có 1 hay 2 dòng hướng dẫn)
@@ -432,7 +437,13 @@ export async function parseFile(uri: string, options?: { dryRun?: boolean }): Pr
     return s || "";
   };
   const cellRef = (idx: number, displayName: string) =>
-    idx >= 0 ? `Cột ${toColumnLetter(idx)} (${displayName})` : `Cột '${displayName}'`;
+    idx >= 0
+      ? (language === "en"
+          ? `Column ${toColumnLetter(idx)} (${displayName})`
+          : `Cột ${toColumnLetter(idx)} (${displayName})`)
+      : (language === "en"
+          ? `Column '${displayName}'`
+          : `Cột '${displayName}'`);
 
   // Ghi nhớ vị trí một số cột quan trọng để thông báo lỗi chi tiết
   const idxTitle = findHeaderIndex(["Tiêu đề", "Title"]);
@@ -1007,7 +1018,53 @@ export async function parseFile(uri: string, options?: { dryRun?: boolean }): Pr
     }
   }
 
-  return { rows: rowsOut, errors };
+  // Translate accumulated errors to English if requested
+  const translateErrorsToEnglish = (list: string[]) => {
+    const mapPairs: Array<[RegExp, string]> = [
+      [/\bDòng\b/g, "Row"],
+      [/\bCột\b/g, "Column"],
+      [/Tiêu đề/gi, "Title"],
+      [/Ngày bắt đầu/gi, "Start Date"],
+      [/Giờ bắt đầu/gi, "Start Time"],
+      [/Giờ kết thúc/gi, "End Time"],
+      [/Nhắc trước/gi, "Remind Before"],
+      [/Phương thức nhắc/gi, "Method"],
+      [/Lặp theo/gi, "Frequency"],
+      [/Ngày trong tuần/gi, "Days Of Week"],
+      [/Ngày trong tháng/gi, "Days Of Month"],
+      [/Ngày kết thúc lặp/gi, "Repeat End Date"],
+      [/Số lần lặp\/năm/gi, "Yearly Count"],
+      [/Gộp nhiều ngày/gi, "Merge Streak"],
+      [/không tồn tại/gi, "does not exist"],
+      [/không hợp lệ/gi, "invalid"],
+      [/không đúng/gi, "incorrect"],
+      [/bắt buộc/gi, "required"],
+      [/trống/gi, "empty"],
+      [/thiếu/gi, "missing"],
+      [/định dạng/gi, "format"],
+      [/Không thể/gi, "Unable to"],
+      [/Vui lòng/gi, "Please"],
+      [/không được/gi, "not allowed"],
+      [/không phù hợp/gi, "not applicable"],
+      [/không khớp/gi, "does not match"],
+      [/trước/gi, "before"],
+      [/sau/gi, "after"],
+      [/lớn hơn/gi, "greater than"],
+      [/nhỏ hơn/gi, "less than"],
+      [/hôm nay/gi, "today"],
+      [/tương lai/gi, "future"],
+    ];
+    return list.map((s) => {
+      let out = s;
+      for (const [re, en] of mapPairs) {
+        out = out.replace(re, en);
+      }
+      return out;
+    });
+  };
+
+  const finalErrors = language === "en" ? translateErrorsToEnglish(errors) : errors;
+  return { rows: rowsOut, errors: finalErrors };
 }
 
 export async function exportTemplate() {

@@ -179,14 +179,6 @@ export default function SettingsScreen() {
         {/* Group 2 */}
         <View style={[styles.group, { borderColor: colors.border }]}>
           <Row
-            icon="🧩"
-            title={t.settings.utilities}
-            right={<AntDesign name="right" size={18} color={colors.subtleText} />}
-            onPress={() => setShowWidget(true)}
-          />
-          <View style={[styles.rowDivider, { backgroundColor: colors.subtleText }]} />
-
-          <Row
             icon="💾"
             title={t.settings.dataManagement}
             right={<AntDesign name="right" size={18} color={colors.subtleText} />}

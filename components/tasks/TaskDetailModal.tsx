@@ -3,6 +3,8 @@ import { View, Text, TouchableOpacity, Modal, ScrollView, Alert } from "react-na
 import type { Task } from "../../types/Task";
 import type { Recurrence } from "../../types/Recurrence";
 import { REPEAT_OPTIONS } from "../../constants/taskConstants";
+import { useLanguage } from "../../context/LanguageContext";
+import { useTheme } from "../../context/ThemeContext";
 import {
   autoCompletePastIfEnabled,
   computeHabitProgress,
@@ -44,6 +46,24 @@ export default function TaskDetailModal({
   onInlineAlert,
 }: TaskDetailModalProps) {
   // --- Start of Hooks ---
+  const { t } = useLanguage();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+  const colors = {
+    backdrop: 'rgba(0,0,0,0.4)',
+    surface: isDark ? '#0b1220' : '#FFFFFF',
+    text: isDark ? '#E6EEF8' : '#111827',
+    muted: isDark ? '#C6D4E1' : '#374151',
+    border: isDark ? '#223049' : '#E5E7EB',
+    chipGrayBg: isDark ? '#1f2937' : '#e5e7eb',
+    chipGrayText: isDark ? '#C6D4E1' : '#6b7280',
+    chipBlueBg: isDark ? '#1e3a8a' : '#dbeafe',
+    chipBlueText: isDark ? '#93c5fd' : '#2563eb',
+    chipGreenBg: isDark ? '#064e3b' : '#dcfce7',
+    chipGreenText: isDark ? '#86efac' : '#16a34a',
+    chipPurpleBg: isDark ? '#4c1d95' : '#ede9fe',
+    chipPurpleText: isDark ? '#c4b5fd' : '#6d28d9',
+  };
   
   const { editTask } = useTasks();
 
@@ -327,11 +347,11 @@ export default function TaskDetailModal({
         if (onInlineAlert) {
           onInlineAlert({
             tone: 'warning',
-            title: 'Không thể bỏ hoàn thành ⛔',
-            message: `Công việc này bị trùng thời gian với công việc khác đang hoạt động:\n\n${list}\n\nVui lòng giải quyết xung đột trước.`,
+            title: t.tasks?.item?.uncompleteBlockedTitle ?? 'Không thể bỏ hoàn thành ⛔',
+            message: (t.tasks?.item?.uncompleteBlockedMsgGeneric ?? ((lst: string) => `Công việc này bị trùng thời gian với công việc khác đang hoạt động:\n\n${lst}\n\nVui lòng giải quyết xung đột trước.`))(list),
           });
         } else {
-          Alert.alert('Không thể bỏ hoàn thành', `Công việc này bị trùng thời gian với công việc khác đang hoạt động:\n\n${list}\n\nVui lòng giải quyết xung đột trước.`);
+          Alert.alert(t.tasks?.item?.uncompleteBlockedTitle ?? 'Không thể bỏ hoàn thành ⛔', (t.tasks?.item?.uncompleteBlockedMsgGeneric ?? ((lst: string) => `Công việc này bị trùng thời gian với công việc khác đang hoạt động:\n\n${lst}\n\nVui lòng giải quyết xung đột trước.`))(list));
         }
         return true;
       }
@@ -515,20 +535,20 @@ export default function TaskDetailModal({
 
   return (
     <Modal visible={visible} animationType="fade" transparent>
-      <View className="flex-1 bg-black/40 justify-center items-center">
-        <View className="bg-white w-11/12 p-4 rounded-lg max-h-[80%]">
+      <View className="flex-1 justify-center items-center" style={{ backgroundColor: colors.backdrop }}>
+        <View className="w-11/12 p-4 rounded-lg max-h-[80%]" style={{ backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }}>
           <View className="absolute right-2 top-2 z-10">
             <TouchableOpacity
               onPress={onClose}
               hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
             >
-              <Text className="text-xl">✖️</Text>
+              <Text className="text-xl" style={{ color: colors.text }}>✖️</Text>
             </TouchableOpacity>
           </View>
           
           <ScrollView>
             {/* Align visual layout with TaskItem */}
-            <View className="flex-row mb-1 bg-gray-50 rounded-xl">
+            <View className="flex-row mb-1 rounded-xl" style={{ backgroundColor: isDark ? '#0b1220' : '#F8FAFF', borderColor: colors.border, borderWidth: 1 }}>
               {/* Left priority strip */}
               <View
                 className={`w-1 rounded-l-xl ${priorityStripClass}`}
@@ -537,9 +557,9 @@ export default function TaskDetailModal({
 
               {/* Content */}
               <View className="flex-1 p-3">
-                <Text className="font-bold text-lg mb-1">{task.title}</Text>
+                <Text className="font-bold text-lg mb-1" style={{ color: colors.text }}>{task.title}</Text>
                 {!!task.description && (
-                  <Text className="text-gray-600 text-base mb-1">
+                  <Text className="text-base mb-1" style={{ color: colors.muted }}>
                     {task.description}
                   </Text>
                 )}
@@ -556,34 +576,34 @@ export default function TaskDetailModal({
                   return (
                     <View className="flex-row items-center mb-1 flex-wrap justify-between">
                       <View className="flex-row items-center mr-2">
-                        <Text className="text-gray-600 text-base mr-1">⏰</Text>
-                        <Text className="text-base text-blue-600 font-medium">{timeContent}</Text>
+                        <Text className="text-base mr-1" style={{ color: colors.muted }}>⏰</Text>
+                        <Text className="text-base font-medium" style={{ color: isDark ? '#93c5fd' : '#2563eb' }}>{timeContent}</Text>
                       </View>
 
                       <View className="flex-row flex-wrap items-center gap-1">
                         {task.status === "pending" && (
-                          <Text className="bg-gray-200 text-gray-600 rounded-full px-2 py-0.5 text-base border border-gray-600">
-                            Chờ thực hiện
+                          <Text style={{ backgroundColor: colors.chipGrayBg, color: colors.chipGrayText, borderColor: isDark ? '#475569' : '#6b7280', borderWidth: 1 }} className="rounded-full px-2 py-0.5 text-base">
+                            {t.tasks?.item?.statusPending ?? 'Chờ thực hiện'}
                           </Text>
                         )}
                         {task.status === "in-progress" && (
-                          <Text className="bg-blue-100 text-blue-600 rounded-full px-2 py-0.5 text-base border border-blue-600">
-                            Đang thực hiện
+                          <Text style={{ backgroundColor: colors.chipBlueBg, color: colors.chipBlueText, borderColor: isDark ? '#1d4ed8' : '#2563eb', borderWidth: 1 }} className="rounded-full px-2 py-0.5 text-base">
+                            {t.tasks?.item?.statusInProgress ?? 'Đang thực hiện'}
                           </Text>
                         )}
                         {task.status === 'completed' && (
-                          <Text className="bg-green-100 text-green-600 rounded-full px-2 py-0.5 text-base border border-green-600">Hoàn thành</Text>
+                          <Text style={{ backgroundColor: colors.chipGreenBg, color: colors.chipGreenText, borderColor: isDark ? '#16a34a' : '#16a34a', borderWidth: 1 }} className="rounded-full px-2 py-0.5 text-base">{t.tasks?.item?.statusCompleted ?? 'Hoàn thành'}</Text>
                         )}
 
                         {!!reminder && (
-                          <View className="flex-row items-center bg-blue-100 rounded-full px-2 py-0.5 border border-blue-600">
-                            <Text className="text-blue-600 text-base">🔔</Text>
+                          <View className="flex-row items-center rounded-full px-2 py-0.5" style={{ backgroundColor: colors.chipBlueBg, borderColor: isDark ? '#1d4ed8' : '#2563eb', borderWidth: 1 }}>
+                            <Text className="text-base" style={{ color: colors.chipBlueText }}>🔔</Text>
                           </View>
                         )}
 
                         {!!rec && (mergeStreak || (habitProgress && habitProgress.total > 1)) && (
-                          <View className="flex-row items-center bg-purple-100 rounded-full px-2 py-0.5 border border-purple-700">
-                            <Text className="text-purple-700 text-base">🔁</Text>
+                          <View className="flex-row items-center rounded-full px-2 py-0.5" style={{ backgroundColor: colors.chipPurpleBg, borderColor: isDark ? '#7c3aed' : '#6d28d9', borderWidth: 1 }}>
+                            <Text className="text-base" style={{ color: colors.chipPurpleText }}>🔁</Text>
                           </View>
                         )}
                       </View>
@@ -595,16 +615,16 @@ export default function TaskDetailModal({
                   <View className="mt-1 mb-2">
                     {/* Không hiển thị chữ 'Hoàn thành' cho công việc lặp gộp; vẫn hiện với không gộp khi có hoàn thành trong ngày */}
                     {!mergeStreak && todayDelta?.status ? (
-                      <Text className="text-green-600 mb-1">Hoàn thành</Text>
+                      <Text className="mb-1" style={{ color: isDark ? '#86efac' : '#16a34a' }}>{t.tasks?.item?.completedWord ?? 'Hoàn thành'}</Text>
                     ) : null}
                     <View className="flex-row items-center justify-between mb-1">
-                      <Text className="text-gray-700">Tiến độ</Text>
-                      <Text className="text-gray-800 font-medium">
-                        {habitProgress.completed}/{habitProgress.total} ({habitProgress.percent}%) {mergeStreak ? 'đã gộp' : ''}
+                      <Text style={{ color: colors.muted }}>{t.tasks?.item?.progressLabel ?? 'Tiến độ'}</Text>
+                      <Text className="font-medium" style={{ color: colors.text }}>
+                        {habitProgress.completed}/{habitProgress.total} ({habitProgress.percent}%) {mergeStreak ? (t.tasks?.item?.mergedSuffix ?? 'đã gộp') : ''}
                       </Text>
                     </View>
-                    <View className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                      <View style={{ width: `${habitProgress.percent}%` }} className="h-2 bg-green-500" />
+                    <View className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: isDark ? '#1f2937' : '#e5e7eb' }}>
+                      <View style={{ width: `${habitProgress.percent}%`, backgroundColor: isDark ? '#22c55e' : '#22c55e' }} className="h-2" />
                     </View>
                   </View>
                 )}
@@ -614,11 +634,11 @@ export default function TaskDetailModal({
               <View className="flex-col items-center justify-center gap-2 ml-2 min-w-[36px] mr-2 my-2">
                 <TouchableOpacity onPress={handleStatusToggle}>
                   {task.status === "completed" ? (
-                    <Text className="text-green-500 text-xl">✅</Text>
+                    <Text className="text-xl" style={{ color: isDark ? '#86efac' : '#16a34a' }}>✅</Text>
                   ) : task.status === "in-progress" ? (
-                    <Text className="text-yellow-400 text-xl">🟡</Text>
+                    <Text className="text-xl" style={{ color: isDark ? '#fde68a' : '#f59e0b' }}>🟡</Text>
                   ) : (
-                    <Text className="text-red-500 text-xl">⭕</Text>
+                    <Text className="text-xl" style={{ color: isDark ? '#fca5a5' : '#ef4444' }}>⭕</Text>
                   )}
                 </TouchableOpacity>
 
@@ -628,7 +648,7 @@ export default function TaskDetailModal({
                     onEdit(task);
                   }}
                 >
-                  <Text className="text-lg">✏️</Text>
+                  <Text className="text-lg" style={{ color: colors.text }}>✏️</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -637,7 +657,7 @@ export default function TaskDetailModal({
                     onClose();
                   }}
                 >
-                  <Text className="text-lg">🗑️</Text>
+                  <Text className="text-lg" style={{ color: colors.text }}>🗑️</Text>
                 </TouchableOpacity>
               </View>
             </View>

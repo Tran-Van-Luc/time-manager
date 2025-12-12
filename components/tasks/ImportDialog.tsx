@@ -14,6 +14,7 @@ import {
   ParsedRow,
   ParseResult,
 } from "./importHelpers";
+import { useLanguage } from "../../context/LanguageContext";
 
 type Props = {
   visible: boolean;
@@ -24,6 +25,28 @@ type Props = {
 export default function ImportDialog({ visible, onClose, onParsed }: Props) {
   const [path, setPath] = useState("");
   const [candidateUri, setCandidateUri] = useState<string | null>(null);
+  const { language } = useLanguage();
+
+  const isEn = language === "en";
+  const txt = {
+    title: isEn ? "Import Data from Excel" : "Nhập dữ liệu từ Excel",
+    pathLabel: isEn ? "Path" : "Đường dẫn",
+    pathPlaceholder: isEn ? "File path" : "Đường dẫn tệp",
+    browseFailTitle: isEn ? "Error" : "Lỗi",
+    browseFailMsg: isEn ? "Unable to pick a file. Please try again." : "Không thể chọn tệp. Vui lòng thử lại.",
+    exportBtn: isEn ? "Download Template" : "Tải mẫu",
+    exportFailTitle: isEn ? "Error" : "Lỗi",
+    exportFailMsg: isEn ? "Unable to export template file." : "Không thể xuất file mẫu.",
+    confirmBtn: isEn ? "Confirm" : "Đồng ý",
+    cancelBtn: isEn ? "Cancel" : "Hủy bỏ",
+    noFileTitle: isEn ? "No File" : "Không có tệp",
+    noFileMsg: isEn ? "Please choose a file to import." : "Vui lòng chọn tệp để nhập.",
+    importErrorTitle: isEn ? "Import Error" : "Lỗi nhập",
+    importErrorFallback: isEn
+      ? "Cannot read Excel file. Please check the format."
+      : "Không thể đọc tệp Excel. Vui lòng kiểm tra định dạng.",
+    importErrorClose: isEn ? "Close" : "Đóng",
+  };
 
   const browse = async () => {
     try {
@@ -40,7 +63,7 @@ export default function ImportDialog({ visible, onClose, onParsed }: Props) {
       }
     } catch (e) {
       console.warn("picker fail", e);
-      Alert.alert("Lỗi", "Không thể chọn tệp. Vui lòng thử lại.");
+      Alert.alert(txt.browseFailTitle, txt.browseFailMsg);
     }
   };
 
@@ -49,19 +72,19 @@ export default function ImportDialog({ visible, onClose, onParsed }: Props) {
       await exportTemplate();
     } catch (e) {
       console.warn("exportTemplate failed", e);
-      Alert.alert("Lỗi", "Không thể xuất file mẫu.");
+      Alert.alert(txt.exportFailTitle, txt.exportFailMsg);
     }
   };
 
   const handleConfirm = async () => {
     const uri = candidateUri || path;
     if (!uri) {
-      Alert.alert("Không có tệp", "Vui lòng chọn tệp để nhập.");
+      Alert.alert(txt.noFileTitle, txt.noFileMsg);
       return;
     }
     try {
       // First run parseFile in dryRun mode to ensure no partial writes occur.
-      const result: ParseResult = await parseFile(uri, { dryRun: true });
+      const result: ParseResult = await parseFile(uri, { dryRun: true, language });
       const rows = result.rows || [];
       const proceedWithRows = (rs: ParsedRow[]) => {
         onParsed(rs);
@@ -73,7 +96,7 @@ export default function ImportDialog({ visible, onClose, onParsed }: Props) {
           // Nếu có bất kỳ lỗi nào khi parse file thì KHÔNG được import bất kỳ dòng nào.
           // Hiển thị toàn bộ lỗi và yêu cầu người dùng sửa file trước khi thử lại.
           const errorMsg = result.errors.join("\n");
-          Alert.alert("Lỗi nhập", errorMsg, [{ text: "Đóng", style: "cancel" }]);
+          Alert.alert(txt.importErrorTitle, errorMsg, [{ text: txt.importErrorClose, style: "cancel" }]);
           return;
       }
 
@@ -84,8 +107,8 @@ export default function ImportDialog({ visible, onClose, onParsed }: Props) {
       const msg =
         e && e.message
           ? String(e.message)
-          : "Không thể đọc tệp Excel. Vui lòng kiểm tra định dạng.";
-      Alert.alert("Lỗi nhập", msg);
+          : txt.importErrorFallback;
+      Alert.alert(txt.importErrorTitle, msg);
     }
   };
 
@@ -109,9 +132,9 @@ export default function ImportDialog({ visible, onClose, onParsed }: Props) {
           }}
         >
           <Text style={{ fontSize: 18, fontWeight: "600", marginBottom: 12 }}>
-            Nhập dữ liệu từ Excel
+            {txt.title}
           </Text>
-          <Text style={{ marginBottom: 6 }}>Đường dẫn</Text>
+          <Text style={{ marginBottom: 6 }}>{txt.pathLabel}</Text>
           <View
             style={{
               flexDirection: "row",
@@ -122,7 +145,7 @@ export default function ImportDialog({ visible, onClose, onParsed }: Props) {
             <TextInput
               value={path}
               onChangeText={setPath}
-              placeholder="Đường dẫn tệp"
+              placeholder={txt.pathPlaceholder}
               style={{
                 flex: 1,
                 borderWidth: 1,
@@ -160,7 +183,7 @@ export default function ImportDialog({ visible, onClose, onParsed }: Props) {
                 borderRadius: 6,
               }}
             >
-              <Text>Tải mẫu</Text>
+              <Text>{txt.exportBtn}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={handleConfirm}
@@ -172,7 +195,7 @@ export default function ImportDialog({ visible, onClose, onParsed }: Props) {
                 borderRadius: 6,
               }}
             >
-              <Text style={{ color: "#fff" }}>Đồng ý</Text>
+              <Text style={{ color: "#fff" }}>{txt.confirmBtn}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => {
@@ -187,7 +210,7 @@ export default function ImportDialog({ visible, onClose, onParsed }: Props) {
                 borderRadius: 6,
               }}
             >
-              <Text style={{ color: "#fff" }}>Hủy bỏ</Text>
+              <Text style={{ color: "#fff" }}>{txt.cancelBtn}</Text>
             </TouchableOpacity>
           </View>
         </View>

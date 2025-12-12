@@ -28,6 +28,7 @@ let responseSub: Notifications.Subscription | null = null;
 let receivedSub: Notifications.Subscription | null = null;
 let alarmSound: Audio.Sound | null = null;
 let alarmPlaying = false;
+let alarmTimeout: any = null;
 
 async function startAlarmLoop() {
   try {
@@ -42,6 +43,11 @@ async function startAlarmLoop() {
     }
     await alarmSound.playAsync();
     alarmPlaying = true;
+    // Safety: auto-stop after 60 seconds to avoid endless ringing
+    if (alarmTimeout) clearTimeout(alarmTimeout);
+    alarmTimeout = setTimeout(() => {
+      stopAlarmLoop();
+    }, 60000);
   } catch (e) {
     console.warn('[Alarm] Failed to start alarm sound', e);
   }
@@ -49,8 +55,14 @@ async function startAlarmLoop() {
 
 async function stopAlarmLoop() {
   try {
-    if (alarmSound && alarmPlaying) {
-      await alarmSound.stopAsync();
+    if (alarmTimeout) { clearTimeout(alarmTimeout); alarmTimeout = null; }
+    if (alarmSound) {
+      if (alarmPlaying) {
+        await alarmSound.stopAsync();
+      }
+      // Unload to release system resources and prevent residual audio
+      try { await alarmSound.unloadAsync(); } catch {}
+      alarmSound = null;
     }
   } catch {}
   alarmPlaying = false;

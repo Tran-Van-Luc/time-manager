@@ -21,6 +21,7 @@ import SegmentedOptions from "./SegmentedOptions";
 import FloatingLabelInput from "./FloatingLabelInput";
 import ColoredSegmentGroup from "./ColoredSegmentGroup";
 import VoiceTaskInput from './VoiceTaskInput';
+import { useLanguage } from '../../context/LanguageContext';
 
 import { Dimensions } from 'react-native';
 
@@ -66,6 +67,7 @@ export default function TaskModal({
   Platform = RNPlatform,
   onInlineAlert,
 }: any) {
+  const { t } = useLanguage();
   // Local iOS picker visibility state (avoid changing parent props)
   const [iosShowStartDate, setIosShowStartDate] = useState(false);
   const [iosShowStartTime, setIosShowStartTime] = useState(false);
@@ -784,8 +786,8 @@ export default function TaskModal({
     if (startMs < nowPlus1h) {
       onInlineAlert?.({
         tone: 'warning',
-        title: 'Giờ bắt đầu chưa hợp lệ',
-        message: 'Vui lòng đặt giờ bắt đầu muộn hơn hiện tại ít nhất 1 giờ.'
+        title: t.tasks?.modal.invalidStartTitle!,
+        message: t.tasks?.modal.invalidStartMessage!
       });
       return;
     }
@@ -794,13 +796,13 @@ export default function TaskModal({
       // Weekly/monthly must have at least one selection
       if (repeatFrequency === "weekly") {
         if (!repeatDaysOfWeek || repeatDaysOfWeek.length === 0) {
-          onInlineAlert?.({ tone: 'warning', title: 'Thiếu ngày trong tuần', message: 'Vui lòng chọn ít nhất một ngày trong tuần.' });
+          onInlineAlert?.({ tone: 'warning', title: t.tasks?.modal.missingWeeklyDaysTitle!, message: t.tasks?.modal.missingWeeklyDaysMessage! });
           return;
         }
       }
       if (repeatFrequency === "monthly") {
         if (!repeatDaysOfMonth || repeatDaysOfMonth.length === 0) {
-          onInlineAlert?.({ tone: 'warning', title: 'Thiếu ngày trong tháng', message: 'Vui lòng chọn ít nhất một ngày trong tháng.' });
+          onInlineAlert?.({ tone: 'warning', title: t.tasks?.modal.missingMonthlyDaysTitle!, message: t.tasks?.modal.missingMonthlyDaysMessage! });
           return;
         }
       }
@@ -808,7 +810,7 @@ export default function TaskModal({
       if (repeatEndDate) {
         const endLimit = endOfDay(new Date(repeatEndDate)).getTime();
         if (startMs > endLimit) {
-          onInlineAlert?.({ tone: 'warning', title: 'Thời gian không hợp lệ', message: 'Ngày bắt đầu không thể sau ngày kết thúc lặp!' });
+          onInlineAlert?.({ tone: 'warning', title: t.tasks?.modal.startAfterEndTitle!, message: t.tasks?.modal.startAfterEndMessage! });
           return;
         }
       }
@@ -816,14 +818,14 @@ export default function TaskModal({
       // Yearly: require yearlyCount >= 2. Others: require repeatEndDate to be at or after the next occurrence.
       if (repeatFrequency === 'yearly') {
         if (yearlyCount === '' || typeof yearlyCount !== 'number' || yearlyCount < 2) {
-          onInlineAlert?.({ tone: 'warning', title: 'Số lần lặp không hợp lệ', message: 'Lặp theo năm phải ít nhất 2 lần.' });
+          onInlineAlert?.({ tone: 'warning', title: t.tasks?.modal.yearlyCountInvalidTitle!, message: t.tasks?.modal.yearlyCountInvalidMessage! });
           return;
         }
       } else {
         // For non-yearly frequencies, require end date (treat same-day as unset)
         const endDateUnsetOrSameDay = !repeatEndDate || (newTask.start_at && repeatEndDate && isSameCalendarDay(new Date(repeatEndDate), new Date(newTask.start_at)));
         if (endDateUnsetOrSameDay) {
-          onInlineAlert?.({ tone: 'warning', title: 'Thiếu ngày kết thúc lặp', message: 'Vui lòng chọn ngày kết thúc lặp để có ít nhất 2 lần.' });
+          onInlineAlert?.({ tone: 'warning', title: t.tasks?.modal.missingRepeatEndTitle!, message: t.tasks?.modal.missingRepeatEndMessage! });
           return;
         }
         // Enforce "at least 2 occurrences". For weekly/monthly use the actual next date from selected days.
@@ -846,7 +848,7 @@ export default function TaskModal({
           }
           const endLimit = endOfDay(new Date(repeatEndDate)).getTime();
           if (!secondMs || !endLimit || endLimit < secondMs) {
-            onInlineAlert?.({ tone: 'warning', title: 'Ngày kết thúc quá sớm', message: 'Ngày kết thúc lặp phải cho ít nhất 2 lần lặp.' });
+            onInlineAlert?.({ tone: 'warning', title: t.tasks?.modal.endTooEarlyTitle!, message: t.tasks?.modal.endTooEarlyMessage! });
             return;
           }
         }
@@ -874,8 +876,8 @@ export default function TaskModal({
     if (startChanged && startMs < nowPlus1h) {
       onInlineAlert?.({
         tone: 'warning',
-        title: 'Giờ bắt đầu chưa hợp lệ',
-        message: 'Vui lòng đặt giờ bắt đầu muộn hơn hiện tại ít nhất 1 giờ.'
+        title: t.tasks?.modal.invalidStartTitle!,
+        message: t.tasks?.modal.invalidStartMessage!
       });
       return;
     }
@@ -883,33 +885,33 @@ export default function TaskModal({
     if (repeat) {
       if (repeatFrequency === "weekly") {
         if (!repeatDaysOfWeek || repeatDaysOfWeek.length === 0) {
-          onInlineAlert?.({ tone: 'warning', title: 'Thiếu ngày trong tuần', message: 'Vui lòng chọn ít nhất một ngày trong tuần.' });
+          onInlineAlert?.({ tone: 'warning', title: t.tasks?.modal.missingWeeklyDaysTitle!, message: t.tasks?.modal.missingWeeklyDaysMessage! });
           return;
         }
       }
       if (repeatFrequency === "monthly") {
         if (!repeatDaysOfMonth || repeatDaysOfMonth.length === 0) {
-          onInlineAlert?.({ tone: 'warning', title: 'Thiếu ngày trong tháng', message: 'Vui lòng chọn ít nhất một ngày trong tháng.' });
+          onInlineAlert?.({ tone: 'warning', title: t.tasks?.modal.missingMonthlyDaysTitle!, message: t.tasks?.modal.missingMonthlyDaysMessage! });
           return;
         }
       }
       if (repeatEndDate) {
         const endLimit = endOfDay(new Date(repeatEndDate)).getTime();
         if (startMs > endLimit) {
-          onInlineAlert?.({ tone: 'warning', title: 'Thời gian không hợp lệ', message: 'Ngày bắt đầu không thể sau ngày kết thúc lặp!' });
+          onInlineAlert?.({ tone: 'warning', title: t.tasks?.modal.startAfterEndTitle!, message: t.tasks?.modal.startAfterEndMessage! });
           return;
         }
       }
       // Ensure the recurrence yields at least 2 occurrences.
       if (repeatFrequency === 'yearly') {
         if (yearlyCount === '' || typeof yearlyCount !== 'number' || yearlyCount < 2) {
-          onInlineAlert?.({ tone: 'warning', title: 'Số lần lặp không hợp lệ', message: 'Lặp theo năm phải ít nhất 2 lần.' });
+          onInlineAlert?.({ tone: 'warning', title: t.tasks?.modal.yearlyCountInvalidTitle!, message: t.tasks?.modal.yearlyCountInvalidMessage! });
           return;
         }
       } else {
         const endDateUnsetOrSameDay = !repeatEndDate || (newTask.start_at && repeatEndDate && isSameCalendarDay(new Date(repeatEndDate), new Date(newTask.start_at)));
         if (endDateUnsetOrSameDay) {
-          onInlineAlert?.({ tone: 'warning', title: 'Thiếu ngày kết thúc lặp', message: 'Vui lòng chọn ngày kết thúc lặp để có ít nhất 2 lần.' });
+          onInlineAlert?.({ tone: 'warning', title: t.tasks?.modal.missingRepeatEndTitle!, message: t.tasks?.modal.missingRepeatEndMessage! });
           return;
         }
         const needsMinTwo = (() => {
@@ -931,7 +933,7 @@ export default function TaskModal({
           }
           const endLimit = endOfDay(new Date(repeatEndDate)).getTime();
           if (!secondMs || !endLimit || endLimit < secondMs) {
-            onInlineAlert?.({ tone: 'warning', title: 'Ngày kết thúc quá sớm', message: 'Ngày kết thúc lặp phải cho ít nhất 2 lần lặp.' });
+            onInlineAlert?.({ tone: 'warning', title: t.tasks?.modal.endTooEarlyTitle!, message: t.tasks?.modal.endTooEarlyMessage! });
             return;
           }
         }
@@ -971,14 +973,14 @@ export default function TaskModal({
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 16 }}>
             <>
                 <Text className="text-lg font-bold mb-3">
-                  {editId === null ? "Thêm công việc mới" : "Sửa công việc"}
+                  {editId === null ? t.tasks?.modal.addTitle : t.tasks?.modal.editTitle}
                 </Text>
                 {/* AI / Voice quick add for tasks */}
                 <VoiceTaskInput onParsed={handleAIPopulate} />
                 {/* Chỉ hiển thị form thêm/sửa thủ công */}
                   <>
                 <FloatingLabelInput
-                  label="Tiêu đề"
+                  label={t.tasks?.modal.titleLabel}
                   required
                   value={newTask.title}
                   onChangeText={(t) => setNewTask((prev: any) => ({ ...prev, title: t }))}
@@ -986,7 +988,7 @@ export default function TaskModal({
                   returnKeyType="next"
                 />
                 <FloatingLabelInput
-                  label="Mô tả"
+                  label={t.tasks?.modal.descriptionLabel}
                   value={newTask.description}
                   onChangeText={(t) => setNewTask((prev: any) => ({ ...prev, description: t }))}
                   multiline
@@ -1020,7 +1022,7 @@ export default function TaskModal({
                             if (repeat && repeatEndDate) {
                               const endLimit = endOfDay(new Date(repeatEndDate)).getTime();
                               if (combined.getTime() > endLimit) {
-                                onInlineAlert?.({ tone: 'warning', title: 'Thời gian không hợp lệ', message: 'Ngày bắt đầu không thể sau ngày kết thúc lặp!' });
+                                onInlineAlert?.({ tone: 'warning', title: t.tasks?.modal.startAfterEndTitle!, message: t.tasks?.modal.startAfterEndMessage! });
                                 return;
                               }
                             }
@@ -1043,7 +1045,7 @@ export default function TaskModal({
                   className="border p-2 rounded mb-2 bg-gray-50 flex-row items-center justify-between"
                 >
                   <Text>
-                    Ngày bắt đầu* : {newTask.start_at ? formatDate(new Date(newTask.start_at)) : "--"}
+                    {t.tasks?.modal.startDateLabel} : {newTask.start_at ? formatDate(new Date(newTask.start_at)) : "--"}
                   </Text>
                 </TouchableOpacity>
                 {Platform.OS === "ios" && iosShowStartDate && (
@@ -1104,7 +1106,7 @@ export default function TaskModal({
                             const minStart = oneHourFromNow();
                             // Disallow choosing a start earlier than minStart
                             if (combined.getTime() < minStart.getTime()) {
-                              onInlineAlert?.({ tone:'warning', title:'Thời gian không hợp lệ', message: 'Vui lòng đặt giờ bắt đầu muộn hơn hiện tại ít nhất 1 giờ' });
+                              onInlineAlert?.({ tone:'warning', title: t.tasks?.modal.invalidStartTitle!, message: t.tasks?.modal.invalidStartMessage! });
                               return;
                             }
                             // If repeating, start must not be after repeat end date (inclusive end-of-day)
@@ -1132,7 +1134,7 @@ export default function TaskModal({
                   }}
                   className="border p-2 rounded mb-2 bg-gray-50 flex-row items-center justify-between"
                 >
-                  <Text>Giờ bắt đầu* : {newTask.start_at ? formatTime(new Date(newTask.start_at)) : "--"}</Text>
+                  <Text>{t.tasks?.modal.startTimeLabel} : {newTask.start_at ? formatTime(new Date(newTask.start_at)) : "--"}</Text>
                 </TouchableOpacity>
                 {Platform.OS === "ios" && iosShowStartTime && (
                   <DateTimePicker
@@ -1203,7 +1205,7 @@ export default function TaskModal({
                   className="border p-2 rounded mb-2 bg-gray-50"
                 >
                   <Text>
-                    Giờ kết thúc* : {newTask.end_at ? formatTime(getEndDateObj()) : "--"}
+                    {t.tasks?.modal.endTimeLabel} : {newTask.end_at ? formatTime(getEndDateObj()) : "--"}
                   </Text>
                 </TouchableOpacity>
                 {Platform.OS === "ios" && iosShowEndTime && (
@@ -1217,7 +1219,7 @@ export default function TaskModal({
                         const combined = combineDateTime(getStartDateObj(), pickedTime);
                         const startMs = newTask.start_at || getStartDateObj().getTime();
                         if (combined.getTime() <= startMs) {
-                          onInlineAlert?.({ tone:'warning', title:'Thời gian không hợp lệ', message:'Giờ kết thúc phải sau giờ bắt đầu!' });
+                          onInlineAlert?.({ tone:'warning', title: t.tasks?.modal.invalidTimeTitle!, message: t.tasks?.modal.invalidTimeMessageEndAfterStart! });
                           return;
                         }
                         setNewTask((prev: any) => ({
@@ -1231,7 +1233,7 @@ export default function TaskModal({
 
                 {/* Mức độ */}
                 <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2">
-                  <Text className="ml-1 mt-0.5 mb-2 font-medium">Mức độ</Text>
+                  <Text className="ml-1 mt-0.5 mb-2 font-medium">{t.tasks?.modal.priorityLabel}</Text>
                   <View className="flex-row flex-wrap">
                     {PRIORITY_OPTIONS.map((o: any) => {
                       const val = o.value;
@@ -1289,8 +1291,8 @@ export default function TaskModal({
                           setReminder(false);
                           onInlineAlert?.({
                             tone: 'warning',
-                            title: 'Cần quyền thông báo',
-                            message: 'Vui lòng cấp quyền thông báo để bật nhắc nhở.'
+                            title: t.tasks?.modal.needNotificationPermissionTitle!,
+                            message: t.tasks?.modal.needNotificationPermissionMsg!
                           });
                         } else {
                           setNotificationPermissionGranted(true);
@@ -1302,7 +1304,7 @@ export default function TaskModal({
                       }
                     }}
                   />
-                  <Text className="ml-2">Bật nhắc nhở</Text>
+                  <Text className="ml-2">{t.tasks?.modal.reminderToggle}</Text>
                   {reminderTogglePending ? (
                     <ActivityIndicator size="small" color="#1d4ed8" style={{ marginLeft: 8 }} />
                   ) : null}
@@ -1311,7 +1313,7 @@ export default function TaskModal({
                   <>
                     <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2">
                       <Text className="ml-1 mt-0.5 mb-1 font-medium">
-                        Nhắc trước
+                        {t.tasks?.modal.reminderLeadLabel}
                       </Text>
                       <ColoredSegmentGroup
                         value={customReminderMode ? "__custom__" : reminderTime.toString()}
@@ -1338,13 +1340,13 @@ export default function TaskModal({
                         }}
                         options={[
                           ...REMINDER_OPTIONS.map((o: any) => ({ label: o.label, value: o.value.toString() })),
-                          { label: 'Tùy chỉnh', value: '__custom__' }
+                          { label: t.tasks?.modal.reminderCustomLabel || 'Tùy chỉnh', value: '__custom__' }
                         ]}
                       />
                       {customReminderMode && (
                         <View className="mt-2 border border-gray-300 rounded bg-white p-2">
                           <Text className="text-xs text-gray-600 mb-1">
-                            Nhập giá trị nhắc tùy chỉnh
+                            {t.tasks?.modal.reminderCustomHint}
                           </Text>
                           <View className="flex-row items-center">
                             <TextInput
@@ -1384,14 +1386,14 @@ export default function TaskModal({
                                 }
                               }}
                               options={[
-                                { label: "Phút", value: "minutes" },
-                                { label: "Giờ", value: "hours" },
-                                { label: "Ngày", value: "days" },
+                                { label: t.tasks?.modal.minutes || "Phút", value: "minutes" },
+                                { label: t.tasks?.modal.hours || "Giờ", value: "hours" },
+                                { label: t.tasks?.modal.days || "Ngày", value: "days" },
                               ]}
                               fontSizeClassName="text-sm"
                             />
                           </View>
-                          <Text className="text-[10px] text-gray-400 mt-1">Giới hạn tối đa: 7 ngày (10080 phút).</Text>
+                          <Text className="text-[10px] text-gray-400 mt-1">{t.tasks?.modal.reminderCustomLimit}</Text>
                           {newTask.start_at && reminderWarning ? (
                             <Text className="text-[10px] mt-1 text-blue-500">{reminderWarning}</Text>
                           ) : null}
@@ -1404,7 +1406,7 @@ export default function TaskModal({
 
                     <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2">
                       <Text className="ml-1 mt-0.5 mb-1 font-medium">
-                        Phương thức nhắc
+                        {t.tasks?.modal.reminderMethodLabel}
                       </Text>
                       <ColoredSegmentGroup
                         value={reminderMethod}
@@ -1412,8 +1414,8 @@ export default function TaskModal({
                         size="sm"
                         color="blue"
                         options={[
-                          { label: 'Thông báo', value: 'notification' },
-                          { label: 'Chuông báo', value: 'alarm' }
+                          { label: t.tasks?.modal.methodNotification || 'Thông báo', value: 'notification' },
+                          { label: t.tasks?.modal.methodAlarm || 'Chuông báo', value: 'alarm' }
                         ]}
                       />
                     </View>
@@ -1445,22 +1447,22 @@ export default function TaskModal({
                       }
                     }}
                   />
-                  <Text className="ml-2">Lặp lại</Text>
+                  <Text className="ml-2">{t.tasks?.modal.repeatToggle}</Text>
                 </View>
                 {/* Tuỳ chọn hoàn thành: luôn hiển thị. Khi repeat = true sẽ cho phép cả merge; khi repeat = false chỉ cho phép auto-complete */}
                 <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2">
-                  <Text className="ml-1 mt-0.5 mb-1 font-medium">Tuỳ chọn hoàn thành</Text>
+                  <Text className="ml-1 mt-0.5 mb-1 font-medium">{t.tasks?.modal.completionOptions}</Text>
                   <View className="mt-1 gap-2">
                     <View className="flex-row items-center justify-between mb-2">
                       <View className="flex-row items-center">
                         <Switch value={habitAutoCompleteExpired} onValueChange={toggleHabitAuto} />
-                        <Text className="ml-2">Tự động đánh hoàn thành nếu hết hạn</Text>
+                        <Text className="ml-2">{t.tasks?.modal.autoCompleteExpired}</Text>
                       </View>
                     </View>
                     {repeat ? (
                       <View className="flex-row items-center">
                         <Switch value={habitMergeStreak} onValueChange={(v) => { toggleHabitMerge(v); }} />
-                        <Text className="ml-2">Gộp các ngày lặp thành một lần hoàn thành</Text>
+                        <Text className="ml-2">{t.tasks?.modal.mergeStreak}</Text>
                       </View>
                     ) : null}
                   </View>
@@ -1471,20 +1473,27 @@ export default function TaskModal({
                         The merge toggle is moved down next to the repeat end date. */}
                     <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2">
                       <Text className="ml-1 mt-0.5 mb-1 font-medium">
-                        Lặp theo
+                        {t.tasks?.modal.repeatFrequencyLabel}
                       </Text>
                       <ColoredSegmentGroup
                         value={repeatFrequency.toString()}
                         onChange={(v: string) => setRepeatFrequency(v)}
                         size="sm"
                         color="purple"
-                        options={REPEAT_OPTIONS.map((o: any) => ({ label: o.label.replace('Hàng ', ''), value: o.value.toString() }))}
+                        options={REPEAT_OPTIONS.map((o: any) => ({
+                          label:
+                            o.value === 'daily' ? (t.tasks?.modal.repeatDaily || 'Daily') :
+                            o.value === 'weekly' ? (t.tasks?.modal.repeatWeekly || 'Weekly') :
+                            o.value === 'monthly' ? (t.tasks?.modal.repeatMonthly || 'Monthly') :
+                            (t.tasks?.modal.repeatYearly || 'Yearly'),
+                          value: o.value.toString()
+                        }))}
                       />
                     </View>
 
                     {repeatFrequency === "weekly" && (
                       <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2">
-                        <Text className="mb-1">Chọn các ngày trong tuần</Text>
+                        <Text className="mb-1">{t.tasks?.modal.weeklyPickDays}</Text>
                         <View className="flex-row flex-wrap mt-1">
                           {(() => {
                             const weekOpts = [
@@ -1514,7 +1523,7 @@ export default function TaskModal({
                                   }}
                                 >
                                   <Text className={`${allSelected ? "text-white" : "text-gray-800"}`}>
-                                    Tất cả
+                                    {t.tasks?.modal.selectAll}
                                   </Text>
                                 </TouchableOpacity>
 
@@ -1550,7 +1559,7 @@ export default function TaskModal({
 
                     {repeatFrequency === "monthly" && (
                       <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2">
-                        <Text className="mb-1">Chọn các ngày trong tháng</Text>
+                        <Text className="mb-1">{t.tasks?.modal.monthlyPickDays}</Text>
                         <View className="flex-row flex-wrap mt-1 items-center">
                           {(() => {
                             const allDays = Array.from({ length: 31 }, (_, i) => (i + 1).toString());
@@ -1570,7 +1579,7 @@ export default function TaskModal({
                                   }}
                                 >
                                   <Text className={`${allSelected ? "text-white" : "text-gray-800"}`}>
-                                    Tất cả
+                                    {t.tasks?.modal.selectAll}
                                   </Text>
                                 </TouchableOpacity>
 
@@ -1608,21 +1617,21 @@ export default function TaskModal({
                     {/* Kết thúc lặp: Yearly dùng số lần; các loại khác dùng ngày kết thúc */}
                     {repeatFrequency === "yearly" ? (
                       <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2">
-                        <Text className="ml-1 mt-0.5 mb-1 font-medium">Số lần lặp (2-100) *</Text>
+                        <Text className="ml-1 mt-0.5 mb-1 font-medium">{t.tasks?.modal.yearlyCountLabel}</Text>
                         <TextInput
                           className="border p-2 rounded bg-white"
                           keyboardType="number-pad"
                           value={yearlyCount === "" ? "" : String(yearlyCount)}
-                          placeholder="Nếu không nhập mặc định là 2"
+                          placeholder={t.tasks?.modal.yearlyCountPlaceholder}
                           onChangeText={updateYearlyCount}
                         />
                         <Text className="text-xs text-gray-500 mt-1 ml-1">
-                          Tự tính ngày kết thúc: {repeatEndDate ? formatDate(new Date(repeatEndDate)) : "--"}
+                          {t.tasks?.modal.autoEndDateLabel(repeatEndDate ? formatDate(new Date(repeatEndDate)) : "--")}
                         </Text>
                       </View>
                     ) : (
                       <View className="border border-gray-300 rounded-lg bg-gray-100 mb-2 p-2">
-                        <Text className="ml-1 mt-0.5 mb-1 font-medium">Ngày kết thúc lặp *</Text>
+                        <Text className="ml-1 mt-0.5 mb-1 font-medium">{t.tasks?.modal.repeatEndDateLabel}</Text>
                         <TouchableOpacity
                           className="border p-2 rounded bg-white"
                           onPress={() => {
@@ -1681,7 +1690,7 @@ export default function TaskModal({
                     }}
                     disabled={!newTask.title.trim()}
                   >
-                    <Text className="text-white text-center">Thêm công việc</Text>
+                    <Text className="text-white text-center">{t.tasks?.modal.addButton}</Text>
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
@@ -1692,14 +1701,14 @@ export default function TaskModal({
                     }}
                     disabled={!newTask.title.trim()}
                   >
-                    <Text className="text-white text-center">Lưu</Text>
+                    <Text className="text-white text-center">{t.tasks?.modal.saveButton}</Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity
                   className="bg-gray-300 p-3 rounded-lg mt-2"
                   onPress={onClose}
                 >
-                  <Text className="text-center">Hủy</Text>
+                  <Text className="text-center">{t.tasks?.modal.cancelButton || t.tasks?.cancel}</Text>
                 </TouchableOpacity>
                   </>
             </>

@@ -2,6 +2,8 @@ import React, { useMemo, useState } from "react";
 import { View, Text, TouchableOpacity, ScrollView } from "react-native";
 import type { Task } from "../../types/Task";
 import type { Recurrence } from "../../types/Recurrence";
+import { useLanguage } from '../../context/LanguageContext';
+import { useTheme } from '../../context/ThemeContext';
 
 interface TaskWeekViewProps {
   filteredTasks: Task[];
@@ -20,6 +22,26 @@ export default function TaskWeekView({
   setShowDetail,
   recurrences,
 }: TaskWeekViewProps) {
+  const { t } = useLanguage();
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+  const colors = {
+    background: isDark ? "#071226" : "#fff",
+    surface: isDark ? "#0b1220" : "#FFFFFF",
+    headerPillBg: isDark ? "#0f1724" : "#f5f5f5",
+    headerPillBorder: isDark ? "#223049" : "#ddd",
+    text: isDark ? "#E6EEF8" : "#111827",
+    mutedText: isDark ? "#C6D4E1" : "#333",
+    tableBorder: isDark ? "#223049" : "#d1d5db",
+    tableHeaderBg: isDark ? "#1d4ed8" : "#3b82f6",
+    tableHeaderText: "#ffffff",
+    leftColBg: isDark ? "#0f172a" : "#f3f4f6",
+    leftColHeaderBg: isDark ? "#16253b" : "#e5e7eb",
+    buttonBg: isDark ? "#0f172a" : "#fff",
+    buttonBorder: isDark ? "#223049" : "#ddd",
+    todayBorder: isDark ? "#60A5FA" : "#007AFF",
+    todayBg: isDark ? "#1e40af" : "#007AFF",
+  };
   const MIN_ROW_HEIGHT = 44; // đảm bảo đủ cao để hiển thị trọn chữ "Sáng/Chiều/Tối"
   const COL_WIDTH = 100; // chiều rộng mỗi cột ngày (nhỏ hơn để đỡ phải kéo ngang nhiều)
   // Tính Monday của tuần hiện tại (00:00) để so với currentWeekStart
@@ -229,19 +251,19 @@ export default function TaskWeekView({
   }, [filteredTasks, recurrences, currentWeekStart]);
 
   return (
-    <View className="mb-3">
+    <View className="mb-3" style={{ backgroundColor: colors.background }}>
       {/* Header điều khiển tuần - style đồng nhất với dạng danh sách */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 as any, marginVertical: 8 }}>
         <TouchableOpacity
           onPress={() => setCurrentWeekStart((prev) => prev - 7 * 24 * 60 * 60 * 1000)}
-          style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}
+          style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: colors.buttonBorder, borderRadius: 8, backgroundColor: colors.buttonBg }}
         >
-          <Text style={{ fontSize: 18 }}>{'<'}</Text>
+          <Text style={{ fontSize: 18, color: colors.text }}>{'<'}</Text>
         </TouchableOpacity>
 
         {/* Nhãn dải ngày của tuần dạng pill */}
-        <View style={{ paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: '#ddd', borderRadius: 20, backgroundColor: '#f5f5f5' }}>
-          <Text style={{ fontWeight: '600', fontSize: 16 }}>
+        <View style={{ paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: colors.headerPillBorder, borderRadius: 20, backgroundColor: colors.headerPillBg }}>
+          <Text style={{ fontWeight: '600', fontSize: 16, color: colors.text }}>
             {formatDDMMYYYY(weekDays[0])} - {formatDDMMYYYY(weekDays[6])}
           </Text>
         </View>
@@ -249,9 +271,9 @@ export default function TaskWeekView({
         {/* Nút "Tuần hiện tại" styled như nút Hôm nay */}
         <TouchableOpacity
           onPress={() => setCurrentWeekStart((prev) => prev + 7 * 24 * 60 * 60 * 1000)}
-          style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#fff' }}
+          style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: colors.buttonBorder, borderRadius: 8, backgroundColor: colors.buttonBg }}
         >
-          <Text style={{ fontSize: 18 }}>{'>'}</Text>
+          <Text style={{ fontSize: 18, color: colors.text }}>{'>'}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -263,9 +285,9 @@ export default function TaskWeekView({
             monday.setHours(0, 0, 0, 0);
             setCurrentWeekStart(monday.getTime());
           }}
-          style={{ paddingVertical: 6, paddingHorizontal: 16, borderWidth: 1, borderColor: isCurrentWeek ? '#007AFF' : '#ddd', borderRadius: 20, backgroundColor: isCurrentWeek ? '#007AFF' : '#f5f5f5' }}
+          style={{ paddingVertical: 6, paddingHorizontal: 16, borderWidth: 1, borderColor: isCurrentWeek ? colors.todayBorder : colors.headerPillBorder, borderRadius: 20, backgroundColor: isCurrentWeek ? colors.todayBg : colors.headerPillBg }}
         >
-          <Text style={{ fontSize: 16, fontWeight: '600', color: isCurrentWeek ? '#fff' : '#000' }}>Tuần hiện tại</Text>
+          <Text style={{ fontSize: 16, fontWeight: '600', color: isCurrentWeek ? '#fff' : colors.text }}>{t.tasks?.week?.currentWeek}</Text>
         </TouchableOpacity>
       </View>
 
@@ -279,20 +301,24 @@ export default function TaskWeekView({
         };
 
         return (
-          <View className="mt-3 flex-row">
+          <View className="mt-3 flex-row" style={{ backgroundColor: colors.surface }}>
             {/* Cột trái cố định */}
-            <View className="border border-gray-300 rounded-l bg-white">
-              <View className="w-20 h-10 bg-gray-200 justify-center items-center border-b border-gray-300">
-                <Text className="text-xs font-bold">Khung giờ</Text>
+            <View className="border rounded-l" style={{ borderColor: colors.tableBorder, backgroundColor: colors.surface }}>
+              <View className="w-20 h-10 justify-center items-center border-b" style={{ backgroundColor: colors.leftColHeaderBg, borderColor: colors.tableBorder }}>
+                <Text className="text-xs font-bold" style={{ color: colors.text }}>{t.tasks?.week?.timeSlots}</Text>
               </View>
-              { ["Sáng", "Chiều", "Tối"].map((_, pIdx) => (
+              { ["morning", "afternoon", "evening"].map((key, pIdx) => (
                 <View
                   key={`left-${pIdx}`}
-                  style={{ height: Math.max(MIN_ROW_HEIGHT, rowHeights[pIdx]) }}
-                  className="w-20 justify-center items-center border-b border-gray-300 bg-gray-100 px-1"
+                  className="w-20 justify-center items-center border-b px-1"
+                  style={{
+                    height: Math.max(MIN_ROW_HEIGHT, rowHeights[pIdx]),
+                    backgroundColor: colors.leftColBg,
+                    borderColor: colors.tableBorder,
+                  }}
                 >
-                  <Text className="text-xs font-medium text-center">
-                    {pIdx === 0 ? "🌞 Sáng" : pIdx === 1 ? "🌇 Chiều" : "🌙 Tối"}
+                  <Text className="text-xs font-medium text-center" style={{ color: colors.mutedText }}>
+                    {pIdx === 0 ? `🌞 ${t.tasks?.week?.morning}` : pIdx === 1 ? `🌇 ${t.tasks?.week?.afternoon}` : `🌙 ${t.tasks?.week?.evening}`}
                   </Text>
                 </View>
               ))}
@@ -300,24 +326,24 @@ export default function TaskWeekView({
 
             {/* Phần phải cuộn ngang */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View className="border-t border-r border-b border-gray-300 rounded-r bg-white">
+              <View className="border-t border-r border-b rounded-r" style={{ borderColor: colors.tableBorder, backgroundColor: colors.surface }}>
                 {/* Header ngày */}
                 <View className="flex-row">
                   {weekDays.map((day, idx) => (
                     <View
                       key={`hdr-${day}`}
-                      className="h-10 bg-blue-500 justify-center items-center border-r border-b border-gray-300"
-                      style={{ width: COL_WIDTH }}
+                      className="h-10 justify-center items-center border-r border-b"
+                      style={{ width: COL_WIDTH, backgroundColor: colors.tableHeaderBg, borderColor: colors.tableBorder }}
                     >
-                      <Text className="text-xs font-bold text-white">
-                        {["T2", "T3", "T4", "T5", "T6", "T7", "CN"][idx]} {formatDDMMYYYY(day)}
+                      <Text className="text-xs font-bold" style={{ color: colors.tableHeaderText }}>
+                        {(t.tasks?.week?.dayShorts ?? ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"])[idx]} {formatDDMMYYYY(day)}
                       </Text>
                     </View>
                   ))}
                 </View>
 
                 {/* 3 hàng nội dung; đo chiều cao để sync với cột trái */}
-                {["Sáng", "Chiều", "Tối"].map((period, pIdx) => (
+                {["morning", "afternoon", "evening"].map((period, pIdx) => (
                   <View
                     key={`row-${period}`}
                     className="flex-row"
@@ -343,37 +369,60 @@ export default function TaskWeekView({
                         });
 
                       return (
-                        <View key={`${day}-${period}`} className="p-1 border-r border-b border-gray-300" style={{ width: COL_WIDTH }}>
-                          {tasks.map((t) => (
-                            <TouchableOpacity
-                              key={`${t.id}-${t._occurrenceStart ?? t.start_at}`}
-                              className={`mb-1 rounded px-2 py-1 border ${
-                                t.priority === "high"
-                                  ? "bg-red-100 border-red-400"
-                                  : t.priority === "medium"
-                                    ? "bg-yellow-100 border-yellow-400"
-                                    : "bg-green-100 border-green-400"
-                              }`}
-                              onPress={() => {
-                                setDetailTask(t);
-                                setShowDetail(true);
-                              }}
-                            >
-                              <Text
-                                className={`text-[11px] leading-4 ${
-                                  t.priority === "high"
-                                    ? "text-red-700"
-                                    : t.priority === "medium"
-                                      ? "text-yellow-700"
-                                      : "text-green-700"
-                                }`}
-                                numberOfLines={2}
-                                ellipsizeMode="tail"
+                        <View key={`${day}-${period}`} className="p-1 border-r border-b" style={{ width: COL_WIDTH, borderColor: colors.tableBorder }}>
+                          {tasks.map((t) => {
+                            const chipColors = (() => {
+                              if (t.priority === 'high') {
+                                return {
+                                  bg: isDark ? '#fecaca' : '#fee2e2', // red-200/100
+                                  border: isDark ? '#f87171' : '#f87171', // red-400
+                                  text: isDark ? '#0b1220' : '#991b1b', // black-ish on dark, red-800 on light
+                                };
+                              }
+                              if (t.priority === 'medium') {
+                                return {
+                                  bg: isDark ? '#fef3c7' : '#fef9c3', // amber-200/100
+                                  border: isDark ? '#f59e0b' : '#f59e0b', // amber-500
+                                  text: isDark ? '#0b1220' : '#92400e', // black-ish on dark, amber-800
+                                };
+                              }
+                              return {
+                                bg: isDark ? '#d1fae5' : '#dcfce7', // green-200/100
+                                border: isDark ? '#34d399' : '#34d399', // green-400
+                                text: isDark ? '#0b1220' : '#065f46', // black-ish on dark, green-800
+                              };
+                            })();
+                            return (
+                              <TouchableOpacity
+                                key={`${t.id}-${t._occurrenceStart ?? t.start_at}`}
+                                style={{
+                                  marginBottom: 4,
+                                  borderRadius: 6,
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 4,
+                                  borderWidth: 1,
+                                  backgroundColor: chipColors.bg,
+                                  borderColor: chipColors.border,
+                                }}
+                                onPress={() => {
+                                  setDetailTask(t);
+                                  setShowDetail(true);
+                                }}
                               >
-                                {`📋 ${t.title}`}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
+                                <Text
+                                  style={{
+                                    fontSize: 11,
+                                    lineHeight: 16,
+                                    color: chipColors.text,
+                                  }}
+                                  numberOfLines={2}
+                                  ellipsizeMode="tail"
+                                >
+                                  {`📋 ${t.title}`}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
                         </View>
                       );
                     })}

@@ -9,7 +9,8 @@ import {
   StyleSheet,
   Dimensions,
   ScrollView,
-  Button,
+  Platform,
+  StatusBar,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "../../context/ThemeContext";
@@ -45,7 +46,6 @@ export default function PrimaryColorPicker({
   const { primaryColor, setPrimaryColor } = usePrimaryColor();
 
   useEffect(() => {
-    // Prefer the context primaryColor (keeps UI in sync immediately).
     if (primaryColor) {
       const i = PRESETS.findIndex((p) => p.color === primaryColor);
       if (i >= 0) {
@@ -73,11 +73,9 @@ export default function PrimaryColorPicker({
 
   async function handleApply() {
     try {
-      // Update global context (which also persists to AsyncStorage)
       await setPrimaryColor(selected.color);
       onApply?.(selected.color);
     } catch {
-      // Fallback: try to persist directly
       try {
         await AsyncStorage.setItem(STORAGE_KEY_PRIMARY, selected.color);
       } catch {}
@@ -85,7 +83,6 @@ export default function PrimaryColorPicker({
     onClose();
   }
 
-  // calendar grid for month (hide outside-month cells)
   const monthDays = useMemo(() => {
     const firstDay = new Date(month.getFullYear(), month.getMonth(), 1);
     const firstWeekday = (firstDay.getDay() + 6) % 7;
@@ -142,7 +139,7 @@ export default function PrimaryColorPicker({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
+    <Modal visible={visible} animationType="slide" transparent={false}>
       <SafeAreaView style={styles.safe}>
         {/* Header */}
         <View style={styles.header}>
@@ -248,7 +245,11 @@ export default function PrimaryColorPicker({
 
 const createStyles = (isDark: boolean) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: isDark ? "#071226" : "#F6F7F9" },
+    safe: { 
+      flex: 1, 
+      backgroundColor: isDark ? "#071226" : "#F6F7F9",
+      paddingTop: Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0,
+    },
     scroll: { alignItems: "center", paddingBottom: 20 },
 
     header: {
@@ -274,6 +275,7 @@ const createStyles = (isDark: boolean) =>
       paddingVertical: 8,
       paddingHorizontal: 16,
       marginBottom: 16,
+      marginTop: 12,
       backgroundColor: isDark ? "#071226" : "transparent",
     },
     presetName: { fontSize: 15, fontWeight: "700", color: isDark ? "#E6EEF8" : "#111" },
