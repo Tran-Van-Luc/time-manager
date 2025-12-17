@@ -91,15 +91,15 @@ export default function TasksScreen() {
     loadRecurrences,
   } = useRecurrences();
   const { schedules, loadSchedules } = useSchedules();
-  const [conflictModal, setConflictModal] = useState<{ visible: boolean; raw: string; blocks: any[] }>({ visible:false, raw:'', blocks:[] });
+  const [conflictModal, setConflictModal] = useState<{ visible: boolean; raw: string; blocks: any[]; resolver?: (proceed: boolean)=>void }>({ visible:false, raw:'', blocks:[], resolver: undefined });
   const [alertState, setAlertState] = useState<{ visible:boolean; tone:'error'|'warning'|'success'|'info'; title:string; message:string; buttons:{ text:string; onPress:()=>void; tone?:any }[] }>({ visible:false, tone:'info', title:'', message:'', buttons:[] });
   const { handleAddTask, handleEditTask, handleDeleteTask } = useTaskOperations(
     tasks,
     schedules,
     {
       onConflict: ({ raw, blocks, resolve }) => {
-        setConflictModal({ visible:true, raw, blocks });
-        resolve(false);
+        // Hiển thị modal với lựa chọn Tiếp tục hoặc Đóng
+        setConflictModal({ visible:true, raw, blocks, resolver: resolve });
       },
       onNotify: ({ tone, title, message }) => {
         setAlertState({ visible:true, tone, title, message, buttons:[{ text: t.settings.close, onPress:()=>{}, tone:'cancel'}] });
@@ -804,11 +804,43 @@ export default function TasksScreen() {
         }
 
         if (rowErrors.length) {
-          // Build message grouped by row
-          const lines = rowErrors.map(re => `Dòng ${re.row}: ${re.errors.join('; ')}`);
-          setAlertState({ visible:true, tone:'error', title:'Lỗi nhập từng dòng', message: lines.join('\n'), buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
-          delete (global as any).__skipTaskPrompts;
-          return;
+          // Separate pure time-conflict rows from fatal rows
+          const isConflictMsg = (msg: string) => msg.startsWith('Xung đột:') || msg.startsWith('Trùng với công việc đã tồn tại');
+          const conflictOnly = rowErrors.filter(re => re.errors.length > 0 && re.errors.every(isConflictMsg));
+          const fatalRows = rowErrors.filter(re => !(re.errors.length > 0 && re.errors.every(isConflictMsg)));
+
+          if (fatalRows.length > 0) {
+            // Show fatal issues and abort
+            const lines = fatalRows.map(re => `Dòng ${re.row}: ${re.errors.join('; ')}`);
+            setAlertState({ visible:true, tone:'error', title:'Lỗi nhập từng dòng', message: lines.join('\n'), buttons:[{ text:'Đóng', onPress:()=>{}, tone:'cancel' }] });
+            delete (global as any).__skipTaskPrompts;
+            return;
+          }
+
+          if (conflictOnly.length > 0) {
+            // Offer to continue by skipping conflicting rows
+            const setRows = new Set(conflictOnly.map(re => re.row));
+            const msg = `Có ${conflictOnly.length} dòng bị trùng thời gian. Bạn muốn tiếp tục thêm các dòng còn lại không?\n\n` +
+              conflictOnly.map(re => `• Dòng ${re.row}`).join('\n');
+            setAlertState({
+              visible: true,
+              tone: 'warning',
+              title: 'Xung đột thời gian',
+              message: msg,
+              buttons: [
+                { text: 'Tiếp tục', onPress: () => {
+                  const filtered = rowsToImport.filter(r => {
+                    const rowNo = (r.meta && (r.meta as any).originalRow) || 0;
+                    return !setRows.has(rowNo);
+                  });
+                  doImport(filtered);
+                } },
+                { text: 'Đóng', onPress: () => {}, tone: 'cancel' }
+              ]
+            });
+            delete (global as any).__skipTaskPrompts;
+            return;
+          }
         }
 
         // All rows validated -> add them sequentially (no per-row modal). If any add fails, stop and report.
@@ -928,7 +960,16 @@ export default function TasksScreen() {
         visible={conflictModal.visible}
         raw={conflictModal.raw}
         blocks={conflictModal.blocks}
-        onClose={() => setConflictModal(c=>({...c, visible:false}))}
+        onProceed={() => {
+          const r = conflictModal.resolver; 
+          setConflictModal(c=>({...c, visible:false, resolver: undefined}));
+          try { r && r(true); } catch {}
+        }}
+        onClose={() => {
+          const r = conflictModal.resolver;
+          setConflictModal(c=>({...c, visible:false, resolver: undefined}));
+          try { r && r(false); } catch {}
+        }}
       />
       <TaskAlertModal
         visible={alertState.visible}
